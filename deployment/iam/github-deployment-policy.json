@@ -18,7 +18,8 @@
         "ecr:UploadLayerPart",
         "ecr:CompleteLayerUpload",
         "ecr:PutImage",
-        "ecr:DescribeImages"
+        "ecr:DescribeImages",
+        "ecr:DescribeRepositories"
       ],
       "Resource": [
         "arn:aws:ecr:eu-central-1:070351676632:repository/gratilo/frontend",

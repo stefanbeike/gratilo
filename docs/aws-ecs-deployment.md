@@ -35,7 +35,11 @@ allein passt nicht; die Beschränkung auf main übernimmt zusätzlich das gesch�
 GitHub Environment. Beide Policy-Varianten stehen unter `deployment/iam/`.
 
 Die GitHub-Rolle braucht ausschließlich ECR-Veröffentlichungsrechte auf die drei
-Repositories und ECR-Login. `github-deployment-policy.json` enthält diese Vorlage.
+Repositories und ECR-Login einschließlich `ecr:DescribeRepositories` zur
+Immutability-Prüfung. `github-deployment-policy.json` enthält diese Vorlage.
+Nur der Publish-Job erhält zusätzlich GitHub `contents: write` für den Git-Tag
+nach erfolgreichem Push aller Images. SemVer, Konflikte und Recovery beschreibt
+[ecr-release.md](ecr-release.md).
 Keine Anwendungs-Secrets für GitHub, keine permanenten AWS Access Keys,
 keine ECS-/PassRole-Berechtigungen für den aktuellen manuellen Betriebsweg.
 

@@ -1,67 +1,30 @@
-name: Create Gratilo Release Tag
+name: Resolve Gratilo SemVer (read only)
 'on':
   workflow_call:
     inputs:
-      release_type:
+      version_bump:
         required: true
         type: string
     outputs:
+      previous_version:
+        value: ${{ jobs.resolve.outputs.previous_version }}
       version:
-        value: ${{ jobs.create-tag.outputs.version }}
-permissions:
-  contents: write
+        value: ${{ jobs.resolve.outputs.version }}
 jobs:
-  create-tag:
-    name: Create SemVer Tag
+  resolve:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     outputs:
-      version: ${{ steps.tag.outputs.VERSION }}
+      previous_version: ${{ steps.version.outputs.previous_version }}
+      version: ${{ steps.version.outputs.version }}
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
       with:
-        fetch-depth: 0
-    - name: Fetch all tags
-      run: git fetch --tags
-    - name: Create Tag
-      id: tag
-      run: |2
-
-        echo "Selected release type: $RELEASE_TYPE"
-
-        VERSION=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '1p' || true)
-
-        if [ -z "$VERSION" ]; then
-          VERSION="v0.1.0"
-        else
-          BASE=${VERSION#v}
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
-
-          if [ "$RELEASE_TYPE" = "major" ]; then
-            MAJOR=$((MAJOR+1))
-            MINOR=0
-            PATCH=0
-            echo "MAJOR release triggered"
-          elif [ "$RELEASE_TYPE" = "minor" ]; then
-            MINOR=$((MINOR+1))
-            PATCH=0
-            echo "MINOR release triggered"
-          else
-            PATCH=$((PATCH+1))
-            echo "PATCH release triggered"
-          fi
-
-          VERSION="v$MAJOR.$MINOR.$PATCH"
-        fi
-
-        echo "New version: $VERSION"
-
-        git config user.name "github-actions"
-        git config user.email "actions@github.com"
-
-        git tag "$VERSION"
-        git push origin "$VERSION"
-
-        echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+        persist-credentials: false
+    - name: Resolve highest stable Git tag and next version
+      id: version
       env:
-        RELEASE_TYPE: ${{ inputs.release_type }}
+        GH_TOKEN: ${{ github.token }}
+        VERSION_BUMP: ${{ inputs.version_bump }}
+      run: python3 deployment/scripts/semver_release.py plan
