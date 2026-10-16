@@ -5,7 +5,7 @@ pluginManagement {
     }
 }
 
-rootProject.name = 'tipster'
+rootProject.name = 'gratilo'
 
 include 'backend:user-service'
 include 'backend:payment-service'

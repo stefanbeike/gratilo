@@ -1,4 +1,4 @@
-# tipster
+# Gratilo
 A web-based platform for digital tipping and personal micropayments via QR codes. Scan, tip, pay. No app or account required.
 
 ## Modules
@@ -37,17 +37,17 @@ npm run dev
 ## Backend in IntelliJ IDEA debuggen
 
 Die geteilten Startkonfigurationen in `.run/` entsprechen dem Gradle-Run-Muster
-von Tockly und werden von IntelliJ beim Öffnen des Projekts eingelesen:
+und werden von IntelliJ beim Öffnen des Projekts eingelesen:
 
-- `Tipster user-service (Local Debug)` – Port `8081`
-- `Tipster payment-service (Local Debug)` – Port `8082`
+- `Gratilo user-service (Local Debug)` – Port `8081`
+- `Gratilo payment-service (Local Debug)` – Port `8082`
 
 1. Projekt als Gradle-Projekt öffnen bzw. im Gradle-Fenster neu laden. Für das
    Gradle-JVM und die Java-Toolchain ein JDK 21 konfigurieren.
 2. Infrastruktur starten: `./docker-compose/start_infra.sh`. Unter Windows den
    Befehl in WSL/Git Bash ausführen oder im Projektverzeichnis
    `docker compose -f docker-compose/docker-compose.infra.yml up -d` verwenden,
-   nachdem das Netzwerk `tipster-network` einmal angelegt wurde.
+   nachdem das Netzwerk `gratilo-network` einmal angelegt wurde.
 3. Falls der vollständige Stack läuft, die konkurrierenden Anwendungscontainer
    stoppen, damit die Ports für die IDE frei sind:
    `docker compose -f docker-compose/docker-compose.infra.yml -f docker-compose/docker-compose.services.yml stop user-service payment-service frontend`.
@@ -59,7 +59,7 @@ von Tockly und werden von IntelliJ beim Öffnen des Projekts eingelesen:
    über den Vite-Proxy an den lokal gestarteten Service auf Port `8081` weiter.
 
 Die vorhandenen `application.yml`-Defaults verwenden PostgreSQL unter
-`localhost:5432/tipsterdb` (Benutzer `postgres`, Passwort `dbpass`) und MailHog
+`localhost:5432/gratilodb` (Benutzer `postgres`, Passwort `dbpass`) und MailHog
 unter `localhost:1025`. Die Datenbankschemas werden durch die Infrastruktur
 angelegt, die Migrationen laufen beim Service-Start. Docker-Hostnamen wie
 `postgres` oder `mailhog` dürfen für den IDE-Start nicht als Umgebungsvariablen
@@ -91,12 +91,12 @@ Danach den Stack mit `--build` neu bauen, damit der Publishable Key in die
 Frontend-Dateien gelangt:
 
 ```shell
-./docker-compose/start_tipster.sh --build
+./docker-compose/start_gratilo.sh --build
 ```
 
-The local setup mirrors Tockly's split between infrastructure and application
-services. It starts PostgreSQL, MinIO and MailHog without an external payment
-provider or public webhook tunnel.
+The local setup separates infrastructure and application services. It starts
+PostgreSQL, MinIO and MailHog without an external payment provider or public
+webhook tunnel.
 
 Start only the infrastructure:
 
@@ -107,13 +107,13 @@ Start only the infrastructure:
 Build and start the complete stack:
 
 ```shell
-./docker-compose/start_tipster.sh --build
+./docker-compose/start_gratilo.sh --build
 ```
 
 Stop the stack while keeping its data:
 
 ```shell
-./docker-compose/stop_tipster.sh
+./docker-compose/stop_gratilo.sh
 ```
 
 The frontend is available at `http://localhost:3000`. MailHog runs at
@@ -133,7 +133,7 @@ To test email links on a phone or tablet on the same network, start with your
 computer's reachable LAN address:
 
 ```shell
-FRONTEND_BASE_URL=http://192.168.1.100:3000 ./docker-compose/start_tipster.sh --build
+FRONTEND_BASE_URL=http://192.168.1.100:3000 ./docker-compose/start_gratilo.sh --build
 ```
 
 Replace the example IP with your computer's address and open that address on the
@@ -155,32 +155,47 @@ The user service listens on `http://localhost:8081` and exposes:
 - `POST /user-service/internal/notifications/email` – send a text email using
   the `X-Internal-Secret` header
 
-PostgreSQL is shared by the services (`tipsterdb`), but data and Liquibase
+PostgreSQL is shared by the services (`gratilodb`), but data and Liquibase
 tables are isolated in the `user_mgmt` and `payment_mgmt` schemas.
 
-## Production: gratilo.com
+## Production: gratilo.de
 
-The public production URL is **https://gratilo.com**. The frontend uses same-origin
+The public production URL is **https://gratilo.de**. The frontend uses same-origin
 API paths (`/user-service/` and `/payment-service/`), so no frontend API hostname
 is baked into the image. Nginx forwards these paths to the backend services.
 
-The Terraform task definition enables the `prd` Micronaut environment in ECS and sets
-`FRONTEND_BASE_URL=https://gratilo.com` for both backends. It also sets Stripe
-redirects to `https://gratilo.com/pay/success?session_id={CHECKOUT_SESSION_ID}`
-and `https://gratilo.com/pay/cancelled`. This covers verification emails,
+For production, enable the `prd` Micronaut environment and set
+`FRONTEND_BASE_URL=https://gratilo.de` for both backends. Set Stripe
+redirects to `https://gratilo.de/pay/success?session_id={CHECKOUT_SESSION_ID}`
+and `https://gratilo.de/pay/cancelled`. This covers verification emails,
 password resets, pool invitations, payment QR links and Stripe Connect.
 Existing localhost payment links are migrated only with the `prd` Liquibase
 context; local development continues to use `http://localhost:3000`.
 
-Die Terraform-Vorbereitung in [`infrastructure/`](infrastructure/README.md) beschreibt
-VPC, HTTPS-Load-Balancer, ECS Fargate, ECR, RDS PostgreSQL und Secrets Manager in
-`eu-central-1`. Sie wird lokal oder über den manuell ausgelösten Terraform-Workflow mit dem
-lokalen `AWS_PROFILE` des Self-hosted-Runners verwaltet.
-Die bisherigen AWS-Publish- und ECS-Deploy-Jobs sind gesperrt; es gibt kein
-automatisches AWS-Deployment bei Pushes. Der neue Workflow `terraform.yml` erstellt
-zunächst einen Plan und wendet diesen nur über den expliziten Apply-Pfad an;
-die Environment `terraform-prd` muss dafür mit Required reviewers geschützt sein.
+AWS-Publish- und ECS-Deploy-Jobs sind derzeit gesperrt. Die Workflow-Vorlagen
+verwenden Gratilo-Namen für ECS und ECR; diese Ressourcen müssen vor der
+Aktivierung in AWS vorhanden sein. Die Infrastrukturdateien sind in diesem
+Arbeitsstand entfernt. Der manuelle Terraform-Workflow benötigt wieder einen
+vorhandenen `infrastructure/`-Root, bevor er ausgeführt werden kann.
 
-Die neue Umgebung übernimmt keine bestehenden AWS-Ressourcen oder Daten.
-Vor einem Apply sind der Plan, mögliche Namenskonflikte, Datenübernahme,
-Secret-Befüllung und DNS-Umschaltung separat zu prüfen und ausdrücklich freizugeben.
+## Umbenennung in Gratilo
+
+Java-Pakete verwenden `com.gratilo`, Gradle den Projektnamen `gratilo` und npm
+`@gratilo/frontend`. Das GitHub-Repository ist
+[`stefanbeike/gratilo`](https://github.com/stefanbeike/gratilo).
+Die Startskripte heißen `start_gratilo.sh` und `stop_gratilo.sh`.
+
+Docker Compose verwendet das Projekt `gratilo`, das Netzwerk `gratilo-network`,
+die Datenbank `gratilodb` und den MinIO-Bucket `gratilo`. Beim Wechsel von einer
+bestehenden lokalen Installation zuerst den alten Stack mit dessen bisheriger
+Compose-Konfiguration stoppen. Daten bei Bedarf vorher per `pg_dump` bzw.
+MinIO-Export sichern und in die neue Installation importieren. Die neuen
+Compose-Projektnamen erzeugen eigene Volumes; alte Volumes werden nicht gelöscht
+oder automatisch übernommen. Gespeicherte Profilbild-URLs beim Import an den
+neuen Bucket anpassen.
+
+Historische Liquibase-Changesets behalten den Autor `tipster`, weil Autor, ID
+und Dateipfad gemeinsam die Identität einer bereits ausgeführten Migration
+bilden. Neue Changesets verwenden `gratilo`. Die Git-Historie bleibt erhalten.
+Der lokale Checkout-Ordner kann nach dem Schließen der IDE in `gratilo`
+umbenannt und anschließend erneut geöffnet werden.

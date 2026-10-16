@@ -7,4 +7,4 @@ docker compose \
   -f docker-compose.services.yml \
   down --volumes --remove-orphans --rmi local
 
-echo "Tipster-Container, lokale Images und Volumes wurden entfernt."
+echo "Gratilo-Container, lokale Images und Volumes wurden entfernt."

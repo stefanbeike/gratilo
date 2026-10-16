@@ -47,10 +47,9 @@ env:
   AWS_EC2_METADATA_DISABLED: 'true'
   AWS_PROFILE: ${{ vars.TERRAFORM_AWS_PROFILE }}
   TF_VAR_aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
-  TF_VAR_certificate_arn: ${{ vars.TERRAFORM_CERTIFICATE_ARN }}
-  TF_VAR_mail_from_email: ${{ vars.TERRAFORM_MAIL_FROM_EMAIL || 'noreply@gratilo.com' }}
+  TF_VAR_mail_from_email: ${{ vars.TERRAFORM_MAIL_FROM_EMAIL || 'noreply@gratilo.de' }}
   TF_VAR_environment: prd
-  TF_VAR_domain_name: gratilo.com
+  TF_VAR_domain_name: gratilo.de
   TF_VAR_db_instance_class: db.t4g.micro
   TF_VAR_db_multi_az: ${{ inputs.db_multi_az }}
   TF_VAR_image_tag: ${{ inputs.image_tag }}
@@ -92,7 +91,7 @@ jobs:
             echo 'Apply requires the exact confirmation: APPLY gratilo-prd-iac' >&2
             exit 1
           fi
-          for name in AWS_PROFILE STATE_BUCKET TF_VAR_aws_account_id TF_VAR_certificate_arn TF_VAR_mail_from_email; do
+          for name in AWS_PROFILE STATE_BUCKET TF_VAR_aws_account_id TF_VAR_mail_from_email; do
             [[ -n "${!name}" ]] || { echo "Missing configuration: $name" >&2; exit 1; }
           done
           [[ "$STATE_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]]

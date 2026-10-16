@@ -1,8 +1,8 @@
-name: tipster
+name: gratilo
 
 services:
   user-service:
-    container_name: tipster-user-service
+    container_name: gratilo-user-service
     build:
       context: ..
       dockerfile: backend/user-service/Dockerfile
@@ -12,14 +12,14 @@ services:
       minio-init:
         condition: service_completed_successfully
     environment:
-      DATASOURCES_DEFAULT_URL: jdbc:postgresql://postgres:5432/tipsterdb
+      DATASOURCES_DEFAULT_URL: jdbc:postgresql://postgres:5432/gratilodb
       DATASOURCES_DEFAULT_USERNAME: postgres
       DATASOURCES_DEFAULT_PASSWORD: dbpass
       JAVAMAIL_PROPERTIES_MAIL_SMTP_HOST: mailhog
       JAVAMAIL_PROPERTIES_MAIL_SMTP_PORT: 1025
-      MAIL_FROM_EMAIL: noreply@tipster.local
-      MAIL_FROM_NAME: Tipster
-      APP_NAME: Tipster
+      MAIL_FROM_EMAIL: noreply@gratilo.local
+      MAIL_FROM_NAME: Gratilo
+      APP_NAME: Gratilo
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
       JWT_SECRET: local-dev-secret-key-please-change-me-1234567890
       INTERNAL_API_KEY: local-internal-secret-change-me
@@ -28,16 +28,16 @@ services:
       S3_ENDPOINT: http://minio:9000
       S3_ACCESS_KEY: minio
       S3_SECRET_KEY: minio12345
-      S3_BUCKET: tipster
+      S3_BUCKET: gratilo
       MICRONAUT_ENVIRONMENTS: docker
     ports:
       - "8081:8081"
     networks:
-      - tipster-network
+      - gratilo-network
     restart: unless-stopped
 
   payment-service:
-    container_name: tipster-payment-service
+    container_name: gratilo-payment-service
     build:
       context: ..
       dockerfile: backend/payment-service/Dockerfile
@@ -47,13 +47,13 @@ services:
       minio-init:
         condition: service_completed_successfully
     environment:
-      DATASOURCES_DEFAULT_URL: jdbc:postgresql://postgres:5432/tipsterdb
+      DATASOURCES_DEFAULT_URL: jdbc:postgresql://postgres:5432/gratilodb
       DATASOURCES_DEFAULT_USERNAME: postgres
       DATASOURCES_DEFAULT_PASSWORD: dbpass
       S3_ENDPOINT: http://minio:9000
       S3_ACCESS_KEY: minio
       S3_SECRET_KEY: minio12345
-      S3_BUCKET: tipster
+      S3_BUCKET: gratilo
       MICRONAUT_ENVIRONMENTS: docker
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
@@ -62,11 +62,11 @@ services:
     ports:
       - "8082:8082"
     networks:
-      - tipster-network
+      - gratilo-network
     restart: unless-stopped
 
   frontend:
-    container_name: tipster-frontend
+    container_name: gratilo-frontend
     build:
       context: ../frontend
       dockerfile: Dockerfile
@@ -80,10 +80,10 @@ services:
     ports:
       - "3000:80"
     networks:
-      - tipster-network
+      - gratilo-network
     restart: unless-stopped
 
 networks:
-  tipster-network:
-    name: tipster-network
+  gratilo-network:
+    name: gratilo-network
     external: true

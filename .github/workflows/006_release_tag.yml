@@ -1,4 +1,4 @@
-name: Create Tipster Release Tag
+name: Create Gratilo Release Tag
 'on':
   workflow_call:
     inputs:

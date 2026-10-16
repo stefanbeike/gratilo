@@ -1,4 +1,4 @@
-name: Tipster Tests and Frontend Build
+name: Gratilo Tests and Frontend Build
 'on':
   workflow_call: null
 jobs:

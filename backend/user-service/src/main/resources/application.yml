@@ -1,5 +1,5 @@
 app:
-  name: ${APP_NAME:Tipster}
+  name: ${APP_NAME:Gratilo}
 
 frontend:
   base-url: ${FRONTEND_BASE_URL:`http://localhost:3000`}
@@ -19,8 +19,8 @@ micronaut:
           allowed-headers: [Content-Type, Authorization, X-Internal-Secret]
   email:
     from:
-      email: ${MAIL_FROM_EMAIL:noreply@tipster.local}
-      name: ${MAIL_FROM_NAME:Tipster}
+      email: ${MAIL_FROM_EMAIL:noreply@gratilo.local}
+      name: ${MAIL_FROM_NAME:Gratilo}
   security:
     enabled: true
     authentication: bearer
@@ -76,7 +76,7 @@ javamail:
 
 datasources:
   default:
-    url: ${DATASOURCES_DEFAULT_URL:`jdbc:postgresql://localhost:5432/tipsterdb`}
+    url: ${DATASOURCES_DEFAULT_URL:`jdbc:postgresql://localhost:5432/gratilodb`}
     username: ${DATASOURCES_DEFAULT_USERNAME:postgres}
     password: ${DATASOURCES_DEFAULT_PASSWORD:dbpass}
     driver-class-name: org.postgresql.Driver

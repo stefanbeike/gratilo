@@ -43,11 +43,11 @@ jobs:
     - build-and-push-ecr
     uses: ./.github/workflows/007_deploy_ecs.yml
     with:
-      cluster: tipster-cluster
-      service_name: tipster-prd-frontend
-      task_definition_family: tipster-prd-frontend
+      cluster: gratilo-cluster
+      service_name: gratilo-prd-frontend
+      task_definition_family: gratilo-prd-frontend
       container_name: frontend
-      image: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION || 'eu-central-1' }}.amazonaws.com/tipster/frontend:${{ needs.create-tag.outputs.version }}
+      image: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION || 'eu-central-1' }}.amazonaws.com/gratilo/frontend:${{ needs.create-tag.outputs.version }}
       aws_region: ${{ vars.AWS_REGION || 'eu-central-1' }}
       production: true
     secrets: inherit
@@ -58,11 +58,11 @@ jobs:
     - build-and-push-ecr
     uses: ./.github/workflows/007_deploy_ecs.yml
     with:
-      cluster: tipster-cluster
-      service_name: tipster-prd-user-service
-      task_definition_family: tipster-prd-user-service
+      cluster: gratilo-cluster
+      service_name: gratilo-prd-user-service
+      task_definition_family: gratilo-prd-user-service
       container_name: user-service
-      image: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION || 'eu-central-1' }}.amazonaws.com/tipster/user-service:${{ needs.create-tag.outputs.version }}
+      image: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION || 'eu-central-1' }}.amazonaws.com/gratilo/user-service:${{ needs.create-tag.outputs.version }}
       aws_region: ${{ vars.AWS_REGION || 'eu-central-1' }}
       production: true
     secrets: inherit
@@ -73,14 +73,14 @@ jobs:
     - build-and-push-ecr
     uses: ./.github/workflows/007_deploy_ecs.yml
     with:
-      cluster: tipster-cluster
-      service_name: tipster-prd-payment-service
-      task_definition_family: tipster-prd-payment-service
+      cluster: gratilo-cluster
+      service_name: gratilo-prd-payment-service
+      task_definition_family: gratilo-prd-payment-service
       container_name: payment-service
-      image: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION || 'eu-central-1' }}.amazonaws.com/tipster/payment-service:${{ needs.create-tag.outputs.version }}
+      image: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION || 'eu-central-1' }}.amazonaws.com/gratilo/payment-service:${{ needs.create-tag.outputs.version }}
       aws_region: ${{ vars.AWS_REGION || 'eu-central-1' }}
       production: true
     secrets: inherit
 concurrency:
-  group: tipster-release
+  group: gratilo-release
   cancel-in-progress: false

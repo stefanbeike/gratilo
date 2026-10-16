@@ -1,7 +1,7 @@
 frontend:
-  base-url: https://gratilo.com
+  base-url: https://gratilo.de
 
 stripe:
-  success-url: "https://gratilo.com/pay/success?session_id={CHECKOUT_SESSION_ID}"
-  cancel-url: https://gratilo.com/pay/cancelled
+  success-url: "https://gratilo.de/pay/success?session_id={CHECKOUT_SESSION_ID}"
+  cancel-url: https://gratilo.de/pay/cancelled
   sandbox-payouts: true

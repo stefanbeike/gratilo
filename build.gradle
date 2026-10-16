@@ -3,7 +3,7 @@ plugins {
     id 'io.micronaut.application' version '4.6.2' apply false
 }
 
-group = 'com.tipster'
+group = 'com.gratilo'
 version = '0.1.0-SNAPSHOT'
 
 tasks.named('build') {

@@ -1,5 +1,5 @@
 frontend:
-  base-url: https://gratilo.com
+  base-url: https://gratilo.de
 
 micronaut:
   server:
@@ -7,7 +7,7 @@ micronaut:
       configurations:
         default:
           allowed-origins:
-            - https://gratilo.com
+            - https://gratilo.de
 
 liquibase:
   datasources:

@@ -35,7 +35,7 @@ dependencies {
 }
 
 application {
-    mainClass = 'com.tipster.payment.Application'
+    mainClass = 'com.gratilo.payment.Application'
 }
 
 // IntelliJ's Gradle runner does not load a root .env file by itself. Forward
@@ -63,6 +63,6 @@ micronaut {
     testRuntime 'junit5'
     processing {
         incremental true
-        annotations 'com.tipster.payment.*', 'io.micronaut.liquibase.*'
+        annotations 'com.gratilo.payment.*', 'io.micronaut.liquibase.*'
     }
 }

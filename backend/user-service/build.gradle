@@ -46,7 +46,7 @@ dependencies {
 }
 
 application {
-    mainClass = 'com.tipster.user.Application'
+    mainClass = 'com.gratilo.user.Application'
 }
 
 java {
@@ -60,6 +60,6 @@ micronaut {
     testRuntime 'junit5'
     processing {
         incremental true
-        annotations 'com.tipster.user.*', 'io.micronaut.liquibase.*'
+        annotations 'com.gratilo.user.*', 'io.micronaut.liquibase.*'
     }
 }

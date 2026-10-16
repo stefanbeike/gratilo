@@ -15,4 +15,5 @@
     <include file="user_mgmt/010_pool_invitation_expiry.sql" relativeToChangelogFile="true"/>
     <include file="user_mgmt/011_soft_delete.sql" relativeToChangelogFile="true"/>
     <include file="user_mgmt/012_production_payment_urls.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/013_owned_domain.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>

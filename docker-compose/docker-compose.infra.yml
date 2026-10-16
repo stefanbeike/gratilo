@@ -1,38 +1,38 @@
-name: tipster
+name: gratilo
 
 services:
   mailhog:
     image: mailhog/mailhog:latest
-    container_name: tipster-mailhog
+    container_name: gratilo-mailhog
     ports:
       - "1025:1025"
       - "8025:8025"
     networks:
-      - tipster-network
+      - gratilo-network
 
   postgres:
     image: postgres:15
-    container_name: tipsterdb
+    container_name: gratilodb
     environment:
-      POSTGRES_DB: tipsterdb
+      POSTGRES_DB: gratilodb
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: dbpass
     ports:
       - "5432:5432"
     networks:
-      - tipster-network
+      - gratilo-network
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgres/init-schemas.sql:/docker-entrypoint-initdb.d/001-init-schemas.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d tipsterdb"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gratilodb"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   minio:
     image: minio/minio:latest
-    container_name: tipster-minio
+    container_name: gratilo-minio
     command: server --console-address ":9001" /data
     environment:
       MINIO_ROOT_USER: minio
@@ -41,13 +41,13 @@ services:
       - "9000:9000"
       - "9001:9001"
     networks:
-      - tipster-network
+      - gratilo-network
     volumes:
       - minio-data:/data
 
   minio-init:
     image: minio/mc:latest
-    container_name: tipster-minio-init
+    container_name: gratilo-minio-init
     depends_on:
       minio:
         condition: service_started
@@ -57,24 +57,24 @@ services:
         echo 'Waiting for MinIO ...';
         sleep 2;
       done;
-      mc mb --ignore-existing local/tipster;
-      mc anonymous set download local/tipster;
+      mc mb --ignore-existing local/gratilo;
+      mc anonymous set download local/gratilo;
       "
     networks:
-      - tipster-network
+      - gratilo-network
     restart: "no"
 
   # Optional local Stripe test listener. Start with:
   # docker compose -f docker-compose.infra.yml --profile stripe up -d stripe-cli
   stripe-cli:
     image: stripe/stripe-cli:latest
-    container_name: tipster-stripe-cli
+    container_name: gratilo-stripe-cli
     profiles: ["stripe"]
     command: listen --api-key ${STRIPE_SECRET_KEY:-} --forward-to http://host.docker.internal:8082/payment-service/webhooks/stripe
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - tipster-network
+      - gratilo-network
     restart: unless-stopped
 
 volumes:
@@ -82,6 +82,6 @@ volumes:
   minio-data:
 
 networks:
-  tipster-network:
-    name: tipster-network
+  gratilo-network:
+    name: gratilo-network
     external: true

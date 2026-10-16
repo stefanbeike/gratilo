@@ -43,9 +43,9 @@ jobs:
         if [[ -z "$IMAGE_TAG" && "$GITHUB_REF" != refs/tags/* ]]; then VERSION="sha-${GITHUB_SHA}"; fi
         [[ "$VERSION" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]] || exit 1
         if [[ "$REGISTRY" == ecr ]]; then
-          IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/tipster/$SERVICE"
+          IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/gratilo/$SERVICE"
         else
-          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/tipster-$SERVICE"
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/gratilo-$SERVICE"
         fi
         echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
         echo "VERSION=$VERSION" >> "$GITHUB_ENV"
