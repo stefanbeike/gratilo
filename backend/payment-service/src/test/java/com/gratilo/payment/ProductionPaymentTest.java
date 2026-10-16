@@ -10,11 +10,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ProductionPaymentTest {
     @Test
-    void productionDisablesSimulatedPaymentsAndPayouts() {
+    void productionSandboxDisablesDemoCheckoutAndSimulatesPayouts() {
         try (var context = ApplicationContext.builder().environments("prd").environmentPropertySource(false).build()) {
             var env = context.getEnvironment().start();
             assertFalse(env.getRequiredProperty("stripe.demo-enabled", Boolean.class));
-            assertFalse(env.getRequiredProperty("stripe.sandbox-payouts", Boolean.class));
+            assertTrue(env.getRequiredProperty("stripe.sandbox-payouts", Boolean.class));
+            assertTrue(env.getRequiredProperty("stripe.test-only", Boolean.class));
         }
     }
 

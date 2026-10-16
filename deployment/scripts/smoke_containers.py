@@ -44,10 +44,15 @@ try:
   return result
  start(user,'--network',network,*options({**common,'JAVAMAIL_AUTHENTICATION_USERNAME':'test-only','JAVAMAIL_AUTHENTICATION_PASSWORD':'test-only'}),f'{image_prefix}/user-service:{image_tag}')
  wait(user,['curl','--fail','--silent','http://127.0.0.1:8081/health'])
- start(payment,'--network','container:'+user,*options({**common,'STRIPE_SECRET_KEY':'test-only-not-a-credential','STRIPE_WEBHOOK_SECRET':'test-only-not-a-credential'}),f'{image_prefix}/payment-service:{image_tag}')
+ start(payment,'--network','container:'+user,*options({**common,'STRIPE_SECRET_KEY':'sk_test_local_fixture','STRIPE_WEBHOOK_SECRET':'whsec_local_fixture'}),f'{image_prefix}/payment-service:{image_tag}')
  wait(payment,['curl','--fail','--silent','http://127.0.0.1:8082/health'])
- start(frontend,'--network','container:'+user,'-e','USER_SERVICE_HOST=127.0.0.1','-e','PAYMENT_SERVICE_HOST=127.0.0.1',f'{image_prefix}/frontend:{image_tag}')
+ start(frontend,'--network','container:'+user,'-e','USER_SERVICE_HOST=localhost','-e','PAYMENT_SERVICE_HOST=localhost',f'{image_prefix}/frontend:{image_tag}')
  wait(frontend,['wget','--quiet','--tries=1','--spider','http://127.0.0.1/'])
+ for header in [[], ['-H', 'X-Internal-Secret: wrong']]:
+  status=docker('exec',user,'curl','--silent','--output','/dev/null','--write-out','%{http_code}','-X','POST','-H','Content-Type: application/json',*header,'-d',json.dumps({'to':'test@example.invalid','subject':'test','text':'test'}),'http://127.0.0.1:8081/user-service/internal/notifications/email').stdout
+  assert status=='401',status
+ status=docker('exec',user,'curl','--silent','--output','/dev/null','--write-out','%{http_code}','-X','POST','http://127.0.0.1/user-service/internal/notifications/email').stdout
+ assert status=='404',status
  flags=json.loads(docker('exec',user,'curl','--fail','--silent','http://127.0.0.1/user-service/features').stdout)
  assert flags=={'tipPoolsEnabled':False}
  quote=json.loads(docker('exec',user,'curl','--fail','--silent','http://127.0.0.1/payment-service/tips/'+str(uuid.uuid4())+'/quote?amountMinor=500').stdout)

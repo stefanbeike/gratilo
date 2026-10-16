@@ -9,7 +9,9 @@ import jakarta.transaction.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.UUID;
-import java.util.regex.Pattern;
+import io.micronaut.core.annotation.Nullable;
+import io.micronaut.json.JsonMapper;
+
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
@@ -17,15 +19,26 @@ import javax.crypto.spec.SecretKeySpec;
 public class StripeWebhookController {
     private final TransactionRepository transactions;
     private final String secret;
-    public StripeWebhookController(TransactionRepository transactions, @Value("${stripe.webhook-secret:}") String secret) { this.transactions = transactions; this.secret = secret; }
+    private final boolean testOnly;
+    private final JsonMapper jsonMapper;
+    public StripeWebhookController(TransactionRepository transactions, @Value("${stripe.webhook-secret:}") String secret, @Value("${stripe.test-only:false}") boolean testOnly, JsonMapper jsonMapper) { this.transactions = transactions; this.secret = secret; this.testOnly = testOnly; this.jsonMapper = jsonMapper; }
 
     @Post
     @Transactional
-    public HttpResponse<?> receive(@Body String payload, @Header("Stripe-Signature") String signature) {
+    public HttpResponse<?> receive(@Body String payload, @Header("Stripe-Signature") @Nullable String signature) {
         if (secret.isBlank() || !validSignature(payload, signature)) return HttpResponse.unauthorized();
-        String event = field(payload, "type");
-        String txId = field(payload, "transaction_id");
-        if (txId == null) txId = field(payload, "transactionId");
+        java.util.Map<?, ?> body;
+        try {
+            body = jsonMapper.readValue(payload, java.util.Map.class);
+            if (testOnly && !Boolean.FALSE.equals(body.get("livemode"))) return HttpResponse.unauthorized();
+        } catch (java.io.IOException exception) { return HttpResponse.badRequest(); }
+        String event = body.get("type") instanceof String value ? value : null;
+        var data = body.get("data") instanceof java.util.Map<?, ?> value ? value : java.util.Map.of();
+        var object = data.get("object") instanceof java.util.Map<?, ?> value ? value : java.util.Map.of();
+        var metadata = object.get("metadata") instanceof java.util.Map<?, ?> value ? value : java.util.Map.of();
+        Object transactionId = metadata.get("transaction_id");
+        if (transactionId == null) transactionId = metadata.get("transactionId");
+        String txId = transactionId instanceof String value ? value : null;
         if (txId != null && event != null) {
             try {
                 var tx = transactions.findById(UUID.fromString(txId)).orElse(null);
@@ -55,5 +68,4 @@ public class StripeWebhookController {
             return MessageDigest.isEqual(hex.toString().getBytes(StandardCharsets.UTF_8), expected.getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) { return false; }
     }
-    private static String field(String json, String name) { var m = Pattern.compile("\\\"" + Pattern.quote(name) + "\\\"\\s*:\\s*\\\"([^\\\"]+)").matcher(json == null ? "" : json); return m.find() ? m.group(1) : null; }
 }

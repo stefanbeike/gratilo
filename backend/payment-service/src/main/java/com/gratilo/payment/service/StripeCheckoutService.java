@@ -50,7 +50,7 @@ public class StripeCheckoutService {
         var response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("https://api.stripe.com/v1/checkout/sessions")).header("Authorization", "Bearer " + secret).header("Content-Type", "application/x-www-form-urlencoded").header("Idempotency-Key", request.idempotencyKey() == null ? tx.getId().toString() : request.idempotencyKey()).POST(HttpRequest.BodyPublishers.ofString(form)).build(), HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() >= 300) {
             tx.setStatus(TransactionStatus.FAILED); tx.setFailureCode("STRIPE_" + response.statusCode()); tx.setFailureMessage(response.body()); transactions.update(tx);
-            throw new IllegalStateException("Stripe Checkout API returned " + response.statusCode() + ": " + response.body());
+            throw new IllegalStateException("Stripe Checkout API returned " + response.statusCode() );
         }
         String id = match(response.body(), "\\\"id\\\"\\s*:\\s*\\\"([^\\\"]+)"); String url = match(response.body(), "\\\"url\\\"\\s*:\\s*\\\"([^\\\"]+)"); tx.setProviderReference(id); tx.setPaymentMethod(match(response.body(), "\\\"payment_method_types\\\"\\s*:\\s*\\[\\s*\\\"([^\\\"]+)")); transactions.update(tx); return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false));
     }

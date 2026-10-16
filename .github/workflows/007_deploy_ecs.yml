@@ -1,4 +1,4 @@
-name: Publish and deploy shared Gratilo ECS task
+name: Publish Gratilo sandbox images; ECS deployment disabled
 'on':
   workflow_call:
     inputs:
@@ -7,7 +7,7 @@ name: Publish and deploy shared Gratilo ECS task
         required: true
 jobs:
   publish:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && vars.ECR_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-24.04
     environment: production
     timeout-minutes: 20
@@ -33,7 +33,7 @@ jobs:
       run: |-
         [[ "$AWS_REGION" == eu-central-1 && "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]
         [[ "$AWS_DEPLOY_ROLE_ARN" == "arn:aws:iam::$AWS_ACCOUNT_ID:role/"* ]]
-        [[ "$STRIPE_PUBLISHABLE_KEY" == pk_live_* ]] || { echo 'Set repository STRIPE_PUBLISHABLE_KEY to the live publishable key before production.' >&2; exit 1; }
+        [[ "$STRIPE_PUBLISHABLE_KEY" == pk_test_* ]] || { echo 'Set repository STRIPE_PUBLISHABLE_KEY to the test publishable key before production.' >&2; exit 1; }
     - uses: actions/download-artifact@v4
       with:
         name: scanned-images-${{ inputs.image_tag }}
@@ -64,7 +64,8 @@ jobs:
           echo "$service: $IMAGE_TAG / $digest" >> "$GITHUB_STEP_SUMMARY"
         done
   deploy:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'
+    # ECS resources and service deployments are managed only in the AWS console.
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     environment: production
     timeout-minutes: 30

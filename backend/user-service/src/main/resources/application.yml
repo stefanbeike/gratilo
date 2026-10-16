@@ -50,6 +50,7 @@ micronaut:
         signatures:
           secret:
             validation:
+              jws-algorithm: HS256
               secret: ${JWT_SECRET:local-dev-secret-key-please-change-me-1234567890}
 
 endpoints:

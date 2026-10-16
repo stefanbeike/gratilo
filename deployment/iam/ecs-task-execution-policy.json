@@ -14,9 +14,9 @@
         "ecr:BatchCheckLayerAvailability"
       ],
       "Resource": [
-        "arn:aws:ecr:eu-central-1:<AWS_ACCOUNT_ID>:repository/gratilo/frontend",
-        "arn:aws:ecr:eu-central-1:<AWS_ACCOUNT_ID>:repository/gratilo/user-service",
-        "arn:aws:ecr:eu-central-1:<AWS_ACCOUNT_ID>:repository/gratilo/payment-service"
+        "arn:aws:ecr:eu-central-1:070351676632:repository/gratilo/frontend",
+        "arn:aws:ecr:eu-central-1:070351676632:repository/gratilo/user-service",
+        "arn:aws:ecr:eu-central-1:070351676632:repository/gratilo/payment-service"
       ]
     },
     {
@@ -25,13 +25,17 @@
         "logs:CreateLogStream",
         "logs:PutLogEvents"
       ],
-      "Resource": "arn:aws:logs:eu-central-1:<AWS_ACCOUNT_ID>:log-group:<CLOUDWATCH_LOG_GROUP>:log-stream:*"
+      "Resource": "arn:aws:logs:eu-central-1:070351676632:log-group:<CLOUDWATCH_LOG_GROUP>:log-stream:*"
     },
     {
       "Effect": "Allow",
       "Action": "secretsmanager:GetSecretValue",
       "Resource": [
-        "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>"
+        "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/database-??????",
+        "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/smtp-??????",
+        "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/jwt-??????",
+        "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/internal-api-??????",
+        "<STRIPE_TEST_SECRET_ARN>"
       ]
     }
   ]

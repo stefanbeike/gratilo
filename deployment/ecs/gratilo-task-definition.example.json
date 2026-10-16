@@ -1,13 +1,13 @@
 {
-  "family": "<ECS_TASK_FAMILY>",
+  "family": "gratilo-prd-app",
   "networkMode": "awsvpc",
   "requiresCompatibilities": [
     "FARGATE"
   ],
   "cpu": "1024",
   "memory": "3072",
-  "executionRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/<ECS_TASK_EXECUTION_ROLE_NAME>",
-  "taskRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/<ECS_TASK_ROLE_NAME>",
+  "executionRoleArn": "arn:aws:iam::070351676632:role/gratilo-prd-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::070351676632:role/gratilo-prd-ecs-task-role",
   "runtimePlatform": {
     "cpuArchitecture": "X86_64",
     "operatingSystemFamily": "LINUX"
@@ -15,7 +15,7 @@
   "containerDefinitions": [
     {
       "name": "frontend",
-      "image": "<AWS_ACCOUNT_ID>.dkr.ecr.eu-central-1.amazonaws.com/gratilo/frontend:<INITIAL_IMAGE_TAG>",
+      "image": "070351676632.dkr.ecr.eu-central-1.amazonaws.com/gratilo/frontend:<RELEASE_TAG>",
       "essential": true,
       "cpu": 128,
       "memory": 256,
@@ -62,17 +62,17 @@
       "environment": [
         {
           "name": "USER_SERVICE_HOST",
-          "value": "127.0.0.1"
+          "value": "localhost"
         },
         {
           "name": "PAYMENT_SERVICE_HOST",
-          "value": "127.0.0.1"
+          "value": "localhost"
         }
       ]
     },
     {
       "name": "user-service",
-      "image": "<AWS_ACCOUNT_ID>.dkr.ecr.eu-central-1.amazonaws.com/gratilo/user-service:<INITIAL_IMAGE_TAG>",
+      "image": "070351676632.dkr.ecr.eu-central-1.amazonaws.com/gratilo/user-service:<RELEASE_TAG>",
       "essential": true,
       "cpu": 448,
       "memory": 1280,
@@ -103,27 +103,27 @@
       "secrets": [
         {
           "name": "DATASOURCES_DEFAULT_USERNAME",
-          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:db_username::"
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/database-<ACTUAL_SUFFIX>:username::"
         },
         {
           "name": "DATASOURCES_DEFAULT_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:db_password::"
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/database-<ACTUAL_SUFFIX>:password::"
         },
         {
           "name": "JWT_SECRET",
-          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:jwt_secret::"
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/jwt-<ACTUAL_SUFFIX>:secret::"
         },
         {
           "name": "INTERNAL_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:internal_api_key::"
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/internal-api-<ACTUAL_SUFFIX>:secret::"
         },
         {
           "name": "JAVAMAIL_AUTHENTICATION_USERNAME",
-          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:smtp_username::"
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/smtp-<ACTUAL_SUFFIX>:username::"
         },
         {
           "name": "JAVAMAIL_AUTHENTICATION_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:smtp_password::"
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/smtp-<ACTUAL_SUFFIX>:password::"
         }
       ],
       "environment": [
@@ -175,7 +175,7 @@
     },
     {
       "name": "payment-service",
-      "image": "<AWS_ACCOUNT_ID>.dkr.ecr.eu-central-1.amazonaws.com/gratilo/payment-service:<INITIAL_IMAGE_TAG>",
+      "image": "070351676632.dkr.ecr.eu-central-1.amazonaws.com/gratilo/payment-service:<RELEASE_TAG>",
       "essential": true,
       "cpu": 448,
       "memory": 1280,
@@ -206,27 +206,27 @@
       "secrets": [
         {
           "name": "DATASOURCES_DEFAULT_USERNAME",
-          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:db_username::"
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/database-<ACTUAL_SUFFIX>:username::"
         },
         {
           "name": "DATASOURCES_DEFAULT_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:db_password::"
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/database-<ACTUAL_SUFFIX>:password::"
         },
         {
           "name": "JWT_SECRET",
-          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:jwt_secret::"
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/jwt-<ACTUAL_SUFFIX>:secret::"
         },
         {
           "name": "INTERNAL_API_KEY",
-          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:internal_api_key::"
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/internal-api-<ACTUAL_SUFFIX>:secret::"
         },
         {
           "name": "STRIPE_SECRET_KEY",
-          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:stripe_secret_key::"
+          "valueFrom": "<STRIPE_TEST_SECRET_ARN>:secret_key::"
         },
         {
           "name": "STRIPE_WEBHOOK_SECRET",
-          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:stripe_webhook_secret::"
+          "valueFrom": "<STRIPE_TEST_SECRET_ARN>:webhook_secret::"
         }
       ],
       "environment": [
@@ -252,7 +252,7 @@
         },
         {
           "name": "USER_SERVICE_URL",
-          "value": "http://127.0.0.1:8081"
+          "value": "http://localhost:8081"
         },
         {
           "name": "STRIPE_SUCCESS_URL",
@@ -268,7 +268,11 @@
         },
         {
           "name": "STRIPE_SANDBOX_PAYOUTS",
-          "value": "false"
+          "value": "true"
+        },
+        {
+          "name": "STRIPE_TEST_ONLY",
+          "value": "true"
         }
       ]
     }

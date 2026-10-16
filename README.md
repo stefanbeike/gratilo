@@ -193,21 +193,13 @@ The user service listens on `http://localhost:8081` and exposes:
 PostgreSQL is shared by the services (`gratilodb`), but data and Liquibase
 tables are isolated in the `user_mgmt` and `payment_mgmt` schemas.
 
-## Production: gratilo.eu
+## Manueller AWS-ECS-Betrieb
 
-Die [Deployment-Anleitung](docs/aws-ecs-deployment.md) beschreibt den gemeinsamen
-ECS-Fargate-Task mit Frontend und beiden Backends, OIDC, die manuellen AWS- und
-GitHub-Schritte sowie Erstdeployment und Rollback. Die einzige produktive Pipeline
-ist der manuell ausgelöste Workflow `release.yml` auf `main`. Er verlangt grüne CI,
-den expliziten Opt-in-Schalter und Freigaben im Environment `production`.
-
-Die Produktionsdatenbank in RDS heißt weiterhin `tipsterdb`; die lokale
-Compose-Datenbank heißt `gratilodb`. Die Produktion verwendet `https://gratilo.eu`
-für Website, E-Mail-Links und Stripe-Redirects. Ein neuer Liquibase-Changeset migriert
-alte `.com`-/`.de`-Zahlungslinks, ohne historische Changesets umzuschreiben.
-
-AWS-Infrastruktur wird manuell angelegt. Es gibt keinen automatisch ausführbaren
-Terraform-Workflow und keine Infrastrukturänderungen durch die Deployment-Pipeline.
+Die vollständige Konfiguration, Secrets, Stripe-Sandbox und manuellen AWS-Schritte
+stehen in [docs/manual-ecs-production.md](docs/manual-ecs-production.md).
+ECS-Deployment und Infrastrukturänderungen erfolgen ausschließlich in der AWS-Konsole.
+GitHub kann nach ausdrücklicher Freigabe geprüfte Sandbox-Images nach ECR veröffentlichen;
+der ECS-Deploy-Job bleibt deaktiviert.
 
 ## Umbenennung in Gratilo
 
@@ -222,8 +214,8 @@ bestehenden lokalen Installation zuerst den alten Stack mit dessen bisheriger
 Compose-Konfiguration stoppen. Daten bei Bedarf vorher per `pg_dump` bzw.
 MinIO-Export sichern und in die neue Installation importieren. Die neuen
 Compose-Projektnamen erzeugen eigene Volumes; alte Volumes werden nicht gelöscht
-oder automatisch übernommen. Gespeicherte Profilbild-URLs beim Import an den
-neuen Bucket anpassen.
+oder automatisch übernommen. Profilbilder werden aktuell als JPEG-Data-URLs in PostgreSQL gespeichert;
+MinIO wird von den drei Anwendungen nicht verwendet.
 
 Historische Liquibase-Changesets behalten den Autor `tipster`, weil Autor, ID
 und Dateipfad gemeinsam die Identität einer bereits ausgeführten Migration

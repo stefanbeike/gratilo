@@ -2,15 +2,16 @@ frontend:
   base-url: https://gratilo.eu
 
 stripe:
+  test-only: true
   secret-key: ${STRIPE_SECRET_KEY}
   webhook-secret: ${STRIPE_WEBHOOK_SECRET}
   success-url: "https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}"
   cancel-url: https://gratilo.eu/pay/cancelled
-  sandbox-payouts: false
+  sandbox-payouts: true
   demo-enabled: false
 
 pool:
-  user-service-url: http://127.0.0.1:8081
+  user-service-url: http://localhost:8081
 
 internal:
   api-key: ${INTERNAL_API_KEY}

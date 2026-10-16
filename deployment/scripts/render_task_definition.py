@@ -62,7 +62,7 @@ def render(response, images, config):
         require(not SENSITIVE.intersection(env), "Credentials must use ECS secrets: " + name)
         require(not set(env).intersection(secret), "Environment/secret name collision: " + name)
         if name == "frontend":
-            require(all(env.get(key) == "127.0.0.1" for key in ("USER_SERVICE_HOST", "PAYMENT_SERVICE_HOST")), "Shared task requires frontend backend hosts 127.0.0.1")
+            require(all(env.get(key) in ("127.0.0.1", "localhost") for key in ("USER_SERVICE_HOST", "PAYMENT_SERVICE_HOST")), "Shared task requires frontend backend hosts 127.0.0.1")
             dependencies = {d["containerName"]: d["condition"] for d in container.get("dependsOn", [])}
             require(all(dependencies.get(key) == "HEALTHY" for key in CONTAINERS[1:]), "Frontend must wait for both healthy backends")
         else:
@@ -84,14 +84,19 @@ def render(response, images, config):
                 require(not any(k.startswith("JAVAMAIL_PROPERTIES_") or k in {"MAIL_SMTP_AUTH", "MAIL_SMTP_STARTTLS_ENABLE", "MAIL_SMTP_STARTTLS_REQUIRED"} for k in env), "Remove legacy SMTP overrides from production task")
             else:
                 required |= {"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"}
-                require(env.get("USER_SERVICE_URL", "http://127.0.0.1:8081") == "http://127.0.0.1:8081", "Wrong shared-task user service URL")
-                require(env.get("STRIPE_SANDBOX_PAYOUTS", "false") == "false" and env.get("STRIPE_DEMO_ENABLED", "false") == "false", "Production cannot use simulated payments")
+                require(env.get("USER_SERVICE_URL", "http://localhost:8081") in ("http://127.0.0.1:8081", "http://localhost:8081"), "Wrong shared-task user service URL")
+                require(env.get("STRIPE_SANDBOX_PAYOUTS", "true") == "true" and env.get("STRIPE_DEMO_ENABLED", "false") == "false", "Sandbox requires simulated payouts and disabled demo checkout")
+                require(env.get("STRIPE_TEST_ONLY", "true") == "true", "Stripe must remain test-only")
                 for key, expected in [("STRIPE_SUCCESS_URL", "https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}"), ("STRIPE_CANCEL_URL", "https://gratilo.eu/pay/cancelled")]:
                     require(env.get(key, expected) == expected, "Wrong Stripe redirect: " + key)
             require(required.issubset(secret), "Required Secrets Manager references missing: " + name)
             prefix = f'arn:aws:secretsmanager:{config["AWS_REGION"]}:{config["AWS_ACCOUNT_ID"]}:secret:'
             require(all(secret[key].startswith(prefix) for key in required), "Secrets must reference Secrets Manager in deployment account/region")
         container["image"] = images[name]
+    backends = [next(c for c in definitions if c["name"] == name) for name in CONTAINERS[1:]]
+    for shared in ("JWT_SECRET", "INTERNAL_API_KEY"):
+        refs = [{s["name"]: s["valueFrom"] for s in c.get("secrets", [])}[shared] for c in backends]
+        require(refs[0] == refs[1], shared + " must use the same secret reference in both backends")
     for key in READ_ONLY:
         task.pop(key, None)
     if response.get("tags"):

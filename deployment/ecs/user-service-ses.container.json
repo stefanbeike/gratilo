@@ -12,11 +12,11 @@
   "secrets": [
     {
       "name": "JAVAMAIL_AUTHENTICATION_USERNAME",
-      "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/ses-smtp-<SECRET_SUFFIX>:username::"
+      "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/smtp-<ACTUAL_SUFFIX>:username::"
     },
     {
       "name": "JAVAMAIL_AUTHENTICATION_PASSWORD",
-      "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/ses-smtp-<SECRET_SUFFIX>:password::"
+      "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/smtp-<ACTUAL_SUFFIX>:password::"
     }
   ]
 }

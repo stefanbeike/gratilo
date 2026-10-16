@@ -94,7 +94,7 @@ von Identität und Absender stehen in der
 ## 2. Secrets Manager und ECS-Rollen
 
 1. In Secrets Manager in Frankfurt ein Secret vom Typ Other type of secret
-   mit Namen etwa `gratilo/prd/ses-smtp` anlegen. Zwei Schlüssel verwenden:
+   mit Namen etwa `gratilo/prd/smtp` anlegen. Zwei Schlüssel verwenden:
    `username` und `password`. Die echten SES SMTP-Werte nur dort eingeben.
    Weder Zugangsdaten noch heruntergeladene Credential-Dateien in Git ablegen.
 2. Den vollständigen Secret-ARN inklusive des AWS-generierten Suffixes notieren.
@@ -106,7 +106,7 @@ von Identität und Absender stehen in der
   "Statement": [{
     "Effect": "Allow",
     "Action": "secretsmanager:GetSecretValue",
-    "Resource": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/ses-smtp-<SECRET_SUFFIX>"
+    "Resource": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/smtp-<SECRET_SUFFIX>"
   }]
 }
 ```
@@ -146,12 +146,9 @@ nicht den SMTP-IAM-Benutzer. Siehe
    Ein neues Deployment kann bereits vorhandene Nutzeraktionen wieder echte
    System-E-Mails auslösen. In diesem Arbeitsauftrag wurde nichts ausgerollt.
 
-Die GitHub-Pipeline übernimmt die Konfiguration aus der bestehenden gemeinsamen
-Task-Revision und aktualisiert ausschließlich die drei Images. Sie validiert zuvor
-die erforderlichen SES-Werte und Secret-Referenzen. Die manuell freigegebenen
-Publish-/Deploy-Schritte und der standardmäßig gesperrte Opt-in sind in der
-[Deployment-Anleitung](aws-ecs-deployment.md) beschrieben. Es gibt keinen
-Terraform-Schritt.
+Die gemeinsame Task wird ausschließlich manuell über die AWS-Konsole aktualisiert.
+Der GitHub-ECS-Deploy-Job bleibt deaktiviert. Details stehen in der
+[Deployment-Anleitung](aws-ecs-deployment.md).
 
 ## 4. DNS: DKIM, SPF und DMARC
 
@@ -199,3 +196,7 @@ oder Secret-Werte zur Fehlersuche ausgeben.
 Ein späterer Ende-zu-Ende-Versand an einen ausdrücklich freigegebenen Empfänger
 ist separat freizugeben. Auch Registrierung/Passwort-Reset gegen die produktiv
 konfigurierte Anwendung sind echte Versandtests und wurden hier nicht ausgeführt.
+
+Aktueller Betriebsweg: [manueller ECS-Betrieb](manual-ecs-production.md).
+Das vorhandene SMTP-Secret heißt `gratilo/prd/smtp` mit `username` und `password`;
+kein zusätzliches SES-Secret anlegen. Der ECS-Deploy-Job bleibt deaktiviert.

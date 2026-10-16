@@ -16,7 +16,9 @@ spec.loader.exec_module(renderer)
 class EcsDeploymentTest(unittest.TestCase):
     def setUp(self):
         text = (ROOT / "deployment/ecs/gratilo-task-definition.example.json").read_text()
-        replacements = {"<AWS_ACCOUNT_ID>": "123456789012", "<ECS_TASK_FAMILY>": "gratilo-test",
+        replacements = {"gratilo-prd-app": "gratilo-test", "070351676632": "123456789012",
+                        "<STRIPE_TEST_SECRET_ARN>": "arn:aws:secretsmanager:eu-central-1:123456789012:secret:gratilo/test/stripe-fixture",
+                        "<AWS_ACCOUNT_ID>": "123456789012", "<ECS_TASK_FAMILY>": "gratilo-test",
                         "<ECS_TASK_EXECUTION_ROLE_NAME>": "test-execution", "<ECS_TASK_ROLE_NAME>": "test-task",
                         "<RDS_ENDPOINT>": "database.example.rds.amazonaws.com"}
         for old, new in replacements.items():
@@ -79,6 +81,24 @@ class EcsDeploymentTest(unittest.TestCase):
         task["taskDefinition"]["containerDefinitions"][0].pop("healthCheck")
         with self.assertRaises(ValueError):
             renderer.render(task, self.images, self.config)
+
+    def test_rejects_inconsistent_shared_secrets(self):
+        for key in ("JWT_SECRET", "INTERNAL_API_KEY"):
+            response = copy.deepcopy(self.response)
+            for secret in response["taskDefinition"]["containerDefinitions"][2]["secrets"]:
+                if secret["name"] == key:
+                    secret["valueFrom"] = secret["valueFrom"].replace("gratilo/prd/", "gratilo/different/")
+            with self.assertRaisesRegex(ValueError, "same secret reference"):
+                renderer.render(response, self.images, self.config)
+
+    def test_rejects_real_payouts_and_disabled_test_mode(self):
+        for key, value in [("STRIPE_SANDBOX_PAYOUTS", "false"), ("STRIPE_TEST_ONLY", "false")]:
+            response = copy.deepcopy(self.response)
+            env = response["taskDefinition"]["containerDefinitions"][2]["environment"]
+            env[:] = [entry for entry in env if entry["name"] != key]
+            env.append({"name": key, "value": value})
+            with self.assertRaises(ValueError):
+                renderer.render(response, self.images, self.config)
 
     def test_service_requires_circuit_breaker_and_frontend_target(self):
         self.assertEqual(self.old, renderer.validate_service(self.service, self.config))

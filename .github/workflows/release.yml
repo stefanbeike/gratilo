@@ -1,9 +1,9 @@
-name: Gratilo Production Release
+name: Gratilo Sandbox Image Release
 on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: 'To request production approval, type: DEPLOY gratilo-production'
+        description: 'To request ECR publication approval, type: PUBLISH gratilo-sandbox'
         required: true
         type: string
 permissions:
@@ -19,11 +19,11 @@ jobs:
     steps:
     - name: Require explicit opt-in
       env:
-        ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED }}
+        ENABLED: ${{ vars.ECR_PUBLISH_ENABLED }}
         CONFIRMATION: ${{ inputs.confirmation }}
       run: |
-        [[ "$ENABLED" == true ]] || { echo 'Set repository variable PRODUCTION_DEPLOY_ENABLED=true after AWS/GitHub setup.' >&2; exit 1; }
-        [[ "$CONFIRMATION" == 'DEPLOY gratilo-production' ]] || { echo 'Explicit deployment confirmation is missing.' >&2; exit 1; }
+        [[ "$ENABLED" == true ]] || { echo 'Set repository variable ECR_PUBLISH_ENABLED=true only after manual AWS/GitHub setup.' >&2; exit 1; }
+        [[ "$CONFIRMATION" == 'PUBLISH gratilo-sandbox' ]] || { echo 'Explicit deployment confirmation is missing.' >&2; exit 1; }
   ci:
     needs: authorize-request
     uses: ./.github/workflows/ci.yml

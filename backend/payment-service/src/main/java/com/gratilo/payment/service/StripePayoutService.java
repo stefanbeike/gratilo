@@ -59,7 +59,7 @@ public class StripePayoutService {
         var builder = HttpRequest.newBuilder(URI.create(url)).header("Authorization", "Bearer " + secret).header("Stripe-Account", account).header("Content-Type", "application/x-www-form-urlencoded");
         if (idempotency != null) builder.header("Idempotency-Key", idempotency);
         var response = HttpClient.newHttpClient().send(body == null ? builder.GET().build() : builder.POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() >= 300) throw new IllegalStateException("Stripe Payout API returned " + response.statusCode() + ": " + response.body()); return response.body();
+        if (response.statusCode() >= 300) throw new IllegalStateException("Stripe Payout API returned " + response.statusCode() ); return response.body();
     }
     private static long amount(String json, String section, String currency) {
         int start = json.indexOf("\"" + section + "\"");
