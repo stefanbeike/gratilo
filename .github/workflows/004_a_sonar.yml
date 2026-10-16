@@ -18,7 +18,7 @@ name: SonarCloud
         required: true
 jobs:
   sonar:
-    runs-on: self-hosted
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read

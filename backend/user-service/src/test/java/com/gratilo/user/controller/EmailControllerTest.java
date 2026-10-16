@@ -28,4 +28,24 @@ class EmailControllerTest {
                 new UserRequests.SendEmail("user@example.com", "Subject", "Body"), "internal-secret").getStatus());
         verify(service).sendText("user@example.com", "Subject", "Body");
     }
+
+    @Test
+    void generalEmailUsesInfoSenderPath() {
+        EmailSendService service = mock(EmailSendService.class);
+        EmailController controller = new EmailController(service, "internal-secret");
+        assertEquals(HttpStatus.OK, controller.sendGeneral(
+                new UserRequests.SendEmail("user@example.com", "Subject", "Body"), "internal-secret").getStatus());
+        verify(service).sendGeneralText("user@example.com", "Subject", "Body");
+        verifyNoMoreInteractions(service);
+    }
+
+    @Test
+    void generalEmailRejectsMissingOrInvalidInternalSecret() {
+        EmailSendService service = mock(EmailSendService.class);
+        EmailController controller = new EmailController(service, "internal-secret");
+        var request = new UserRequests.SendEmail("user@example.com", "Subject", "Body");
+        assertEquals(HttpStatus.UNAUTHORIZED, controller.sendGeneral(request, null).getStatus());
+        assertEquals(HttpStatus.UNAUTHORIZED, controller.sendGeneral(request, "wrong").getStatus());
+        verifyNoInteractions(service);
+    }
 }

@@ -141,6 +141,39 @@ device. MailHog is available on the same IP at port 8025.
 Registration includes clearly marked local test terms (`agb-demo-v1`) and a test
 privacy notice (`privacy-demo-v1`); replace these with real documents before public use.
 
+## Amazon SES für Produktions-E-Mails
+
+Der User-Service verwendet im Profil `prd` SES SMTP in Frankfurt über Port 587
+mit verpflichtendem STARTTLS und SMTP AUTH. Systemnachrichten kommen von
+`noreply@gratilo.eu`, allgemeine Kommunikation von `info@gratilo.eu`. Lokal bleibt
+MailHog aktiv. Die [SES-Anleitung](docs/amazon-ses.md) beschreibt die manuellen
+Schritte für SMTP-Credentials, Secrets Manager, IAM, ECS und DNS. Eine
+[ECS-Konfigurationsvorlage](deployment/ecs/user-service-ses.container.json)
+enthält ausschließlich nicht geheime Werte und Platzhalter für Secret-ARNs.
+
+## Feature-Toggle: Trinkgeld-Pools
+
+Die Gruppenaufteilung ist standardmäßig deaktiviert. Setze
+`FEATURE_TIP_POOLS_ENABLED=true` in **beiden** Backend-Services, um sie wieder
+zu aktivieren. In Docker Compose genügt derselbe Eintrag in der lokalen `.env`;
+anschließend die Services neu erstellen. Bei einem IDE-Start die Variable in
+beiden Run-Konfigurationen setzen. Ohne Variable gilt `false`.
+
+Der User-Service veröffentlicht den Status über `GET /user-service/features`.
+Das Frontend liest ihn beim Laden; ein neuer Frontend-Build ist für das
+Umschalten nicht erforderlich. Nach einer Konfigurationsänderung beide Backends
+neu starten und die Browserseite neu laden. Wenn die Statusabfrage fehlschlägt,
+bleibt die Funktion im Frontend deaktiviert.
+
+Bei deaktiviertem Toggle werden Poolverwaltung, Mitgliedschaften und
+Einladungsaktionen ausgeblendet. Die Pool-APIs und die interne Verteilungs-API
+sind nicht registriert. Öffentliche Zahlungsprofile zeigen keinen Poolnamen,
+und der Payment-Service führt keine Pool-Aufteilung aus; Trinkgelder werden
+wie Einzelzahlungen für den Empfänger verarbeitet. Bestehende Pooldaten und
+historische Buchungen bleiben erhalten und sind nach Reaktivierung wieder
+nutzbar. Die Bereinigung von Mitgliedschaften beim Löschen eines Kontos bleibt
+aktiv, damit keine verwaisten Mitgliedschaften entstehen.
+
 ## User-Service API
 
 The user service listens on `http://localhost:8081` and exposes:
@@ -152,31 +185,29 @@ The user service listens on `http://localhost:8081` and exposes:
 - `POST /user-service/auth/password-reset/confirm` – set a new password
 - `GET /user-service/users/me` – show the authenticated profile
 - `PUT /user-service/users/profile` – edit profile or change password
-- `POST /user-service/internal/notifications/email` – send a text email using
+- `POST /user-service/internal/notifications/email` – send a system email using
   the `X-Internal-Secret` header
+- `POST /user-service/internal/notifications/email/general` – send general
+  communication from the configured info address using the same internal header
 
 PostgreSQL is shared by the services (`gratilodb`), but data and Liquibase
 tables are isolated in the `user_mgmt` and `payment_mgmt` schemas.
 
-## Production: gratilo.de
+## Production: gratilo.eu
 
-The public production URL is **https://gratilo.de**. The frontend uses same-origin
-API paths (`/user-service/` and `/payment-service/`), so no frontend API hostname
-is baked into the image. Nginx forwards these paths to the backend services.
+Die [Deployment-Anleitung](docs/aws-ecs-deployment.md) beschreibt den gemeinsamen
+ECS-Fargate-Task mit Frontend und beiden Backends, OIDC, die manuellen AWS- und
+GitHub-Schritte sowie Erstdeployment und Rollback. Die einzige produktive Pipeline
+ist der manuell ausgelöste Workflow `release.yml` auf `main`. Er verlangt grüne CI,
+den expliziten Opt-in-Schalter und Freigaben im Environment `production`.
 
-For production, enable the `prd` Micronaut environment and set
-`FRONTEND_BASE_URL=https://gratilo.de` for both backends. Set Stripe
-redirects to `https://gratilo.de/pay/success?session_id={CHECKOUT_SESSION_ID}`
-and `https://gratilo.de/pay/cancelled`. This covers verification emails,
-password resets, pool invitations, payment QR links and Stripe Connect.
-Existing localhost payment links are migrated only with the `prd` Liquibase
-context; local development continues to use `http://localhost:3000`.
+Die Produktionsdatenbank in RDS heißt weiterhin `tipsterdb`; die lokale
+Compose-Datenbank heißt `gratilodb`. Die Produktion verwendet `https://gratilo.eu`
+für Website, E-Mail-Links und Stripe-Redirects. Ein neuer Liquibase-Changeset migriert
+alte `.com`-/`.de`-Zahlungslinks, ohne historische Changesets umzuschreiben.
 
-AWS-Publish- und ECS-Deploy-Jobs sind derzeit gesperrt. Die Workflow-Vorlagen
-verwenden Gratilo-Namen für ECS und ECR; diese Ressourcen müssen vor der
-Aktivierung in AWS vorhanden sein. Die Infrastrukturdateien sind in diesem
-Arbeitsstand entfernt. Der manuelle Terraform-Workflow benötigt wieder einen
-vorhandenen `infrastructure/`-Root, bevor er ausgeführt werden kann.
+AWS-Infrastruktur wird manuell angelegt. Es gibt keinen automatisch ausführbaren
+Terraform-Workflow und keine Infrastrukturänderungen durch die Deployment-Pipeline.
 
 ## Umbenennung in Gratilo
 

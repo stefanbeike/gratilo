@@ -16,8 +16,8 @@ public class TipController {
     private final StripeCheckoutService checkoutService;
     private final ConnectedAccountRepository accounts;
     private final TransactionRepository transactions;
-    private final double feePercent; private final long fixedFeeMinor; private final PoolDistributionClient poolDistribution;
-    public TipController(StripeCheckoutService checkoutService, ConnectedAccountRepository accounts, TransactionRepository transactions, @Value("${stripe.fee-percent:1.5}") double feePercent, @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor, PoolDistributionClient poolDistribution) { this.checkoutService = checkoutService; this.accounts = accounts; this.transactions = transactions; this.feePercent = feePercent; this.fixedFeeMinor = fixedFeeMinor; this.poolDistribution = poolDistribution; }
+    private final boolean demoEnabled; private final double feePercent; private final long fixedFeeMinor; private final PoolDistributionClient poolDistribution;
+    public TipController(StripeCheckoutService checkoutService, ConnectedAccountRepository accounts, TransactionRepository transactions, @Value("${stripe.fee-percent:1.5}") double feePercent, @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor, PoolDistributionClient poolDistribution, @Value("${stripe.demo-enabled:true}") boolean demoEnabled) { this.demoEnabled = demoEnabled; this.checkoutService = checkoutService; this.accounts = accounts; this.transactions = transactions; this.feePercent = feePercent; this.fixedFeeMinor = fixedFeeMinor; this.poolDistribution = poolDistribution; }
     @Get("/{recipientUserId}/quote") public TipQuote quote(UUID recipientUserId, @QueryValue long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) {
         long fee = feeCovered ? TipPricing.serviceFeeMinor(amountMinor, feePercent, fixedFeeMinor) : 0; return new TipQuote(amountMinor, fee, amountMinor + fee, "EUR", (int) Math.round(feePercent), fixedFeeMinor);
     }
@@ -27,10 +27,12 @@ public class TipController {
     }
     @Post("/{recipientUserId}/checkout") public HttpResponse<?> checkout(UUID recipientUserId, @QueryValue(value = "demo", defaultValue = "false") String demo, @Body @Valid TipPaymentRequest request) {
         if (request.tipAmountMinor() < 100) return HttpResponse.badRequest(new com.gratilo.payment.api.TransactionResponse(null, recipientUserId, 0, "EUR", null, null, null, "Mindesttrinkgeld: 1,00 EUR", "DEMO", null, "card", null, null, null, null, null, "{}"));
+        boolean demoRequested = "1".equals(demo) || "true".equalsIgnoreCase(demo);
+        if (demoRequested && !demoEnabled) return HttpResponse.badRequest(java.util.Map.of("message", "Demo-Zahlungen sind deaktiviert."));
         // Pool payments in the Stripe test environment are distributed locally
         // to each eligible member. Without this check a normal QR URL enters
         // StripeCheckoutService and the pool owner receives the whole amount.
-        if ("1".equals(demo) || "true".equalsIgnoreCase(demo) || checkoutService.isSandbox()) {
+        if (demoEnabled && (demoRequested || checkoutService.isSandbox())) {
             var distribution = poolDistribution.find(recipientUserId).orElse(null);
             // A pool response means this QR code belongs to a pool. Never
             // fall back to crediting the owner in that case: doing so hides

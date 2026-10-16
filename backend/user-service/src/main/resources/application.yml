@@ -1,5 +1,10 @@
+features:
+  tip-pools-enabled: ${FEATURE_TIP_POOLS_ENABLED:false}
+
 app:
   name: ${APP_NAME:Gratilo}
+  email:
+    general-from: ${MAIL_GENERAL_FROM_EMAIL:info@gratilo.local}
 
 frontend:
   base-url: ${FRONTEND_BASE_URL:`http://localhost:3000`}
@@ -66,9 +71,12 @@ javamail:
     mail.smtp.port: ${MAIL_PORT:1025}
     mail.smtp.auth: ${MAIL_SMTP_AUTH:false}
     mail.smtp.starttls.enable: ${MAIL_SMTP_STARTTLS_ENABLE:false}
-    mail.smtp.connectiontimeout: 10000
-    mail.smtp.timeout: 10000
-    mail.smtp.writetimeout: 10000
+    mail.smtp.starttls.required: ${MAIL_SMTP_STARTTLS_REQUIRED:false}
+    mail.smtp.ssl.checkserveridentity: "true"
+    mail.debug: "false"
+    mail.smtp.connectiontimeout: "10000"
+    mail.smtp.timeout: "10000"
+    mail.smtp.writetimeout: "10000"
     mail.mime.charset: UTF-8
   # MailHog requires no authentication. For authenticated SMTP, set
   # JAVAMAIL_AUTHENTICATION_USERNAME and JAVAMAIL_AUTHENTICATION_PASSWORD.

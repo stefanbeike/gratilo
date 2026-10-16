@@ -20,3 +20,10 @@ frontend/dist
 **/*.pem
 **/*.key
 infrastructure
+
+# Local AWS administration helpers are not application build inputs.
+aws/
+
+# CI scanner databases must not enter backend build contexts.
+.cache/
+.trivy-cache/

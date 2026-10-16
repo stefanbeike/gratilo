@@ -1,0 +1,276 @@
+{
+  "family": "<ECS_TASK_FAMILY>",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "1024",
+  "memory": "3072",
+  "executionRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/<ECS_TASK_EXECUTION_ROLE_NAME>",
+  "taskRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/<ECS_TASK_ROLE_NAME>",
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "containerDefinitions": [
+    {
+      "name": "frontend",
+      "image": "<AWS_ACCOUNT_ID>.dkr.ecr.eu-central-1.amazonaws.com/gratilo/frontend:<INITIAL_IMAGE_TAG>",
+      "essential": true,
+      "cpu": 128,
+      "memory": 256,
+      "portMappings": [
+        {
+          "containerPort": 80,
+          "protocol": "tcp"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "<CLOUDWATCH_LOG_GROUP>",
+          "awslogs-region": "eu-central-1",
+          "awslogs-stream-prefix": "frontend"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "wget --quiet --tries=1 --spider http://127.0.0.1/ || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 120
+      },
+      "dependsOn": [
+        {
+          "containerName": "user-service",
+          "condition": "HEALTHY"
+        },
+        {
+          "containerName": "payment-service",
+          "condition": "HEALTHY"
+        }
+      ],
+      "systemControls": [
+        {
+          "namespace": "net.ipv4.ip_unprivileged_port_start",
+          "value": "0"
+        }
+      ],
+      "environment": [
+        {
+          "name": "USER_SERVICE_HOST",
+          "value": "127.0.0.1"
+        },
+        {
+          "name": "PAYMENT_SERVICE_HOST",
+          "value": "127.0.0.1"
+        }
+      ]
+    },
+    {
+      "name": "user-service",
+      "image": "<AWS_ACCOUNT_ID>.dkr.ecr.eu-central-1.amazonaws.com/gratilo/user-service:<INITIAL_IMAGE_TAG>",
+      "essential": true,
+      "cpu": 448,
+      "memory": 1280,
+      "portMappings": [
+        {
+          "containerPort": 8081,
+          "protocol": "tcp"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "<CLOUDWATCH_LOG_GROUP>",
+          "awslogs-region": "eu-central-1",
+          "awslogs-stream-prefix": "user-service"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl --fail --silent http://127.0.0.1:8081/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 120
+      },
+      "secrets": [
+        {
+          "name": "DATASOURCES_DEFAULT_USERNAME",
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:db_username::"
+        },
+        {
+          "name": "DATASOURCES_DEFAULT_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:db_password::"
+        },
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:jwt_secret::"
+        },
+        {
+          "name": "INTERNAL_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:internal_api_key::"
+        },
+        {
+          "name": "JAVAMAIL_AUTHENTICATION_USERNAME",
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:smtp_username::"
+        },
+        {
+          "name": "JAVAMAIL_AUTHENTICATION_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:smtp_password::"
+        }
+      ],
+      "environment": [
+        {
+          "name": "MICRONAUT_ENVIRONMENTS",
+          "value": "prd"
+        },
+        {
+          "name": "FRONTEND_BASE_URL",
+          "value": "https://gratilo.eu"
+        },
+        {
+          "name": "FEATURE_TIP_POOLS_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "DATASOURCES_DEFAULT_URL",
+          "value": "jdbc:postgresql://<RDS_ENDPOINT>:5432/tipsterdb?sslmode=verify-full&sslrootcert=/app/rds-ca-bundle.pem"
+        },
+        {
+          "name": "JAVA_TOOL_OPTIONS",
+          "value": "-XX:MaxRAMPercentage=65.0 -XX:+ExitOnOutOfMemoryError"
+        },
+        {
+          "name": "APP_NAME",
+          "value": "Gratilo"
+        },
+        {
+          "name": "MAIL_FROM_NAME",
+          "value": "Gratilo"
+        },
+        {
+          "name": "MAIL_FROM_EMAIL",
+          "value": "noreply@gratilo.eu"
+        },
+        {
+          "name": "MAIL_GENERAL_FROM_EMAIL",
+          "value": "info@gratilo.eu"
+        },
+        {
+          "name": "MAIL_HOST",
+          "value": "email-smtp.eu-central-1.amazonaws.com"
+        },
+        {
+          "name": "MAIL_PORT",
+          "value": "587"
+        }
+      ]
+    },
+    {
+      "name": "payment-service",
+      "image": "<AWS_ACCOUNT_ID>.dkr.ecr.eu-central-1.amazonaws.com/gratilo/payment-service:<INITIAL_IMAGE_TAG>",
+      "essential": true,
+      "cpu": 448,
+      "memory": 1280,
+      "portMappings": [
+        {
+          "containerPort": 8082,
+          "protocol": "tcp"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "<CLOUDWATCH_LOG_GROUP>",
+          "awslogs-region": "eu-central-1",
+          "awslogs-stream-prefix": "payment-service"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl --fail --silent http://127.0.0.1:8082/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 120
+      },
+      "secrets": [
+        {
+          "name": "DATASOURCES_DEFAULT_USERNAME",
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:db_username::"
+        },
+        {
+          "name": "DATASOURCES_DEFAULT_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:db_password::"
+        },
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:jwt_secret::"
+        },
+        {
+          "name": "INTERNAL_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:internal_api_key::"
+        },
+        {
+          "name": "STRIPE_SECRET_KEY",
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:stripe_secret_key::"
+        },
+        {
+          "name": "STRIPE_WEBHOOK_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:eu-central-1:<AWS_ACCOUNT_ID>:secret:gratilo/prd/app-<SECRET_SUFFIX>:stripe_webhook_secret::"
+        }
+      ],
+      "environment": [
+        {
+          "name": "MICRONAUT_ENVIRONMENTS",
+          "value": "prd"
+        },
+        {
+          "name": "FRONTEND_BASE_URL",
+          "value": "https://gratilo.eu"
+        },
+        {
+          "name": "FEATURE_TIP_POOLS_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "DATASOURCES_DEFAULT_URL",
+          "value": "jdbc:postgresql://<RDS_ENDPOINT>:5432/tipsterdb?sslmode=verify-full&sslrootcert=/app/rds-ca-bundle.pem"
+        },
+        {
+          "name": "JAVA_TOOL_OPTIONS",
+          "value": "-XX:MaxRAMPercentage=65.0 -XX:+ExitOnOutOfMemoryError"
+        },
+        {
+          "name": "USER_SERVICE_URL",
+          "value": "http://127.0.0.1:8081"
+        },
+        {
+          "name": "STRIPE_SUCCESS_URL",
+          "value": "https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}"
+        },
+        {
+          "name": "STRIPE_CANCEL_URL",
+          "value": "https://gratilo.eu/pay/cancelled"
+        },
+        {
+          "name": "STRIPE_DEMO_ENABLED",
+          "value": "false"
+        },
+        {
+          "name": "STRIPE_SANDBOX_PAYOUTS",
+          "value": "false"
+        }
+      ]
+    }
+  ]
+}

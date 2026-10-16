@@ -35,11 +35,29 @@ public class EmailController {
             @Body @Valid UserRequests.SendEmail request,
             @Header("X-Internal-Secret") String providedSecret
     ) {
+        return sendAuthorized(request, providedSecret, false);
+    }
+
+    @Post("/email/general")
+    public HttpResponse<UserResponses.Message> sendGeneral(
+            @Body @Valid UserRequests.SendEmail request,
+            @Header("X-Internal-Secret") String providedSecret
+    ) {
+        return sendAuthorized(request, providedSecret, true);
+    }
+
+    private HttpResponse<UserResponses.Message> sendAuthorized(
+            UserRequests.SendEmail request, String providedSecret, boolean general
+    ) {
         if (providedSecret == null
                 || !MessageDigest.isEqual(internalSecret, providedSecret.getBytes(StandardCharsets.UTF_8))) {
             return HttpResponse.unauthorized();
         }
-        emailSendService.sendText(request.to(), request.subject(), request.text());
+        if (general) {
+            emailSendService.sendGeneralText(request.to(), request.subject(), request.text());
+        } else {
+            emailSendService.sendText(request.to(), request.subject(), request.text());
+        }
         return HttpResponse.ok(new UserResponses.Message("E-Mail wurde versendet"));
     }
 }

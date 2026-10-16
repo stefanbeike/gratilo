@@ -11,13 +11,11 @@ if [[ "${1:-}" == "--build" ]]; then
   build_args+=(--build)
 fi
 
-if ! docker network inspect "${NETWORK_NAME}" >/dev/null 2>&1; then
-  docker network create "${NETWORK_NAME}" >/dev/null
-  echo "Netzwerk '${NETWORK_NAME}' wurde erstellt."
-fi
+source ./docker-common.sh
+prepare_docker
 
 echo "Starte Gratilo-Infrastruktur und -Services ..."
-docker compose -f "${INFRA_FILE}" -f "${SERVICES_FILE}" up -d "${build_args[@]}"
+docker compose "${compose_env_args[@]}" -f "${INFRA_FILE}" -f "${SERVICES_FILE}" up -d "${build_args[@]}"
 
 echo "Gratilo läuft:"
 echo "  Frontend:        http://localhost:3000"

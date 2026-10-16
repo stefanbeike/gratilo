@@ -1,5 +1,7 @@
 package com.gratilo.user.controller;
+import io.micronaut.context.annotation.Requires;
 import com.gratilo.user.api.*; import com.gratilo.user.service.PoolService; import io.micronaut.http.*; import io.micronaut.http.annotation.*; import io.micronaut.security.authentication.Authentication; import io.micronaut.security.annotation.Secured; import io.micronaut.security.rules.SecurityRule; import jakarta.validation.Valid; import java.util.*;
+@Requires(property = "features.tip-pools-enabled", value = "true")
 @Controller("/user-service/pools") @Secured(SecurityRule.IS_AUTHENTICATED)
 public class PoolController { private final PoolService service; public PoolController(PoolService service){this.service=service;}
  @Get public HttpResponse<?> mine(Authentication a){return HttpResponse.ok(service.mine(id(a)));}

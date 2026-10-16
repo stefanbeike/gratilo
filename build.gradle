@@ -6,6 +6,22 @@ plugins {
 group = 'com.gratilo'
 version = '0.1.0-SNAPSHOT'
 
+// Keep both runtime images on the same security-patched dependency families.
+subprojects {
+    plugins.withId('java') {
+        dependencies {
+            implementation enforcedPlatform('com.fasterxml.jackson:jackson-bom:2.21.7')
+            implementation enforcedPlatform('io.netty:netty-bom:4.2.17.Final')
+            constraints {
+                runtimeOnly('org.postgresql:postgresql:42.7.12') {
+                    version { strictly '42.7.12' }
+                    because 'Fix the PostgreSQL JDBC findings in the production image scan'
+                }
+            }
+        }
+    }
+}
+
 tasks.named('build') {
     dependsOn ':backend:user-service:build'
     dependsOn ':backend:payment-service:build'

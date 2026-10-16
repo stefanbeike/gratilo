@@ -1,3 +1,4 @@
+import { useTipPoolsEnabled } from './features'
 import { useEffect, useState, type FormEvent } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { api, type Session } from './api'
@@ -11,6 +12,7 @@ const descriptions = { login: 'Melde dich an und mach Wertschätzung einfach.', 
 const passwordRule = /^(?=.*\p{Ll})(?=.*\p{Lu})(?=.*[^\p{L}\p{N}\s])\S{8,}$/u
 
 export function App() {
+  const tipPoolsEnabled = useTipPoolsEnabled()
   const [page, setPage] = useState<Page>(() => pages[location.pathname] || 'login')
   const [profileImage, setProfileImage] = useState<string | null>(null)
   const [imageBusy, setImageBusy] = useState(false)
@@ -68,6 +70,7 @@ export function App() {
     finally { setBusy(false) }
   }
   if (location.pathname.startsWith('/pay/')) return <DemoPayment />
+  if (location.pathname.startsWith('/pool/invitations/') && !tipPoolsEnabled) return <main className="shell"><section className="account-card"><h1>Diese Funktion ist derzeit nicht verfügbar.</h1><a href="/account">Zum Konto</a></section></main>
   if (location.pathname.startsWith('/pool/invitations/') && !session) return <PoolInvitationLogin onLogin={() => { sessionStorage.setItem('gratilo.invitationPath', location.pathname); window.location.assign('/login') }} onRegister={() => { sessionStorage.setItem('gratilo.invitationPath', location.pathname); window.location.assign('/register') }} />
   if (location.pathname.startsWith('/pool/invitations/') && session) return <PoolInvitation session={session} onSwitchUser={() => { setSession(null); setProfile(null); setSessionExpired(false) }} />
   if (session && profile) return <Dashboard session={session} profile={profile} onProfile={setProfile} onLogout={(expired = false) => { setSession(null); setProfile(null); setSessionExpired(expired === true); navigate('/login') }} />

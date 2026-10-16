@@ -4,21 +4,28 @@ import io.micronaut.context.annotation.Value;
 import io.micronaut.email.BodyType;
 import io.micronaut.email.Email;
 import io.micronaut.email.EmailSender;
+import io.micronaut.email.Contact;
 import jakarta.inject.Singleton;
 
 @Singleton
 public class EmailSendService {
     private final EmailSender<Email.Builder, ?> emailSender;
     private final String fromAddress;
+    private final String generalFromAddress;
+    private final String fromName;
     private final String appName;
 
     public EmailSendService(
             EmailSender<Email.Builder, ?> emailSender,
             @Value("${micronaut.email.from.email:noreply@gratilo.local}") String fromAddress,
+            @Value("${app.email.general-from:info@gratilo.local}") String generalFromAddress,
+            @Value("${micronaut.email.from.name:Gratilo}") String fromName,
             @Value("${app.name:Gratilo}") String appName
     ) {
         this.emailSender = emailSender;
         this.fromAddress = fromAddress;
+        this.generalFromAddress = generalFromAddress;
+        this.fromName = fromName;
         this.appName = appName;
     }
 
@@ -45,8 +52,16 @@ public class EmailSendService {
     }
 
     public void sendText(String to, String subject, String text) {
+        sendFrom(fromAddress, to, subject, text);
+    }
+
+    public void sendGeneralText(String to, String subject, String text) {
+        sendFrom(generalFromAddress, to, subject, text);
+    }
+
+    private void sendFrom(String from, String to, String subject, String text) {
         emailSender.send(Email.builder()
-                .from(fromAddress)
+                .from(new Contact(from, fromName))
                 .to(to)
                 .subject(subject)
                 .body(text, BodyType.TEXT));

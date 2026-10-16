@@ -1,4 +1,4 @@
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
 ARG VITE_STRIPE_PUBLISHABLE_KEY=
 ENV VITE_STRIPE_PUBLISHABLE_KEY=$VITE_STRIPE_PUBLISHABLE_KEY
@@ -13,13 +13,16 @@ RUN npm ci --no-audit --no-fund \
 COPY . .
 RUN npm run build
 
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:stable-alpine AS runtime
 
 ENV USER_SERVICE_HOST=user-service \
     PAYMENT_SERVICE_HOST=payment-service
 COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 
+RUN touch /var/run/nginx.pid \
+    && chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx/conf.d /var/run/nginx.pid
+USER nginx
 EXPOSE 80
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
   CMD wget --quiet --tries=1 --spider http://localhost/ || exit 1

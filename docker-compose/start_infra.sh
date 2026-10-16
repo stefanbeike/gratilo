@@ -7,17 +7,15 @@ readonly NETWORK_NAME="gratilo-network"
 
 echo "Starte Gratilo-Infrastruktur (PostgreSQL, MinIO, MailHog) ..."
 
-if ! docker network inspect "${NETWORK_NAME}" >/dev/null 2>&1; then
-  docker network create "${NETWORK_NAME}" >/dev/null
-  echo "Netzwerk '${NETWORK_NAME}' wurde erstellt."
-fi
+source ./docker-common.sh
+prepare_docker
 
 compose_args=(-f "${INFRA_FILE}")
 if [[ -n "${STRIPE_SECRET_KEY:-}" ]] || ( [[ -f ../.env ]] && grep -q '^STRIPE_SECRET_KEY=.[^[:space:]]' ../.env ); then
   compose_args+=(--profile stripe)
   echo "Stripe-Test-Webhook-Listener wird mit gestartet."
 fi
-docker compose "${compose_args[@]}" up -d
+docker compose "${compose_env_args[@]}" "${compose_args[@]}" up -d
 
 echo "Infrastruktur läuft:"
 echo "  PostgreSQL: localhost:5432"

@@ -13,7 +13,7 @@ permissions:
 jobs:
   create-tag:
     name: Create SemVer Tag
-    runs-on: self-hosted
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.tag.outputs.VERSION }}
     steps:
@@ -59,9 +59,9 @@ jobs:
         git config user.name "github-actions"
         git config user.email "actions@github.com"
 
-        git tag $VERSION
-        git push origin $VERSION
+        git tag "$VERSION"
+        git push origin "$VERSION"
 
-        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
       env:
         RELEASE_TYPE: ${{ inputs.release_type }}

@@ -1,3 +1,6 @@
+features:
+  tip-pools-enabled: ${FEATURE_TIP_POOLS_ENABLED:false}
+
 frontend:
   base-url: ${FRONTEND_BASE_URL:`http://localhost:3000`}
 
