@@ -3,11 +3,11 @@ frontend:
 
 stripe:
   test-only: true
-  secret-key: ${STRIPE_SECRET_KEY}
-  webhook-secret: ${STRIPE_WEBHOOK_SECRET}
+  secret-key: ${STRIPE_SECRET_KEY:}
+  webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
   success-url: "https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}"
   cancel-url: https://gratilo.eu/pay/cancelled
-  sandbox-payouts: true
+  sandbox-payouts: false
   demo-enabled: false
 
 pool:

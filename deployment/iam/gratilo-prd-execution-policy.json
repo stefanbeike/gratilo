@@ -34,8 +34,7 @@
         "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/database-??????",
         "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/smtp-??????",
         "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/jwt-??????",
-        "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/internal-api-??????",
-        "<STRIPE_TEST_SECRET_ARN>"
+        "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/internal-api-??????"
       ]
     }
   ]

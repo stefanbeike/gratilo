@@ -9,11 +9,11 @@ Task-Definition und manuellen Schritte stehen in
 Die bestehenden Workflows bauen und scannen alle drei Images und prüfen sie
 mit PostgreSQL 15. Pull Requests erhalten keinen AWS-OIDC-Zugriff.
 
-Der manuelle Workflow `Gratilo Sandbox Image Release` kann nach erfolgreicher CI
+Der manuelle Workflow `Gratilo ECR Release (payments disabled)` kann nach erfolgreicher CI
 und Environment-Freigabe geprüfte Images nach ECR veröffentlichen. Dafür:
 
 - Repository Variable `ECR_PUBLISH_ENABLED=true` erst nach Einrichtung und Freigabe.
-- Repository Variable `STRIPE_PUBLISHABLE_KEY=pk_test_…` (öffentlich, kein Secret).
+- Keine Stripe-Variable und kein Stripe-Secret nötig. Zahlungen bleiben deaktiviert.
 - Environment `production`: ausschließlich main, Required reviewers.
 - Environment Variables `AWS_ACCOUNT_ID=070351676632`,
   `AWS_REGION=eu-central-1`,
@@ -22,7 +22,7 @@ und Environment-Freigabe geprüfte Images nach ECR veröffentlichen. Dafür:
   `PUBLISH gratilo-sandbox`. Dieser Lauf veröffentlicht Images, führt aber kein
   ECS-Deployment aus.
 
-Der ECS-Deploy-Job in `007_deploy_ecs.yml` ist explizit mit `if: false` deaktiviert.
+Der ECS-Deploy-Job wurde aus `007_deploy_ecs.yml` vollständig entfernt.
 Task-Registrierung und Service-Änderungen erfolgen ausschließlich manuell in der
 AWS-Konsole. Alte Terraform- und alternative ECR-Workflows sind aus dem aktiven
 Workflow-Verzeichnis entfernt. Kein Terraform/Crossplane ausführen.

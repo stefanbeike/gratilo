@@ -7,6 +7,7 @@ import io.micronaut.context.annotation.Value;
 /** Fail before serving requests if the ECS sandbox is configured for live Stripe. */
 @Context
 @Requires(env = "prd")
+@Requires(property = "payments.enabled", value = "true")
 public class SandboxConfiguration {
     public SandboxConfiguration(@Value("${stripe.secret-key}") String key,
                                 @Value("${stripe.webhook-secret}") String webhook,

@@ -1,4 +1,4 @@
-name: Gratilo Sandbox Image Release
+name: Gratilo ECR Release (payments disabled)
 on:
   workflow_dispatch:
     inputs:
@@ -35,7 +35,7 @@ jobs:
     uses: ./.github/workflows/005_docker_build.yml
     with:
       upload_artifacts: true
-  deploy:
+  publish:
     needs: images
     permissions:
       contents: read

@@ -83,10 +83,9 @@ def render(response, images, config):
                 require(env.get("MAIL_GENERAL_FROM_EMAIL", "info@gratilo.eu") == "info@gratilo.eu", "Wrong general sender")
                 require(not any(k.startswith("JAVAMAIL_PROPERTIES_") or k in {"MAIL_SMTP_AUTH", "MAIL_SMTP_STARTTLS_ENABLE", "MAIL_SMTP_STARTTLS_REQUIRED"} for k in env), "Remove legacy SMTP overrides from production task")
             else:
-                required |= {"STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"}
                 require(env.get("USER_SERVICE_URL", "http://localhost:8081") in ("http://127.0.0.1:8081", "http://localhost:8081"), "Wrong shared-task user service URL")
-                require(env.get("STRIPE_SANDBOX_PAYOUTS", "true") == "true" and env.get("STRIPE_DEMO_ENABLED", "false") == "false", "Sandbox requires simulated payouts and disabled demo checkout")
-                require(env.get("STRIPE_TEST_ONLY", "true") == "true", "Stripe must remain test-only")
+                require(env.get("STRIPE_SANDBOX_PAYOUTS", "false") == "false" and env.get("STRIPE_DEMO_ENABLED", "false") == "false", "Payments and simulated payouts must remain disabled")
+                require(env.get("PAYMENTS_ENABLED", "false") == "false", "Payments must remain disabled")
                 for key, expected in [("STRIPE_SUCCESS_URL", "https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}"), ("STRIPE_CANCEL_URL", "https://gratilo.eu/pay/cancelled")]:
                     require(env.get(key, expected) == expected, "Wrong Stripe redirect: " + key)
             require(required.issubset(secret), "Required Secrets Manager references missing: " + name)

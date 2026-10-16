@@ -219,14 +219,6 @@
         {
           "name": "INTERNAL_API_KEY",
           "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/internal-api-<ACTUAL_SUFFIX>:secret::"
-        },
-        {
-          "name": "STRIPE_SECRET_KEY",
-          "valueFrom": "<STRIPE_TEST_SECRET_ARN>:secret_key::"
-        },
-        {
-          "name": "STRIPE_WEBHOOK_SECRET",
-          "valueFrom": "<STRIPE_TEST_SECRET_ARN>:webhook_secret::"
         }
       ],
       "environment": [
@@ -268,11 +260,15 @@
         },
         {
           "name": "STRIPE_SANDBOX_PAYOUTS",
-          "value": "true"
+          "value": "false"
         },
         {
           "name": "STRIPE_TEST_ONLY",
           "value": "true"
+        },
+        {
+          "name": "PAYMENTS_ENABLED",
+          "value": "false"
         }
       ]
     }

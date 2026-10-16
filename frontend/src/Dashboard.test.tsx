@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { Dashboard, csvContent, transactions } from './Dashboard'
+import { Dashboard, DemoPayment, csvContent, transactions } from './Dashboard'
 const session = { accessToken: 'token', email: 'alex@example.com', userId: '123' }
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 function mount() { return render(<Dashboard session={session} profile={{ email: session.email, firstName: 'Alex', city: 'Berlin' }} onProfile={vi.fn()} onLogout={vi.fn()} />) }
@@ -17,13 +17,14 @@ it('filters transactions and resets empty results', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Filter zurücksetzen' }))
   expect(within(table).getAllByRole('row')).toHaveLength(9)
 })
-it('pauses the QR code and reactivates it', () => {
-  mount(); expect(screen.getByTitle('QR-Code zum Demo-Zahlungslink')).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: /Deaktivieren/ }))
+it('keeps payments, payouts and onboarding disabled without Stripe configuration', () => {
+  const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => [] }); vi.stubGlobal('fetch', fetch)
+  mount()
   expect(screen.queryByTitle('QR-Code zum Demo-Zahlungslink')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Zahlungslink kopieren' })).toBeDisabled()
-  fireEvent.click(screen.getByRole('button', { name: /Aktivieren/ }))
-  expect(screen.getByTitle('QR-Code zum Demo-Zahlungslink')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Aktivieren/ })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /Onboarding starten/ })).toBeDisabled()
+  expect(fetch.mock.calls.some(([url]) => String(url).includes('connect-account'))).toBe(false)
 })
 it('saves the profile using PUT and preserves existing fields', async () => {
   const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ email: session.email, firstName: 'Ada' }) }); vi.stubGlobal('fetch', fetch)
@@ -43,4 +44,11 @@ it('shows the saved profile image next to logout', () => {
   render(<Dashboard session={session} profile={{ email: session.email, profileImage: 'data:image/jpeg;base64,test' }} onProfile={vi.fn()} onLogout={vi.fn()} />)
   expect(screen.getByRole('img', { name: 'Dein Profilbild' })).toHaveAttribute('src', 'data:image/jpeg;base64,test')
   expect(screen.getByRole('button', { name: /Abmelden/ })).toBeInTheDocument()
+})
+
+it('renders a disabled payment page without fetching or confirming anything', () => {
+  const fetch = vi.fn(); vi.stubGlobal('fetch', fetch)
+  render(<DemoPayment />)
+  expect(screen.getByText('Zahlungen sind derzeit deaktiviert.')).toBeInTheDocument()
+  expect(fetch).not.toHaveBeenCalled()
 })

@@ -92,7 +92,7 @@ class EcsDeploymentTest(unittest.TestCase):
                 renderer.render(response, self.images, self.config)
 
     def test_rejects_real_payouts_and_disabled_test_mode(self):
-        for key, value in [("STRIPE_SANDBOX_PAYOUTS", "false"), ("STRIPE_TEST_ONLY", "false")]:
+        for key, value in [("STRIPE_SANDBOX_PAYOUTS", "true"), ("PAYMENTS_ENABLED", "true")]:
             response = copy.deepcopy(self.response)
             env = response["taskDefinition"]["containerDefinitions"][2]["environment"]
             env[:] = [entry for entry in env if entry["name"] != key]

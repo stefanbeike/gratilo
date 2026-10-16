@@ -1,3 +1,6 @@
+payments:
+  enabled: ${PAYMENTS_ENABLED:false}
+
 features:
   tip-pools-enabled: ${FEATURE_TIP_POOLS_ENABLED:false}
 
