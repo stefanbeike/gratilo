@@ -199,9 +199,9 @@ Manuell in der Konsole prüfen/einrichten:
 Vorgegebene Rolle: `arn:aws:iam::070351676632:role/gratilo-github-actions-role`.
 
 Ohne GitHub Environment lautet der main-Subject:
-`repo:stefanbeike/gratilo:ref:refs/heads/main`.
+`repo:stefanbeike@13099702/gratilo@1351208624:ref:refs/heads/main`.
 Mit `environment: production` lautet er dagegen:
-`repo:stefanbeike/gratilo:environment:production`.
+`repo:stefanbeike@13099702/gratilo@1351208624:environment:production`.
 Die beiden Trust-JSON-Vorlagen stehen in `deployment/iam/github-oidc-*-trust.json`.
 Audience immer `sts.amazonaws.com`; keinen Wildcard-Repo-Subject verwenden.
 Beim Environment-Subject muss GitHub `production` ausschließlich main erlauben

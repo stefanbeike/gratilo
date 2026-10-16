@@ -30,7 +30,7 @@ Workflow-Verzeichnis entfernt. Kein Terraform/Crossplane ausführen.
 ## OIDC und Berechtigungen
 
 Da der Veröffentlichungsjob `environment: production` nutzt, muss der Trust-Subject
-`repo:stefanbeike/gratilo:environment:production` lauten. Der Branch-main-Subject
+`repo:stefanbeike@13099702/gratilo@1351208624:environment:production` lauten. Der Branch-main-Subject
 allein passt nicht; die Beschränkung auf main übernimmt zusätzlich das geschützte
 GitHub Environment. Beide Policy-Varianten stehen unter `deployment/iam/`.
 

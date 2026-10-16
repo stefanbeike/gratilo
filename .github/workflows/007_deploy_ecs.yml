@@ -36,8 +36,11 @@ jobs:
       with:
         name: scanned-images-${{ inputs.image_tag }}
         path: ${{ runner.temp }}/gratilo-images
+    - name: Diagnose production OIDC identity (public claims only)
+      run: node deployment/scripts/oidc_claims.cjs
     - uses: aws-actions/configure-aws-credentials@v4
       with:
+        audience: sts.amazonaws.com
         role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
         aws-region: ${{ env.AWS_REGION }}
         role-session-name: gratilo-publish-${{ github.run_id }}

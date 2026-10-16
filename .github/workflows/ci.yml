@@ -20,6 +20,8 @@ jobs:
         python-version: '3.12'
     - name: Test deployment tooling without AWS access
       run: python3 -m unittest discover -s deployment/tests -v
+    - name: Verify OIDC diagnostics never log tokens
+      run: node --test deployment/tests/oidc_claims.test.cjs
     - name: Validate workflows
       uses: docker://rhysd/actionlint:1.7.7
       with:

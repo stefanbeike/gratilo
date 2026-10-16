@@ -34,8 +34,8 @@ Der Tarif muss diese Environment-Freigaben für das Repository unterstützen.
 Ein Environment ohne Required reviewers gewährleistet keine manuelle Freigabe.
 
 Der OIDC-Trust muss `aud=sts.amazonaws.com` und genau
-`sub=repo:stefanbeike/gratilo:environment:production` zulassen. Ein ausschließlich
-auf `repo:stefanbeike/gratilo:ref:refs/heads/main` begrenzter Subject passt wegen des
+`sub=repo:stefanbeike@13099702/gratilo@1351208624:environment:production` zulassen. Ein ausschließlich
+auf `repo:stefanbeike@13099702/gratilo@1351208624:ref:refs/heads/main` begrenzter Subject passt wegen des
 Environments nicht. Vorlage: `deployment/iam/github-oidc-production-trust.json`.
 Keine IAM-Änderung wird durch diesen Workflow vorgenommen.
 
@@ -96,3 +96,6 @@ ohne Stripe-Konfiguration mit null Transaktionen. Trivy 0.76.0 mit der bereits
 am 16.10.2026 geladenen Datenbank: keine HIGH-/CRITICAL-, Secret- oder
 HIGH-/CRITICAL-Konfigurationsfunde im geprüften Source und den Images. Die
 GitHub-Pipeline lädt für jeden Lauf ihre Scanner-Datenbanken regulär neu.
+
+Bei `Not authorized to perform sts:AssumeRoleWithWebIdentity` siehe
+[OIDC-Diagnose und bestätigte Subject-Korrektur](oidc-troubleshooting.md).
