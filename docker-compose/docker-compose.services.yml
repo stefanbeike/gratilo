@@ -48,7 +48,8 @@ services:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in the ignored root .env}
       USER_SERVICE_URL: http://user-service:8081
       FEATURE_TIP_POOLS_ENABLED: "false"
-      STRIPE_SANDBOX_PAYOUTS: "true"
+      PAYMENTS_ENABLED: "false"
+      STRIPE_SANDBOX_PAYOUTS: "false"
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
       STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL:-http://localhost:3000/pay/success?session_id={CHECKOUT_SESSION_ID}}
@@ -65,7 +66,7 @@ services:
       context: ../frontend
       dockerfile: Dockerfile
       args:
-        VITE_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+        VITE_PAYMENTS_ENABLED: "false"
     depends_on:
       user-service:
         condition: service_healthy

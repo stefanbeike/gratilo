@@ -222,3 +222,6 @@ und Dateipfad gemeinsam die Identität einer bereits ausgeführten Migration
 bilden. Neue Changesets verwenden `gratilo`. Die Git-Historie bleibt erhalten.
 Der lokale Checkout-Ordner kann nach dem Schließen der IDE in `gratilo`
 umbenannt und anschließend erneut geöffnet werden.
+
+Der [manuelle ECR-Release ohne Stripe](docs/ecr-release.md) baut und prüft alle drei
+Images; Zahlungen und ECS-Deployment bleiben deaktiviert.

@@ -38,8 +38,7 @@ jobs:
         cache-from: type=gha,scope=frontend
         cache-to: type=gha,mode=max,scope=frontend
         build-args: |
-          VITE_STRIPE_PUBLISHABLE_KEY=${{ vars.STRIPE_PUBLISHABLE_KEY }}
-          STRIPE_TEST_ONLY=${{ inputs.upload_artifacts }}
+          VITE_PAYMENTS_ENABLED=false
     - name: Scan frontend
       uses: aquasecurity/trivy-action@v0.36.0
       with:

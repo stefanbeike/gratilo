@@ -1,4 +1,4 @@
-name: Publish Gratilo sandbox images; ECS deployment disabled
+name: Publish Gratilo images to ECR
 'on':
   workflow_call:
     inputs:
@@ -29,11 +29,9 @@ jobs:
     - name: Validate production configuration
       env:
         AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-        STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_PUBLISHABLE_KEY }}
       run: |-
         [[ "$AWS_REGION" == eu-central-1 && "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]
         [[ "$AWS_DEPLOY_ROLE_ARN" == "arn:aws:iam::$AWS_ACCOUNT_ID:role/"* ]]
-        [[ "$STRIPE_PUBLISHABLE_KEY" == pk_test_* ]] || { echo 'Set repository STRIPE_PUBLISHABLE_KEY to the test publishable key before production.' >&2; exit 1; }
     - uses: actions/download-artifact@v4
       with:
         name: scanned-images-${{ inputs.image_tag }}
@@ -63,50 +61,3 @@ jobs:
           echo "$output_name=$registry/gratilo/$service@$digest" >> "$GITHUB_OUTPUT"
           echo "$service: $IMAGE_TAG / $digest" >> "$GITHUB_STEP_SUMMARY"
         done
-  deploy:
-    # ECS resources and service deployments are managed only in the AWS console.
-    if: ${{ false }}
-    runs-on: ubuntu-24.04
-    environment: production
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
-      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
-      AWS_PAGER: ''
-      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
-      ECS_SERVICE: ${{ vars.ECS_SERVICE }}
-      ECS_TASK_FAMILY: ${{ vars.ECS_TASK_FAMILY }}
-      ECS_TASK_EXECUTION_ROLE_ARN: ${{ vars.ECS_TASK_EXECUTION_ROLE_ARN }}
-      ECS_TASK_ROLE_ARN: ${{ vars.ECS_TASK_ROLE_ARN }}
-      ECS_DESIRED_COUNT: ${{ vars.ECS_DESIRED_COUNT || '1' }}
-      FRONTEND_IMAGE: ${{ needs.publish.outputs.frontend_image }}
-      USER_SERVICE_IMAGE: ${{ needs.publish.outputs.user_service_image }}
-      PAYMENT_SERVICE_IMAGE: ${{ needs.publish.outputs.payment_service_image }}
-      IMAGE_TAG: ${{ inputs.image_tag }}
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        persist-credentials: false
-    - name: Validate required deployment configuration
-      env:
-        AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-      run: |
-        for name in AWS_ACCOUNT_ID AWS_DEPLOY_ROLE_ARN ECS_CLUSTER ECS_SERVICE ECS_TASK_FAMILY ECS_TASK_EXECUTION_ROLE_ARN ECS_TASK_ROLE_ARN; do
-          [[ -n "${!name}" ]] || { echo "Missing production variable: $name" >&2; exit 1; }
-        done
-        [[ "$AWS_REGION" == eu-central-1 && "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]
-        [[ "$AWS_DEPLOY_ROLE_ARN" == "arn:aws:iam::$AWS_ACCOUNT_ID:role/"* ]]
-    - uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-        aws-region: ${{ env.AWS_REGION }}
-        role-session-name: gratilo-deploy-${{ github.run_id }}
-        unset-current-credentials: true
-    - name: Verify AWS account
-      run: '[[ "$(aws sts get-caller-identity --query Account --output text)" == "$AWS_ACCOUNT_ID" ]]'
-    - name: Register all three images, update service and verify rollout
-      run: bash deployment/scripts/deploy_ecs.sh
-    needs: publish

@@ -1,12 +1,13 @@
-# Gratilo: manueller ECS-Fargate-Betrieb mit Stripe-Sandbox
+# Gratilo: manueller ECS-Fargate-Betrieb ohne Zahlungen
 
 ## Prüfstand und Grenzen
 
 Geprüft und korrigiert auf `feat/gratilo-ecs-production-pipeline`; ursprüngliche
 Basis: Remote-main `2f98e6c` (`stefanbeike/gratilo`), separat bearbeitet, ohne
 AWS-Aufrufe, Secret-Abfragen, Terraform/Crossplane oder Workflow-Ausführung.
-Die Website ist `https://gratilo.eu`; Zahlungen bleiben ausdrücklich Stripe-Testbetrieb.
-Eine öffentlich erreichbare Website bedeutet hier keine Freigabe für Live-Zahlungen.
+Die Website ist `https://gratilo.eu`; Stripe bleibt ausgeschaltet.
+Zahlungen sind standardmäßig vollständig deaktiviert (`PAYMENTS_ENABLED=false`),
+auch simulierte Zahlungen. Für den ECR-Release werden keine Stripe-Keys benötigt.
 
 ## Sämtliche Anwendungsvariablen und Geheimnisse
 
@@ -21,10 +22,11 @@ Umgebungsvariablen; die Anwendungen lesen Secrets Manager nicht selbst.
 | `INTERNAL_API_KEY` | U, P | ja | vorgesehen: `gratilo/prd/internal-api`, JSON `secret`; Existenz unbestätigt |
 | `JAVAMAIL_AUTHENTICATION_USERNAME` | U | Zugangsdaten | `gratilo/prd/smtp`, JSON `username` |
 | `JAVAMAIL_AUTHENTICATION_PASSWORD` | U | ja | `gratilo/prd/smtp`, JSON `password` |
-| `STRIPE_SECRET_KEY` | P | ja | noch unbestätigtes Stripe-Test-Secret, vorgeschlagener JSON-Key `secret_key`; ausschließlich `sk_test_…` |
-| `STRIPE_WEBHOOK_SECRET` | P | ja | noch unbestätigtes Stripe-Test-Secret, vorgeschlagener JSON-Key `webhook_secret`; `whsec_…` vom Test-Webhook |
-| `VITE_STRIPE_PUBLISHABLE_KEY` | F, nur Build | nein | öffentlicher `pk_test_…`-Key desselben Stripe-Testkontos |
-| `STRIPE_TEST_ONLY` | F, nur Build | nein | `true` erzwingt Test-Publishable-Key beim Image-Build |
+| `STRIPE_SECRET_KEY` | P | ja, nur bei aktivierten Zahlungen | noch unbestätigtes Stripe-Test-Secret, vorgeschlagener JSON-Key `secret_key`; ausschließlich `sk_test_…` |
+| `STRIPE_WEBHOOK_SECRET` | P | ja, nur bei aktivierten Zahlungen | noch unbestätigtes Stripe-Test-Secret, vorgeschlagener JSON-Key `webhook_secret`; `whsec_…` vom Test-Webhook |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | F, nur Build | nein, aktuell nicht benötigt | öffentlicher `pk_test_…`-Key desselben Stripe-Testkontos |
+| `VITE_PAYMENTS_ENABLED` | F, nur Build | nein | `false`, kein Stripe-Key nötig |
+| `PAYMENTS_ENABLED` | P | nein | `false`, alle Zahlungen und Stripe-Aufrufe gesperrt |
 | `USER_SERVICE_HOST` | F | nein | `localhost` in ECS, `user-service` in Compose |
 | `PAYMENT_SERVICE_HOST` | F | nein | `localhost` in ECS, `payment-service` in Compose |
 | `MICRONAUT_ENVIRONMENTS` | U, P | nein | zwingend `prd` in ECS |
@@ -42,7 +44,7 @@ Umgebungsvariablen; die Anwendungen lesen Secrets Manager nicht selbst.
 | `STRIPE_SUCCESS_URL` | P | nein | `https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}` |
 | `STRIPE_CANCEL_URL` | P | nein | `https://gratilo.eu/pay/cancelled` |
 | `STRIPE_TEST_ONLY` | P | nein | `true`, im ECS-Profil zwingend |
-| `STRIPE_SANDBOX_PAYOUTS` | P | nein | `true`, nur simulierte Auszahlungen |
+| `STRIPE_SANDBOX_PAYOUTS` | P | nein | `false`, keine simulierten Auszahlungen |
 | `STRIPE_DEMO_ENABLED` | P | nein | `false`, kein anonymer Demo-Parameter zum Verbuchen fingierter Tipps |
 | `STRIPE_FEE_PERCENT` | P | nein | optional, Default `1.5` |
 | `STRIPE_FEE_FIXED_MINOR` | P | nein | optional, Default `25` |
@@ -88,8 +90,7 @@ Lokale `application.yml`-Defaults und Compose-Testwerte sind ausdrücklich keine
 Produktionszugangsdaten. `prd` verlangt externe DB-, JWT-, interne und SMTP-Secrets.
 Compose setzt denselben JWT-/internen Wert in beiden Backends und verwendet
 `http://user-service:8081` statt Container-localhost. Reale lokale Werte nur in die
-ignorierte `.env` oder Shell. `STRIPE_PUBLISHABLE_KEY` heißt der öffentliche Wert
-in Compose/GitHub und wird als Build-Argument `VITE_STRIPE_PUBLISHABLE_KEY` übergeben.
+ignorierte `.env` oder Shell. Der ECR-Release benötigt weder `STRIPE_PUBLISHABLE_KEY` noch Stripe-Secrets.
 
 Weitere CI-Werte: `GITHUB_TOKEN` automatisch; optional `SONAR_TOKEN` (geheim),
 `SONAR_HOST_URL` (URL), `SONAR_PROJECT_KEY`, `SONAR_ORGANIZATION` (Konfiguration).
@@ -114,21 +115,18 @@ Der gleiche Secret-Wert muss ungeändert in beide Container injiziert werden;
 mindestens 32 zufällige Bytes verwenden. Kein Token/Secret wird zu Testzwecken
 protokolliert. Nach Secret-Rotation beide Container gemeinsam neu starten.
 
-## Stripe-Sandbox
+## Zahlungen ausgeschaltet; Stripe nicht erforderlich
 
-Benötigt werden ein `sk_test_…`, ein `pk_test_…` desselben Testkontos sowie der
-Signing-Secret eines Test-Webhook-Endpunkts:
-`https://gratilo.eu/payment-service/webhooks/stripe`.
-Ein lokaler Stripe-CLI-Webhook-Secret ist nicht automatisch derselbe wie der
-Signing-Secret des in Stripe konfigurierten öffentlichen Endpunkts.
-
-Das ECS-Profil bricht beim Start mit Live-Key, ausgeschaltetem Testmodus oder
-ausgeschalteter Auszahlungssimulation ab. Live-Webhooks werden selbst bei gültiger
-Signatur abgewiesen; Signatur und Zeitfenster werden geprüft. Demo-Checkout ist
-aus, damit spätere Tests tatsächlich Stripe-Test-Checkout verwenden können.
-Auszahlungen bleiben simuliert; es gibt keine Freigabe für echte Zahlungen.
-Stripe-Aufrufe benötigen Internet-Egress; VPC-Endpunkte allein reichen nicht.
-Keine Stripe-Aufrufe wurden während dieser Vorbereitung ausgeführt.
+`PAYMENTS_ENABLED=false` ist der Backend-Default. Die Request-Sperre blockiert
+Checkout/Bestätigung, Onboarding/Sync, Webhooks, Auszahlungen und alle Ledger-
+Änderungen mit HTTP 503 / `PAYMENTS_DISABLED`, bevor Controller ausgeführt werden.
+Nur gespeicherte Transaktionen und der gespeicherte Connected-Account-Status sind
+lesbar. Healthchecks funktionieren weiter. Es gibt keine Hintergrund-Stripe-Jobs.
+Frontend-Builds des Release-Workflows setzen `VITE_PAYMENTS_ENABLED=false` und
+übergeben keinen Stripe-Key; Zahlungsseiten und Zahlungsaktionen sind gesperrt.
+Die Task-Vorlage enthält keine Stripe-Secret-Referenzen mehr. Keine erfundenen
+API-Schlüssel einsetzen. Ein späterer Stripe-Testbetrieb erfordert eine separat
+reviewte Aktivierung samt echten Test-Keys und der vorhandenen Sandbox-Validierung.
 
 ## Manuell verwendbare Task-Vorlage
 
@@ -148,13 +146,11 @@ Vor dem Einfügen in den JSON-Editor der AWS-Konsole ersetzen:
 4. Jedes `<ACTUAL_SUFFIX>` durch das jeweilige tatsächliche Secrets-Manager-ARN-
    Suffix. Es ist pro Secret verschieden. Nur den ARN in der Konsole kopieren,
    keine Secret-Werte auslesen oder in diese Datei schreiben.
-5. `<STRIPE_TEST_SECRET_ARN>` durch den vollständigen ARN des noch zu bestätigenden
-   Secrets mit den vorgeschlagenen JSON-Keys `secret_key`, `webhook_secret`, oder
-   die Referenzen an die tatsächlich gewählte Struktur anpassen.
+
 
 Diese Werte sind unbekannt; deshalb ist die versionierte Datei eine gültige
 JSON-Vorlage, aber vor Ersetzung der Marker noch nicht registrierbar. Keine
-Suffixe, Loggruppen oder Stripe-Secrets wurden erfunden oder angelegt.
+Suffixe oder Loggruppen wurden erfunden oder angelegt.
 
 | Container | Port | CPU | RAM | Healthcheck |
 |---|---|---:|---:|---|
@@ -173,8 +169,7 @@ Fargate Linux Platform 1.4.0+ verwenden (JSON-Key-Secrets und sysctl-Unterstütz
 Execution Role: `gratilo-prd-ecs-execution-role`. Die Vorlage
 `deployment/iam/gratilo-prd-execution-policy.json` erlaubt ECR-Pull, CloudWatch-
 Log-Streams und `secretsmanager:GetSecretValue` für database, smtp, jwt und
-internal-api mit jeweils genau sechs Suffix-Zeichen (`??????`). Den Stripe-ARN-
-Marker ersetzen. Für maximal exakte Bindung alle Secret-ARNs vollständig einsetzen.
+internal-api mit jeweils genau sechs Suffix-Zeichen (`??????`). Stripe-Secrets sind bei ausgeschalteten Zahlungen nicht erforderlich. Für maximal exakte Bindung alle Secret-ARNs vollständig einsetzen.
 IAM-Resource-ARNs enthalten keine JSON-Key-Selektoren. Bei kundeneigenen KMS-Keys
 zusätzlich `kms:Decrypt` auf genau diese Keys samt passender Key Policy erlauben.
 
@@ -184,19 +179,19 @@ verwendet SMTP. Beide ECS-Rollen brauchen den Trust-Service `ecs-tasks.amazonaws
 
 Manuell in der Konsole prüfen/einrichten:
 
-- Existenz/Rechte von `gratilo/prd/internal-api`, JWT und Stripe-Test-Secrets;
+- Existenz/Rechte von `gratilo/prd/internal-api` und JWT;
   bestehende DB-/SMTP-Secrets und Schlüsselstruktur bestätigen.
 - Rollen samt Execution Policy, optionale KMS-Rechte, CloudWatch-Loggruppe.
 - RDS PostgreSQL 15 / tipsterdb, Schemas, private SG-Verbindung auf 5432, Backups.
-- ECR-Images, geprüfte unveränderliche Tags, Test-Publishable-Key im Frontend-Build.
+- ECR-Images und geprüfte unveränderliche Tags; keine Stripe-Konfiguration nötig.
 - Cluster `gratilo-prd-cluster`, gemeinsame Task, Service/ALB-Zuordnung frontend:80,
   Target-Typ ip, HTTPS/ACM, DNS gratilo.eu und HTTP-zu-HTTPS-Weiterleitung.
 - Service-Circuit-Breaker mit Rollback und Healthcheck Grace Period vorsehen.
 - Private Subnetze: ECR api/dkr, S3-Gateway (Image-Layer), CloudWatch Logs und
   Secrets Manager benötigen erreichbare VPC-Endpunkte oder passenden Egress.
   SES-SMTP benötigt erreichbaren Port 587, ggf. SES-SMTP-VPC-Endpunkt.
-  Stripe benötigt zusätzlich NAT/Proxy oder eine bewusst gewählte Alternative.
-- SES-Absender/DKIM/DMARC und Stripe-Test-Webhook prüfen. Keine ungefragten
+  Ein später aktivierter Stripe-Betrieb benötigt zusätzlich NAT/Proxy oder eine bewusst gewählte Alternative.
+- SES-Absender/DKIM/DMARC prüfen. Stripe bleibt deaktiviert. Keine ungefragten
   Test-Mails oder Zahlungen auslösen. Service-Start erst nach ausdrücklicher Freigabe.
 
 ## GitHub OIDC und Workflows
@@ -225,12 +220,12 @@ AWS-Schlüssel oder geerbte CLI-Profile. Die GitHub-Rolle benötigt keine
 - [GitHub OIDC mit AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws)
 
 Der ECR-Publish nutzt das geschützte Environment `production`; deshalb gilt die
-Environment-Trust-Variante. Der ECS-Deploy-Job ist explizit deaktiviert. Die genaue
+Environment-Trust-Variante. Der ECS-Deploy-Job ist vollständig aus dem Release entfernt. Die genaue
 GitHub-Konfiguration steht in [aws-ecs-deployment.md](aws-ecs-deployment.md).
 
 ## Validierung und verbleibende Grenzen
 
-Lokal erfolgreich: 41 Backend-Tests (30 User, 11 Payment), 18 Frontend-Tests,
+Lokal erfolgreich: 43 Backend-Tests (30 User, 13 Payment), 19 Frontend-Tests,
 10 Deployment-Hilfswerkzeug-Tests mit simulierter AWS-CLI, Actionlint,
 JSON-/Shell-Prüfung und die drei Docker-Builds. Der isolierte gemeinsame
 PostgreSQL-15-Test bestätigt Login/JWT über beide Backends, localhost-Proxying,

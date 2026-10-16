@@ -44,7 +44,7 @@ try:
   return result
  start(user,'--network',network,*options({**common,'JAVAMAIL_AUTHENTICATION_USERNAME':'test-only','JAVAMAIL_AUTHENTICATION_PASSWORD':'test-only'}),f'{image_prefix}/user-service:{image_tag}')
  wait(user,['curl','--fail','--silent','http://127.0.0.1:8081/health'])
- start(payment,'--network','container:'+user,*options({**common,'STRIPE_SECRET_KEY':'sk_test_local_fixture','STRIPE_WEBHOOK_SECRET':'whsec_local_fixture'}),f'{image_prefix}/payment-service:{image_tag}')
+ start(payment,'--network','container:'+user,*options({**common,'PAYMENTS_ENABLED':'false'}),f'{image_prefix}/payment-service:{image_tag}')
  wait(payment,['curl','--fail','--silent','http://127.0.0.1:8082/health'])
  start(frontend,'--network','container:'+user,'-e','USER_SERVICE_HOST=localhost','-e','PAYMENT_SERVICE_HOST=localhost',f'{image_prefix}/frontend:{image_tag}')
  wait(frontend,['wget','--quiet','--tries=1','--spider','http://127.0.0.1/'])
@@ -55,8 +55,6 @@ try:
  assert status=='404',status
  flags=json.loads(docker('exec',user,'curl','--fail','--silent','http://127.0.0.1/user-service/features').stdout)
  assert flags=={'tipPoolsEnabled':False}
- quote=json.loads(docker('exec',user,'curl','--fail','--silent','http://127.0.0.1/payment-service/tips/'+str(uuid.uuid4())+'/quote?amountMinor=500').stdout)
- assert quote['tipAmountMinor']==500
  count=docker('exec',pg,'psql','-U','postgres','-d','tipsterdb','-At','-c',"SELECT count(*) FROM user_mgmt.payment_url_pool WHERE payment_url LIKE 'https://gratilo.eu/pay/%';").stdout.strip()
  assert count=='100',count
  password='local-test-password'
@@ -67,6 +65,23 @@ try:
  for endpoint in ['user-service/users/me','payment-service/transactions']:
   response=docker('exec',user,'curl','--silent','--fail','-H','Authorization: Bearer '+token,'http://127.0.0.1/'+endpoint,check=False)
   if response.returncode: raise RuntimeError('Authenticated cross-service request failed: '+endpoint)
+ for method,path,body in [
+  ('POST','tips/'+user_id+'/checkout?demo=true',{'tipAmountMinor':500}),
+  ('GET','tips/checkout/confirm?sessionId=disabled',None),
+  ('POST','connect-account/onboarding/start',{}),
+  ('POST','connect-account/onboarding/demo-complete',{}),
+  ('POST','connect-account/sync',{}),
+  ('POST','payouts',{'amountMinor':100}),
+  ('POST','transactions',{}),
+  ('POST','transactions/'+str(uuid.uuid4())+'/refund',{}),
+  ('POST','webhooks/stripe',{})]:
+  args=['curl','--silent','--output','/dev/null','--write-out','%{http_code}','-X',method,'-H','Authorization: Bearer '+token,'-H','Content-Type: application/json']
+  if body is not None: args+=['-d',json.dumps(body)]
+  status=docker('exec',user,*args,'http://127.0.0.1/payment-service/'+path).stdout
+  assert status=='503',(method,path,status)
+ tx_count=docker('exec',pg,'psql','-U','postgres','-d','tipsterdb','-At','-c','SELECT count(*) FROM payment_mgmt.transactions;').stdout.strip()
+ assert tx_count=='0',tx_count
+ print('Payments disabled: checkout, onboarding, webhooks, payouts and ledger writes blocked; zero transactions.')
  print('Authentication: seeded test user can log in and access both services with the same JWT.')
  print('Shared network namespace: all three containers healthy; frontend and both proxied APIs respond.')
  print('PostgreSQL 15: both Liquibase changelogs applied; all 100 payment URLs migrated to gratilo.eu.')
