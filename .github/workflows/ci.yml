@@ -1,5 +1,6 @@
 name: Gratilo CI
 'on':
+  workflow_call:
   pull_request:
     branches:
     - main
@@ -10,6 +11,19 @@ permissions:
   contents: read
   pull-requests: read
 jobs:
+  pipeline-validation:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Test deployment tooling without AWS access
+      run: python3 -m unittest discover -s deployment/tests -v
+    - name: Validate workflows
+      uses: docker://rhysd/actionlint:1.7.7
+      with:
+        args: -color
   unit-tests:
     uses: ./.github/workflows/002_unit_tests.yml
   sonarqube:
@@ -30,3 +44,17 @@ jobs:
     if: ${{ needs.unit-tests.result == 'success' }}
     uses: ./.github/workflows/004_b_trivy.yml
     secrets: inherit
+  required-checks:
+    if: always()
+    needs: [pipeline-validation, unit-tests, sonarqube, trivy]
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Enforce all required checks
+      env:
+        VALIDATION: ${{ needs.pipeline-validation.result }}
+        TESTS: ${{ needs.unit-tests.result }}
+        SECURITY: ${{ needs.trivy.result }}
+        SONAR: ${{ needs.sonarqube.result }}
+      run: |
+        [[ "$VALIDATION" == success && "$TESTS" == success && "$SECURITY" == success ]]
+        [[ "$SONAR" == success || "$SONAR" == skipped ]]

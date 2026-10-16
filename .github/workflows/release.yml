@@ -1,86 +1,45 @@
-name: Release (Create Tag)
-'on':
+name: Gratilo Sandbox Image Release
+on:
   workflow_dispatch:
     inputs:
-      release_type:
-        description: Select release type
+      confirmation:
+        description: 'To request ECR publication approval, type: PUBLISH gratilo-sandbox'
         required: true
-        type: choice
-        options:
-        - patch
-        - minor
-        - major
+        type: string
 permissions:
-  contents: write
-  packages: write
+  contents: read
+  pull-requests: read
+concurrency:
+  group: gratilo-production-release
+  cancel-in-progress: false
 jobs:
-  create-tag:
-    uses: ./.github/workflows/006_release_tag.yml
-    with:
-      release_type: ${{ inputs.release_type }}
-  build-and-push-ecr:
-    name: Build and Push ECR Images
-    needs: create-tag
-    strategy:
-      matrix:
-        service:
-        - frontend
-        - user-service
-        - payment-service
+  authorize-request:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Require explicit opt-in
+      env:
+        ENABLED: ${{ vars.ECR_PUBLISH_ENABLED }}
+        CONFIRMATION: ${{ inputs.confirmation }}
+      run: |
+        [[ "$ENABLED" == true ]] || { echo 'Set repository variable ECR_PUBLISH_ENABLED=true only after manual AWS/GitHub setup.' >&2; exit 1; }
+        [[ "$CONFIRMATION" == 'PUBLISH gratilo-sandbox' ]] || { echo 'Explicit deployment confirmation is missing.' >&2; exit 1; }
+  ci:
+    needs: authorize-request
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+  images:
+    needs: ci
+    permissions:
+      contents: read
     uses: ./.github/workflows/005_docker_build.yml
     with:
-      service: ${{ matrix.service }}
-      registry: ecr
-      aws_region: ${{ vars.AWS_REGION || 'eu-central-1' }}
-      aws_account_id: ${{ vars.AWS_ACCOUNT_ID }}
-      image_tag: ${{ needs.create-tag.outputs.version }}
-      push_latest: true
-    secrets: inherit
-  deploy-frontend-prd:
-    name: Deploy Frontend PRD
-    needs:
-    - create-tag
-    - build-and-push-ecr
+      upload_artifacts: true
+  deploy:
+    needs: images
+    permissions:
+      contents: read
+      id-token: write
     uses: ./.github/workflows/007_deploy_ecs.yml
     with:
-      cluster: gratilo-cluster
-      service_name: gratilo-prd-frontend
-      task_definition_family: gratilo-prd-frontend
-      container_name: frontend
-      image: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION || 'eu-central-1' }}.amazonaws.com/gratilo/frontend:${{ needs.create-tag.outputs.version }}
-      aws_region: ${{ vars.AWS_REGION || 'eu-central-1' }}
-      production: true
-    secrets: inherit
-  deploy-user-service-prd:
-    name: Deploy User Service PRD
-    needs:
-    - create-tag
-    - build-and-push-ecr
-    uses: ./.github/workflows/007_deploy_ecs.yml
-    with:
-      cluster: gratilo-cluster
-      service_name: gratilo-prd-user-service
-      task_definition_family: gratilo-prd-user-service
-      container_name: user-service
-      image: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION || 'eu-central-1' }}.amazonaws.com/gratilo/user-service:${{ needs.create-tag.outputs.version }}
-      aws_region: ${{ vars.AWS_REGION || 'eu-central-1' }}
-      production: true
-    secrets: inherit
-  deploy-payment-service-prd:
-    name: Deploy Payment Service PRD
-    needs:
-    - create-tag
-    - build-and-push-ecr
-    uses: ./.github/workflows/007_deploy_ecs.yml
-    with:
-      cluster: gratilo-cluster
-      service_name: gratilo-prd-payment-service
-      task_definition_family: gratilo-prd-payment-service
-      container_name: payment-service
-      image: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION || 'eu-central-1' }}.amazonaws.com/gratilo/payment-service:${{ needs.create-tag.outputs.version }}
-      aws_region: ${{ vars.AWS_REGION || 'eu-central-1' }}
-      production: true
-    secrets: inherit
-concurrency:
-  group: gratilo-release
-  cancel-in-progress: false
+      image_tag: ${{ needs.images.outputs.image_tag }}

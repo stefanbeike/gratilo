@@ -1,15 +1,58 @@
+app:
+  email:
+    general-from: ${MAIL_GENERAL_FROM_EMAIL:info@gratilo.eu}
+
 frontend:
-  base-url: https://gratilo.de
+  base-url: https://gratilo.eu
 
 micronaut:
+  security:
+    token:
+      jwt:
+        signatures:
+          secret:
+            validation:
+              secret: ${JWT_SECRET}
+  email:
+    from:
+      email: ${MAIL_FROM_EMAIL:noreply@gratilo.eu}
+      name: ${MAIL_FROM_NAME:Gratilo}
   server:
     cors:
       configurations:
         default:
           allowed-origins:
-            - https://gratilo.de
+            - https://gratilo.eu
+
+javamail:
+  authentication:
+    enabled: true
+    username: ${JAVAMAIL_AUTHENTICATION_USERNAME}
+    password: ${JAVAMAIL_AUTHENTICATION_PASSWORD}
+  properties:
+    mail.smtp.host: ${MAIL_HOST:email-smtp.eu-central-1.amazonaws.com}
+    mail.smtp.port: ${MAIL_PORT:587}
+    mail.smtp.auth: "true"
+    mail.smtp.starttls.enable: "true"
+    mail.smtp.starttls.required: "true"
+    mail.smtp.ssl.enable: "false"
+    mail.smtp.ssl.checkserveridentity: "true"
+    mail.debug: "false"
 
 liquibase:
   datasources:
     default:
       contexts: prd
+
+security:
+  jwt:
+    secret: ${JWT_SECRET}
+
+internal:
+  api-key: ${INTERNAL_API_KEY}
+
+datasources:
+  default:
+    url: ${DATASOURCES_DEFAULT_URL}
+    username: ${DATASOURCES_DEFAULT_USERNAME}
+    password: ${DATASOURCES_DEFAULT_PASSWORD}

@@ -3,7 +3,7 @@ name: Gratilo Tests and Frontend Build
   workflow_call: null
 jobs:
   unit-tests:
-    runs-on: self-hosted
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:

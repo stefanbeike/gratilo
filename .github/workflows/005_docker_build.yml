@@ -1,81 +1,125 @@
-name: Build & Push Images
+name: Build and scan Gratilo images
 'on':
   workflow_call:
     inputs:
-      service:
-        required: true
-        type: string
-      registry:
-        required: false
-        type: string
-        default: ghcr
-      image_tag:
-        required: false
-        type: string
-        default: ''
-      push_latest:
-        required: false
+      upload_artifacts:
         type: boolean
         default: false
-      aws_region:
-        required: false
-        type: string
-        default: eu-central-1
-      aws_account_id:
-        required: false
-        type: string
-        default: ''
-      push:
-        type: boolean
-        default: true
+    outputs:
+      image_tag:
+        value: ${{ jobs.build.outputs.image_tag }}
 jobs:
   build:
-    # AWS publishing is disabled; infrastructure is managed locally via AWS_PROFILE.
-    if: ${{ inputs.registry != 'ecr' || !inputs.push }}
-    runs-on: self-hosted
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      image_tag: ${{ steps.version.outputs.tag }}
     steps:
     - uses: actions/checkout@v4
-    - name: Resolve image
-      run: |-
-        case "$SERVICE" in frontend|user-service|payment-service) ;; *) exit 1;; esac
-        case "$REGISTRY" in ghcr|ecr) ;; *) exit 1;; esac
-        VERSION="${IMAGE_TAG:-${GITHUB_REF_NAME}}"
-        if [[ -z "$IMAGE_TAG" && "$GITHUB_REF" != refs/tags/* ]]; then VERSION="sha-${GITHUB_SHA}"; fi
-        [[ "$VERSION" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]] || exit 1
-        if [[ "$REGISTRY" == ecr ]]; then
-          IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/gratilo/$SERVICE"
-        else
-          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/gratilo-$SERVICE"
-        fi
-        echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
-        echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-    - uses: docker/login-action@v3
-      if: ${{ inputs.push && inputs.registry == 'ghcr' }}
       with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    - name: Build image
+        persist-credentials: false
+    - name: Resolve immutable version
+      id: version
+      run: echo "tag=sha-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+    - uses: docker/setup-buildx-action@v3
+    - name: Build frontend
+      uses: docker/build-push-action@v6
+      with:
+        context: ./frontend
+        file: frontend/Dockerfile
+        platforms: linux/amd64
+        pull: true
+        load: true
+        push: false
+        provenance: false
+        tags: gratilo/frontend:${{ steps.version.outputs.tag }}
+        cache-from: type=gha,scope=frontend
+        cache-to: type=gha,mode=max,scope=frontend
+        build-args: |
+          VITE_STRIPE_PUBLISHABLE_KEY=${{ vars.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_TEST_ONLY=${{ inputs.upload_artifacts }}
+    - name: Scan frontend
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        version: v0.76.0
+        image-ref: gratilo/frontend:${{ steps.version.outputs.tag }}
+        scanners: vuln,secret
+        format: table
+        severity: HIGH,CRITICAL
+        exit-code: '1'
+        ignore-unfixed: false
+        cache-dir: ${{ runner.temp }}/trivy-cache
+        timeout: 15m
+    - name: Build user-service
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: backend/user-service/Dockerfile
+        platforms: linux/amd64
+        pull: true
+        load: true
+        push: false
+        provenance: false
+        tags: gratilo/user-service:${{ steps.version.outputs.tag }}
+        cache-from: type=gha,scope=user-service
+        cache-to: type=gha,mode=max,scope=user-service
+    - name: Scan user-service
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        version: v0.76.0
+        image-ref: gratilo/user-service:${{ steps.version.outputs.tag }}
+        scanners: vuln,secret
+        format: table
+        severity: HIGH,CRITICAL
+        exit-code: '1'
+        ignore-unfixed: false
+        cache-dir: ${{ runner.temp }}/trivy-cache
+        timeout: 15m
+    - name: Build payment-service
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: backend/payment-service/Dockerfile
+        platforms: linux/amd64
+        pull: true
+        load: true
+        push: false
+        provenance: false
+        tags: gratilo/payment-service:${{ steps.version.outputs.tag }}
+        cache-from: type=gha,scope=payment-service
+        cache-to: type=gha,mode=max,scope=payment-service
+    - name: Scan payment-service
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        version: v0.76.0
+        image-ref: gratilo/payment-service:${{ steps.version.outputs.tag }}
+        scanners: vuln,secret
+        format: table
+        severity: HIGH,CRITICAL
+        exit-code: '1'
+        ignore-unfixed: false
+        cache-dir: ${{ runner.temp }}/trivy-cache
+        timeout: 15m
+    - name: Smoke test shared task with PostgreSQL 15
       env:
-        STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_PUBLISHABLE_KEY }}
+        IMAGE_TAG: ${{ steps.version.outputs.tag }}
+      run: python3 deployment/scripts/smoke_containers.py
+    - name: Save scanned images
+      if: inputs.upload_artifacts
+      env:
+        IMAGE_TAG: ${{ steps.version.outputs.tag }}
       run: |-
-        if [[ "$SERVICE" == frontend ]]; then
-          docker build --build-arg "VITE_STRIPE_PUBLISHABLE_KEY=$STRIPE_PUBLISHABLE_KEY" -t "$IMAGE:$VERSION" ./frontend
-        else
-          docker build -f "backend/$SERVICE/Dockerfile" -t "$IMAGE:$VERSION" .
-        fi
-    - name: Push image
-      if: ${{ inputs.push }}
-      run: |-
-        docker push "$IMAGE:$VERSION"
-        if [[ "$PUSH_LATEST" == true ]]; then
-          docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
-          docker push "$IMAGE:latest"
-        fi
-    env:
-      SERVICE: ${{ inputs.service }}
-      REGISTRY: ${{ inputs.registry }}
-      IMAGE_TAG: ${{ inputs.image_tag }}
-      AWS_ACCOUNT_ID: ${{ inputs.aws_account_id }}
-      AWS_REGION: ${{ inputs.aws_region }}
-      PUSH_LATEST: ${{ inputs.push_latest }}
+        mkdir -p "$RUNNER_TEMP/gratilo-images"
+        for service in frontend user-service payment-service; do
+          docker save "gratilo/$service:$IMAGE_TAG" -o "$RUNNER_TEMP/gratilo-images/$service.tar"
+        done
+    - uses: actions/upload-artifact@v4
+      if: inputs.upload_artifacts
+      with:
+        name: scanned-images-${{ steps.version.outputs.tag }}
+        path: ${{ runner.temp }}/gratilo-images/*.tar
+        retention-days: 1
+        compression-level: 0
+        if-no-files-found: error

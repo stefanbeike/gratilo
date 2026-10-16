@@ -1,0 +1,22 @@
+{
+  "name": "user-service",
+  "environment": [
+    { "name": "MICRONAUT_ENVIRONMENTS", "value": "prd" },
+    { "name": "APP_NAME", "value": "Gratilo" },
+    { "name": "MAIL_FROM_NAME", "value": "Gratilo" },
+    { "name": "MAIL_FROM_EMAIL", "value": "noreply@gratilo.eu" },
+    { "name": "MAIL_GENERAL_FROM_EMAIL", "value": "info@gratilo.eu" },
+    { "name": "MAIL_HOST", "value": "email-smtp.eu-central-1.amazonaws.com" },
+    { "name": "MAIL_PORT", "value": "587" }
+  ],
+  "secrets": [
+    {
+      "name": "JAVAMAIL_AUTHENTICATION_USERNAME",
+      "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/smtp-<ACTUAL_SUFFIX>:username::"
+    },
+    {
+      "name": "JAVAMAIL_AUTHENTICATION_PASSWORD",
+      "valueFrom": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/smtp-<ACTUAL_SUFFIX>:password::"
+    }
+  ]
+}

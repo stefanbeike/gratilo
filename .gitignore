@@ -44,3 +44,11 @@ Thumbs.db
 
 # Human-readable Terraform plans may contain sensitive infrastructure data.
 **/deployment-plan.txt
+
+# Python deployment-tool caches
+__pycache__/
+*.pyc
+
+# Local scanner databases
+.cache/trivy/
+.trivy-cache/

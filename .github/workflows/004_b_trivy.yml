@@ -4,35 +4,32 @@ name: Trivy Security Scan
     secrets: {}
 jobs:
   trivy:
-    runs-on: self-hosted
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-    env:
-      TRIVY_CACHE_DIR: ${{ github.workspace }}/.trivy-cache
     steps:
     - uses: actions/checkout@v4
-    - name: Cache Trivy DB & cache
-      uses: actions/cache@v4
-      with:
-        path: .trivy-cache
-        key: trivy-${{ runner.os }}
-        restore-keys: |
-          trivy-${{ runner.os }}-
     - name: Trivy FS scan (vulns + secrets)
-      uses: aquasecurity/trivy-action@v0.20.0
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
+        version: v0.76.0
         scan-type: fs
         scan-ref: .
-        security-checks: vuln,secret
+        scanners: vuln,secret
         format: table
         exit-code: '1'
         severity: CRITICAL,HIGH
-        ignore-unfixed: true
+        ignore-unfixed: false
+        cache-dir: ${{ runner.temp }}/trivy-cache
+        timeout: 15m
     - name: Trivy config scan (misconfig)
-      uses: aquasecurity/trivy-action@v0.20.0
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
+        version: v0.76.0
         scan-type: config
         scan-ref: .
         format: table
         exit-code: '1'
         severity: CRITICAL,HIGH
+        cache-dir: ${{ runner.temp }}/trivy-cache
+        timeout: 15m

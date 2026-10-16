@@ -1,3 +1,6 @@
+features:
+  tip-pools-enabled: ${FEATURE_TIP_POOLS_ENABLED:false}
+
 frontend:
   base-url: ${FRONTEND_BASE_URL:`http://localhost:3000`}
 
@@ -25,6 +28,7 @@ micronaut:
         signatures:
           secret:
             validation:
+              jws-algorithm: HS256
               secret: ${JWT_SECRET:local-dev-secret-key-please-change-me-1234567890}
 
 pool:

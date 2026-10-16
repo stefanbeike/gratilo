@@ -1,93 +1,112 @@
-name: Deploy ECS Service
+name: Publish Gratilo sandbox images; ECS deployment disabled
 'on':
   workflow_call:
     inputs:
-      cluster:
-        required: true
+      image_tag:
         type: string
-      service_name:
         required: true
-        type: string
-      task_definition_family:
-        required: true
-        type: string
-      container_name:
-        required: true
-        type: string
-      image:
-        required: true
-        type: string
-      aws_region:
-        required: true
-        type: string
-      production:
-        type: boolean
-        default: false
 jobs:
-  deploy:
-    # Disabled until an explicitly approved deployment/authentication design replaces this job.
-    if: ${{ false }}
-    runs-on: self-hosted
+  publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && vars.ECR_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+    outputs:
+      frontend_image: ${{ steps.publish.outputs.frontend_image }}
+      user_service_image: ${{ steps.publish.outputs.user_service_image }}
+      payment_service_image: ${{ steps.publish.outputs.payment_service_image }}
     steps:
-    - name: Download current task definition
-      run: |
-        aws ecs describe-task-definition \
-          --task-definition "${{ inputs.task_definition_family }}" \
-          --region "${{ inputs.aws_region }}" \
-          --query taskDefinition \
-          > task-definition.json
-    - name: Render new task definition
-      run: |
-        jq --arg CONTAINER_NAME "$CONTAINER_NAME" --arg IMAGE "$IMAGE" --argjson PRODUCTION "$PRODUCTION" '
-          def productionEnvironment:
-            if .name == "user-service" or .name == "payment-service" then
-              [{name: "MICRONAUT_ENVIRONMENTS", value: "prd"},
-               {name: "FRONTEND_BASE_URL", value: "https://gratilo.de"}]
-              + (if .name == "payment-service" then
-                  [{name: "STRIPE_SUCCESS_URL", value: "https://gratilo.de/pay/success?session_id={CHECKOUT_SESSION_ID}"},
-                   {name: "STRIPE_CANCEL_URL", value: "https://gratilo.de/pay/cancelled"}]
-                 else [] end)
-            else [] end;
-          if any(.containerDefinitions[]; .name == $CONTAINER_NAME) then
-            .containerDefinitions |= map(
-              if .name == $CONTAINER_NAME then
-                .image = $IMAGE
-                | if $PRODUCTION then
-                    productionEnvironment as $overrides
-                    | ($overrides | map(.name)) as $keys
-                    | .environment = ([ (.environment // [])[] | select(.name as $key | $keys | index($key) | not) ] + $overrides)
-                    | .secrets = [(.secrets // [])[] | select(.name as $key | $keys | index($key) | not)]
-                  else . end
-              else . end)
-          else error("Container not found in task definition") end
-          | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
-        ' task-definition.json > new-task-definition.json
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Validate production configuration
       env:
-        PRODUCTION: ${{ inputs.production }}
-        CONTAINER_NAME: ${{ inputs.container_name }}
-        IMAGE: ${{ inputs.image }}
-    - name: Register new task definition revision
-      id: register-task-definition
+        AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_PUBLISHABLE_KEY }}
+      run: |-
+        [[ "$AWS_REGION" == eu-central-1 && "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]
+        [[ "$AWS_DEPLOY_ROLE_ARN" == "arn:aws:iam::$AWS_ACCOUNT_ID:role/"* ]]
+        [[ "$STRIPE_PUBLISHABLE_KEY" == pk_test_* ]] || { echo 'Set repository STRIPE_PUBLISHABLE_KEY to the test publishable key before production.' >&2; exit 1; }
+    - uses: actions/download-artifact@v4
+      with:
+        name: scanned-images-${{ inputs.image_tag }}
+        path: ${{ runner.temp }}/gratilo-images
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+        role-session-name: gratilo-publish-${{ github.run_id }}
+        unset-current-credentials: true
+    - name: Verify AWS account
+      run: '[[ "$(aws sts get-caller-identity --query Account --output text)" == "$AWS_ACCOUNT_ID" ]]'
+    - uses: aws-actions/amazon-ecr-login@v2
+    - name: Publish scanned artifacts and resolve digests
+      id: publish
+      run: |-
+        set -euo pipefail
+        registry="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+        for service in frontend user-service payment-service; do
+          docker load -i "$RUNNER_TEMP/gratilo-images/$service.tar"
+          image="$registry/gratilo/$service:$IMAGE_TAG"
+          docker tag "gratilo/$service:$IMAGE_TAG" "$image"
+          docker push "$image"
+          digest=$(aws ecr describe-images --repository-name "gratilo/$service" --image-ids "imageTag=$IMAGE_TAG" --query 'imageDetails[0].imageDigest' --output text)
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          output_name="${service//-/_}_image"
+          echo "$output_name=$registry/gratilo/$service@$digest" >> "$GITHUB_OUTPUT"
+          echo "$service: $IMAGE_TAG / $digest" >> "$GITHUB_STEP_SUMMARY"
+        done
+  deploy:
+    # ECS resources and service deployments are managed only in the AWS console.
+    if: ${{ false }}
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_PAGER: ''
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+      ECS_TASK_FAMILY: ${{ vars.ECS_TASK_FAMILY }}
+      ECS_TASK_EXECUTION_ROLE_ARN: ${{ vars.ECS_TASK_EXECUTION_ROLE_ARN }}
+      ECS_TASK_ROLE_ARN: ${{ vars.ECS_TASK_ROLE_ARN }}
+      ECS_DESIRED_COUNT: ${{ vars.ECS_DESIRED_COUNT || '1' }}
+      FRONTEND_IMAGE: ${{ needs.publish.outputs.frontend_image }}
+      USER_SERVICE_IMAGE: ${{ needs.publish.outputs.user_service_image }}
+      PAYMENT_SERVICE_IMAGE: ${{ needs.publish.outputs.payment_service_image }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+    - name: Validate required deployment configuration
+      env:
+        AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
       run: |
-        TASK_DEFINITION_ARN=$(aws ecs register-task-definition \
-          --region "${{ inputs.aws_region }}" \
-          --cli-input-json file://new-task-definition.json \
-          --query 'taskDefinition.taskDefinitionArn' \
-          --output text)
-
-        echo "task_definition_arn=$TASK_DEFINITION_ARN" >> "$GITHUB_OUTPUT"
-        echo "Registered task definition: $TASK_DEFINITION_ARN"
-    - name: Update ECS service
-      run: |
-        aws ecs update-service \
-          --cluster "${{ inputs.cluster }}" \
-          --service "${{ inputs.service_name }}" \
-          --task-definition "${{ steps.register-task-definition.outputs.task_definition_arn }}" \
-          --force-new-deployment \
-          --region "${{ inputs.aws_region }}"
-    - name: Wait for service to become stable
-      run: |
-        aws ecs wait services-stable \
-          --cluster "${{ inputs.cluster }}" \
-          --services "${{ inputs.service_name }}" \
-          --region "${{ inputs.aws_region }}"
+        for name in AWS_ACCOUNT_ID AWS_DEPLOY_ROLE_ARN ECS_CLUSTER ECS_SERVICE ECS_TASK_FAMILY ECS_TASK_EXECUTION_ROLE_ARN ECS_TASK_ROLE_ARN; do
+          [[ -n "${!name}" ]] || { echo "Missing production variable: $name" >&2; exit 1; }
+        done
+        [[ "$AWS_REGION" == eu-central-1 && "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]
+        [[ "$AWS_DEPLOY_ROLE_ARN" == "arn:aws:iam::$AWS_ACCOUNT_ID:role/"* ]]
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+        role-session-name: gratilo-deploy-${{ github.run_id }}
+        unset-current-credentials: true
+    - name: Verify AWS account
+      run: '[[ "$(aws sts get-caller-identity --query Account --output text)" == "$AWS_ACCOUNT_ID" ]]'
+    - name: Register all three images, update service and verify rollout
+      run: bash deployment/scripts/deploy_ecs.sh
+    needs: publish

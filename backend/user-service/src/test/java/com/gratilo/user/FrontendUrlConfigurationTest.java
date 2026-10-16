@@ -23,9 +23,9 @@ class FrontendUrlConfigurationTest {
         try (ApplicationContext context = ApplicationContext.builder()
                 .environments("prd").environmentPropertySource(false).build()) {
             context.getEnvironment().start();
-            assertEquals("https://gratilo.de", context.getEnvironment()
+            assertEquals("https://gratilo.eu", context.getEnvironment()
                     .getRequiredProperty("frontend.base-url", String.class));
-            assertEquals("https://gratilo.de", context.getEnvironment()
+            assertEquals("https://gratilo.eu", context.getEnvironment()
                     .getRequiredProperty("micronaut.server.cors.configurations.default.allowed-origins[0]", String.class));
             assertEquals("prd", context.getEnvironment()
                     .getRequiredProperty("liquibase.datasources.default.contexts", String.class));

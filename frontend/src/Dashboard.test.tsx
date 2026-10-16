@@ -1,15 +1,18 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { Dashboard, csvContent, transactions } from './Dashboard'
 const session = { accessToken: 'token', email: 'alex@example.com', userId: '123' }
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 function mount() { return render(<Dashboard session={session} profile={{ email: session.email, firstName: 'Alex', city: 'Berlin' }} onProfile={vi.fn()} onLogout={vi.fn()} />) }
-it('filters transactions and resets empty results', () => {
+it('filters transactions and resets empty results', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, json: async () => url === '/payment-service/transactions'
+    ? transactions.map(item => ({ id: item.id, amountMinor: item.amount * 100, type: item.type === 'Auszahlung' ? 'PAYOUT' : 'TIP', status: 'BOOKED', description: item.note, createdAt: item.date }))
+    : {} })))
   mount(); const table = screen.getByRole('table')
-  expect(within(table).getAllByRole('row')).toHaveLength(9)
+  await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(9))
   fireEvent.click(screen.getByRole('button', { name: 'Auszahlungen' }))
   expect(within(table).getAllByRole('row')).toHaveLength(2)
-  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Sophie' } })
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Unbekannter Eintrag' } })
   expect(screen.getByText('Keine passenden Transaktionen gefunden.')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Filter zurücksetzen' }))
   expect(within(table).getAllByRole('row')).toHaveLength(9)
@@ -29,7 +32,8 @@ it('saves the profile using PUT and preserves existing fields', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Änderungen speichern' }))
   expect(await screen.findByRole('status')).toHaveTextContent('Dein Profil wurde gespeichert.')
   expect(fetch).toHaveBeenCalledWith('/user-service/users/profile', expect.objectContaining({ method: 'PUT', headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' } }))
-  expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ firstName: 'Ada', city: 'Berlin' })
+  const profileCall = fetch.mock.calls.find(([url, options]) => url === '/user-service/users/profile' && options?.method === 'PUT')
+  expect(JSON.parse(profileCall![1].body)).toMatchObject({ firstName: 'Ada', city: 'Berlin' })
 })
 it('exports filtered transactions with German decimals', () => {
   const csv = csvContent(transactions.filter(t => t.type === 'Auszahlung'))

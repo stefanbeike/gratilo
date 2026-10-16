@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class FrontendUrlConfigurationTest {
     @Test
     void usesProductionDomainAndPreservesStripePlaceholder() {
-        assertUrls("prd", "https://gratilo.de");
+        assertUrls("prd", "https://gratilo.eu");
     }
 
     @Test

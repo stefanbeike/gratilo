@@ -1,7 +1,32 @@
 frontend:
-  base-url: https://gratilo.de
+  base-url: https://gratilo.eu
 
 stripe:
-  success-url: "https://gratilo.de/pay/success?session_id={CHECKOUT_SESSION_ID}"
-  cancel-url: https://gratilo.de/pay/cancelled
+  test-only: true
+  secret-key: ${STRIPE_SECRET_KEY}
+  webhook-secret: ${STRIPE_WEBHOOK_SECRET}
+  success-url: "https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}"
+  cancel-url: https://gratilo.eu/pay/cancelled
   sandbox-payouts: true
+  demo-enabled: false
+
+pool:
+  user-service-url: http://localhost:8081
+
+internal:
+  api-key: ${INTERNAL_API_KEY}
+
+micronaut:
+  security:
+    token:
+      jwt:
+        signatures:
+          secret:
+            validation:
+              secret: ${JWT_SECRET}
+
+datasources:
+  default:
+    url: ${DATASOURCES_DEFAULT_URL}
+    username: ${DATASOURCES_DEFAULT_USERNAME}
+    password: ${DATASOURCES_DEFAULT_PASSWORD}
