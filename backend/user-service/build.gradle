@@ -63,3 +63,27 @@ micronaut {
         annotations 'com.gratilo.user.*', 'io.micronaut.liquibase.*'
     }
 }
+
+tasks.register('registrationPostgresTest', Test) {
+    description = 'Runs registration regression tests against an isolated local PostgreSQL instance.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    include '**/RegistrationIntegrationTest.class'
+    // Java 21 containers may prohibit Mockito's dynamic self-attachment.
+    // Use its supported premain agent from the actual resolved test classpath.
+    jvmArgumentProviders.add({
+        def agent = classpath.files.find { it.name.startsWith('mockito-core-') && it.name.endsWith('.jar') }
+        if (agent == null) {
+            throw new GradleException('Mockito test agent not found')
+        }
+        ['-javaagent:' + agent.absolutePath]
+    } as org.gradle.process.CommandLineArgumentProvider)
+    inputs.property('databaseUrl', providers.environmentVariable('REGISTRATION_TEST_DATABASE_URL').orElse(''))
+    doFirst {
+        if (!System.getenv('REGISTRATION_TEST_DATABASE_URL')) {
+            throw new GradleException('Run via python3 deployment/scripts/test_registration_postgres.py')
+        }
+    }
+}

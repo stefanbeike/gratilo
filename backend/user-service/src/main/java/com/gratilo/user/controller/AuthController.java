@@ -50,6 +50,18 @@ public class AuthController {
                 .orElseGet(HttpResponse::unauthorized);
     }
 
+    @Post("/verification/resend")
+    public HttpResponse<UserResponses.Message> resendVerification(@Body @Valid UserRequests.Login request) {
+        userRepository.findByEmail(request.email().toLowerCase(java.util.Locale.ROOT))
+                .filter(user -> user.getDeletedAt() == null && !user.isEmailVerified())
+                .filter(user -> BCrypt.checkpw(request.password(), user.getPasswordHash()))
+                .ifPresent(user -> emailVerificationService.resend(user.getId()));
+        return HttpResponse.<UserResponses.Message>accepted().body(new UserResponses.Message(
+                "Wenn die Zugangsdaten stimmen und die E-Mail-Adresse noch nicht bestätigt ist, "
+                        + "senden wir eine Bestätigungs-E-Mail. Nach einem Versand ist dies "
+                        + "frühestens nach einer Minute erneut möglich."));
+    }
+
     @Get("/verify")
     public HttpResponse<UserResponses.Message> verify(@QueryValue String token) {
         if (emailVerificationService.verify(token)) {

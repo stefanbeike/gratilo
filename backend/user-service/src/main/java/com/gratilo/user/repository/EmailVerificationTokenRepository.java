@@ -11,5 +11,7 @@ import java.util.UUID;
 public interface EmailVerificationTokenRepository extends CrudRepository<EmailVerificationTokenEntity, UUID> {
     Optional<EmailVerificationTokenEntity> findByToken(String token);
 
+    Optional<EmailVerificationTokenEntity> findFirstByUserIdOrderByExpiresAtDesc(UUID userId);
+
     long deleteByUserId(UUID userId);
 }

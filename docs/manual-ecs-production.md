@@ -244,8 +244,10 @@ vollständiger Stripe-Test-Zahlungsfluss bleibt ein separat freizugebender Test.
 Öffentliche Registrierungen/Passwort-Resets können nach einem späteren Start
 reale SES-E-Mails auslösen.
 
-Das vorhandene Hilfsskript `aws/ses_smtp_password.py` liest interaktiv über
-getpass, enthält keine festcodierten Zugangsdaten und wurde weder verändert noch
-ausgeführt. Es gibt ein abgeleitetes SMTP-Passwort bei manueller Ausführung auf
-stdout aus: nicht in CI, protokollierten Terminals oder mit Log-Umleitung nutzen.
-Es wird durch `.dockerignore` vom Image-Build ausgeschlossen.
+Für SMTP-Diagnose und eine ausdrücklich freigegebene Secret-Korrektur
+`deployment/scripts/smtp_secret.py` verwenden; siehe
+[Registrierungs-/SMTP-Fix](registration-smtp-fix.md). Es verwendet verdeckte
+Eingaben, prüft STARTTLS/AUTH ohne Mailversand und gibt keine Zugangsdaten aus.
+Das ältere `aws/ses_smtp_password.py` gibt ein Passwort auf stdout aus und
+soll dafür nicht verwendet werden. Es wurde nicht ausgeführt und bleibt durch
+`.dockerignore` vom Image-Build ausgeschlossen.

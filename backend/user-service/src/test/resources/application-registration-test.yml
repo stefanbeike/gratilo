@@ -1,0 +1,23 @@
+datasources:
+  default:
+    driver-class-name: ${REGISTRATION_TEST_DATABASE_DRIVER:org.h2.Driver}
+    dialect: ${REGISTRATION_TEST_DATABASE_DIALECT:H2}
+    username: ${REGISTRATION_TEST_DATABASE_USERNAME:sa}
+    password: ${REGISTRATION_TEST_DATABASE_PASSWORD:}
+
+jpa:
+  default:
+    properties:
+      hibernate:
+        hbm2ddl:
+          auto: ${REGISTRATION_TEST_SCHEMA_ACTION:create-drop}
+
+liquibase:
+  enabled: ${REGISTRATION_TEST_LIQUIBASE:false}
+  datasources:
+    default:
+      enabled: ${REGISTRATION_TEST_LIQUIBASE:false}
+
+logger:
+  levels:
+    ROOT: WARN

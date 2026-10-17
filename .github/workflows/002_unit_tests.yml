@@ -20,6 +20,8 @@ jobs:
         cache-dependency-path: frontend/package-lock.json
     - name: Backend tests and frontend tests/build
       run: bash ./gradlew :backend:user-service:test :backend:payment-service:test :frontend:check :frontend:build --no-daemon
+    - name: Registration regression with isolated PostgreSQL 15 and mocked SMTP
+      run: python3 deployment/scripts/test_registration_postgres.py
     - uses: actions/upload-artifact@v4
       if: always()
       with:

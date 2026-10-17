@@ -5,10 +5,10 @@ import { api, type Session } from './api'
 import { prepareProfileImage } from './profileImage'
 import { Dashboard, DemoPayment, PoolInvitation, PoolInvitationLogin, type Profile } from './Dashboard'
 
-type Page = 'login' | 'register' | 'forgot' | 'reset' | 'verify'
-const pages: Record<string, Page> = { '/register': 'register', '/forgot-password': 'forgot', '/reset-password': 'reset', '/auth/verify': 'verify' }
-const titles = { login: 'Schön, dass du da bist.', register: 'Dein Danke beginnt hier.', forgot: 'Passwort vergessen?', reset: 'Ein neuer Anfang.', verify: 'E-Mail bestätigen.' }
-const descriptions = { login: 'Melde dich an und mach Wertschätzung einfach.', register: 'Erstelle dein Konto und werde Teil von Gratilo.', forgot: 'Kein Problem. Wir schicken dir einen Link zum Zurücksetzen.', reset: 'Wähle ein neues, sicheres Passwort für dein Konto.', verify: 'Bestätige deine E-Mail-Adresse, um dein Konto zu aktivieren.' }
+type Page = 'login' | 'register' | 'forgot' | 'reset' | 'verify' | 'resend'
+const pages: Record<string, Page> = { '/register': 'register', '/forgot-password': 'forgot', '/reset-password': 'reset', '/auth/verify': 'verify', '/resend-verification': 'resend' }
+const titles = { login: 'Schön, dass du da bist.', register: 'Dein Danke beginnt hier.', forgot: 'Passwort vergessen?', reset: 'Ein neuer Anfang.', verify: 'E-Mail bestätigen.', resend: 'Bestätigung erneut senden.' }
+const descriptions = { login: 'Melde dich an und mach Wertschätzung einfach.', register: 'Erstelle dein Konto und werde Teil von Gratilo.', forgot: 'Kein Problem. Wir schicken dir einen Link zum Zurücksetzen.', reset: 'Wähle ein neues, sicheres Passwort für dein Konto.', verify: 'Bestätige deine E-Mail-Adresse, um dein Konto zu aktivieren.', resend: 'Gib die E-Mail-Adresse und das Passwort deines noch unbestätigten Kontos ein.' }
 const passwordRule = /^(?=.*\p{Ll})(?=.*\p{Lu})(?=.*[^\p{L}\p{N}\s])\S{8,}$/u
 
 export function App() {
@@ -59,6 +59,8 @@ export function App() {
         setSuccess('Fast geschafft! Öffne die E-Mail von Gratilo und bestätige deine E-Mail-Adresse. Danach kannst du dich anmelden.')
       } else if (page === 'forgot') {
         const result = await api('/auth/password-reset/request', { email }); setSuccess(result.message)
+      } else if (page === 'resend') {
+        const result = await api('/auth/verification/resend', { email, password }); setSuccess(result.message)
       } else {
         const token = new URLSearchParams(location.search).get('token')
         if (!token) throw new Error('In diesem Link fehlt der Token. Bitte öffne den vollständigen Link aus deiner E-Mail.')
@@ -93,12 +95,13 @@ export function App() {
           <fieldset disabled={busy || imageBusy}>
             {page === 'register' && <div className="profile-image-picker"><div className="profile-image-preview">{profileImage ? <img src={profileImage} alt="Vorschau deines Profilbilds" /> : <span aria-hidden="true">♙</span>}</div><div><label htmlFor="profile-image">Profilbild <span>(optional)</span></label><input id="profile-image" type="file" accept="image/jpeg,image/png,image/webp" onChange={async event => { const file = event.target.files?.[0]; event.target.value = ''; if (!file) return; setImageBusy(true); setError(''); try { setProfileImage(await prepareProfileImage(file)) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Das Bild konnte nicht geladen werden.') } finally { setImageBusy(false) } }} /><p className="hint">{imageBusy ? 'Bild wird vorbereitet …' : 'JPG, PNG oder WebP · bis 5 MB · quadratischer Ausschnitt'}</p>{profileImage && <button type="button" className="text-button" onClick={() => setProfileImage(null)}>Bild entfernen</button>}</div></div>}
             {page === 'register' && <div className="name-fields"><label>Vorname <span>(optional)</span><input name="firstName" autoComplete="given-name" placeholder="Alex" /></label><label>Nachname <span>(optional)</span><input name="lastName" autoComplete="family-name" placeholder="Muster" /></label></div>}
-            {['login', 'register', 'forgot'].includes(page) && <label>E-Mail-Adresse<input name="email" type="email" autoComplete="email" placeholder="du@beispiel.de" required maxLength={254} /></label>}
-            {['login', 'register', 'reset'].includes(page) && <><label htmlFor="password">{page === 'reset' ? 'Neues Passwort' : 'Passwort'}</label><div className="password-field"><input id="password" name="password" type={showPassword ? 'text' : 'password'} autoComplete={page === 'login' ? 'current-password' : 'new-password'} required aria-describedby={page !== 'login' ? 'password-hint' : undefined} placeholder="Dein sicheres Passwort" /><button className="reveal" type="button" aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? 'Verbergen' : 'Anzeigen'}</button></div></>}
+            {['login', 'register', 'forgot', 'resend'].includes(page) && <label>E-Mail-Adresse<input name="email" type="email" autoComplete="email" placeholder="du@beispiel.de" required maxLength={254} /></label>}
+            {['login', 'register', 'reset', 'resend'].includes(page) && <><label htmlFor="password">{page === 'reset' ? 'Neues Passwort' : 'Passwort'}</label><div className="password-field"><input id="password" name="password" type={showPassword ? 'text' : 'password'} autoComplete={page === 'login' || page === 'resend' ? 'current-password' : 'new-password'} required aria-describedby={page === 'register' || page === 'reset' ? 'password-hint' : undefined} placeholder="Dein sicheres Passwort" /><button className="reveal" type="button" aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? 'Verbergen' : 'Anzeigen'}</button></div></>}
             {(page === 'register' || page === 'reset') && <><p id="password-hint" className="hint">Mindestens 8 Zeichen, Groß- und Kleinbuchstaben und ein Sonderzeichen. Keine Leerzeichen.</p><label>Passwort wiederholen<input name="confirmPassword" type={showPassword ? 'text' : 'password'} autoComplete="new-password" required placeholder="Noch einmal zur Sicherheit" /></label></>}
             {page === 'login' && <div className="forgot-link">{link('/forgot-password', 'Passwort vergessen?')}</div>}
+            {page === 'login' && <div className="forgot-link">{link('/resend-verification', 'Bestätigungs-E-Mail erneut anfordern')}</div>}
             {page === 'register' && <><details className="legal"><summary>Test-AGB & Datenschutzhinweis lesen</summary><p>Diese lokale Demo dient ausschließlich zum Testen der Kontofunktionen. E-Mail-Adresse, Passwort (als Hash) und freiwillige Profildaten werden im User-Service gespeichert. E-Mails werden in der lokalen Testumgebung über MailHog bereitgestellt. Keine echten Zahlungsfunktionen. Diese Testtexte müssen vor einem öffentlichen Betrieb ersetzt werden.</p></details><label className="checkbox"><input type="checkbox" required /> <span>Ich akzeptiere die Test-AGB und habe den Datenschutzhinweis gelesen.</span></label><label className="checkbox"><input type="checkbox" name="newsletter" /><span>Ich möchte Neuigkeiten von Gratilo erhalten. <span>(optional)</span></span></label></>}
-            <button className="primary" type="submit">{busy ? 'Einen Moment …' : { login: 'Anmelden', register: 'Konto erstellen', forgot: 'Link anfordern', reset: 'Passwort speichern', verify: 'E-Mail jetzt bestätigen' }[page]}{!busy && <span aria-hidden="true">→</span>}</button>
+            <button className="primary" type="submit">{busy ? 'Einen Moment …' : { login: 'Anmelden', register: 'Konto erstellen', forgot: 'Link anfordern', reset: 'Passwort speichern', verify: 'E-Mail jetzt bestätigen', resend: 'Bestätigungs-E-Mail senden' }[page]}{!busy && <span aria-hidden="true">→</span>}</button>
           </fieldset>
         </form>}
         {!session && page !== 'login' && !success && <div className="back-link">{link('/login', '← Zurück zur Anmeldung')}</div>}

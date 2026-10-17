@@ -12,9 +12,12 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
+import java.util.UUID;
 
 @Singleton
 public class EmailVerificationService {
+    private static final int TOKEN_VALIDITY_MINUTES = 30;
+    private static final int RESEND_COOLDOWN_SECONDS = 60;
     private final EmailVerificationTokenRepository tokenRepository;
     private final UserRepository userRepository;
     private final EmailSendService emailSendService;
@@ -38,10 +41,31 @@ public class EmailVerificationService {
         EmailVerificationTokenEntity token = new EmailVerificationTokenEntity();
         token.setUser(user);
         token.setToken(randomToken());
-        token.setExpiresAt(Instant.now().plus(30, ChronoUnit.MINUTES));
+        token.setExpiresAt(Instant.now().plus(TOKEN_VALIDITY_MINUTES, ChronoUnit.MINUTES));
         tokenRepository.save(token);
         emailSendService.sendVerificationMail(user.getEmail(),
                 frontendBaseUrl + "/auth/verify?token=" + token.getToken());
+    }
+
+    @Transactional
+    public void resend(UUID userId) {
+        // Serialize concurrent resend requests and recheck account state under the lock.
+        UserEntity user = userRepository.findByIdForUpdate(userId)
+                .filter(value -> value.getDeletedAt() == null && !value.isEmailVerified())
+                .orElse(null);
+        if (user == null) {
+            return;
+        }
+        // Existing tokens have a 30-minute lifetime. Keep a 60-second resend cooldown
+        // without changing the schema or invalidating a token when delivery fails.
+        boolean recentlySent = tokenRepository.findFirstByUserIdOrderByExpiresAtDesc(userId)
+                .filter(token -> !token.isUsed())
+                .map(token -> token.getExpiresAt().minus(TOKEN_VALIDITY_MINUTES, ChronoUnit.MINUTES)
+                        .plus(RESEND_COOLDOWN_SECONDS, ChronoUnit.SECONDS).isAfter(Instant.now()))
+                .orElse(false);
+        if (!recentlySent) {
+            createAndSend(user);
+        }
     }
 
     @Transactional
