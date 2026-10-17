@@ -59,7 +59,7 @@ Passwort-Reset- und Pool-Einladungstokens sind dynamische Anwendungsdaten.
 ### Datenbank und SMTP
 
 ```text
-jdbc:postgresql://<RDS_ENDPOINT>:5432/tipsterdb?sslmode=verify-full&sslrootcert=/app/rds-ca-bundle.pem
+jdbc:postgresql://<RDS_ENDPOINT>:5432/gratilodb?sslmode=verify-full&sslrootcert=/app/rds-ca-bundle.pem
 ```
 
 Beide Images enthalten das offizielle Frankfurt-RDS-CA-Bundle. Benötigte Schemas:
@@ -182,7 +182,7 @@ Manuell in der Konsole prüfen/einrichten:
 - Existenz/Rechte von `gratilo/prd/internal-api` und JWT;
   bestehende DB-/SMTP-Secrets und Schlüsselstruktur bestätigen.
 - Rollen samt Execution Policy, optionale KMS-Rechte, CloudWatch-Loggruppe.
-- RDS PostgreSQL 15 / tipsterdb, Schemas, private SG-Verbindung auf 5432, Backups.
+- RDS PostgreSQL 15 / gratilodb, Schemas, private SG-Verbindung auf 5432, Backups.
 - ECR-Images und geprüfte unveränderliche Tags; keine Stripe-Konfiguration nötig.
 - Cluster `gratilo-prd-cluster`, gemeinsame Task, Service/ALB-Zuordnung frontend:80,
   Target-Typ ip, HTTPS/ACM, DNS gratilo.eu und HTTP-zu-HTTPS-Weiterleitung.

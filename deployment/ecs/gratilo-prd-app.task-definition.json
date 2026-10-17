@@ -141,7 +141,7 @@
         },
         {
           "name": "DATASOURCES_DEFAULT_URL",
-          "value": "jdbc:postgresql://<RDS_ENDPOINT>:5432/tipsterdb?sslmode=verify-full&sslrootcert=/app/rds-ca-bundle.pem"
+          "value": "jdbc:postgresql://<RDS_ENDPOINT>:5432/gratilodb?sslmode=verify-full&sslrootcert=/app/rds-ca-bundle.pem"
         },
         {
           "name": "JAVA_TOOL_OPTIONS",
@@ -236,7 +236,7 @@
         },
         {
           "name": "DATASOURCES_DEFAULT_URL",
-          "value": "jdbc:postgresql://<RDS_ENDPOINT>:5432/tipsterdb?sslmode=verify-full&sslrootcert=/app/rds-ca-bundle.pem"
+          "value": "jdbc:postgresql://<RDS_ENDPOINT>:5432/gratilodb?sslmode=verify-full&sslrootcert=/app/rds-ca-bundle.pem"
         },
         {
           "name": "JAVA_TOOL_OPTIONS",

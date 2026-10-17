@@ -32,12 +32,12 @@ def wait(name,command):
 
 try:
  docker('network','create','--internal',network);created_network=True
- start(pg,'--network',network,'-e','POSTGRES_DB=tipsterdb','-e','POSTGRES_PASSWORD=local-test-only','postgres:15')
+ start(pg,'--network',network,'-e','POSTGRES_DB=gratilodb','-e','POSTGRES_PASSWORD=local-test-only','postgres:15')
  # The initialization server accepts Unix sockets before POSTGRES_DB exists.
  # TCP is enabled only after initialization has completed.
- wait(pg,['pg_isready','-h','127.0.0.1','-U','postgres','-d','tipsterdb'])
- docker('exec',pg,'psql','-U','postgres','-d','tipsterdb','-c','CREATE SCHEMA user_mgmt; CREATE SCHEMA payment_mgmt;')
- common={'MICRONAUT_ENVIRONMENTS':'prd','DATASOURCES_DEFAULT_URL':f'jdbc:postgresql://{pg}:5432/tipsterdb','DATASOURCES_DEFAULT_USERNAME':'postgres','DATASOURCES_DEFAULT_PASSWORD':'local-test-only','JWT_SECRET':'local-test-only-'+'x'*64,'INTERNAL_API_KEY':'local-test-only-'+'y'*64,'FEATURE_TIP_POOLS_ENABLED':'false'}
+ wait(pg,['pg_isready','-h','127.0.0.1','-U','postgres','-d','gratilodb'])
+ docker('exec',pg,'psql','-U','postgres','-d','gratilodb','-c','CREATE SCHEMA user_mgmt; CREATE SCHEMA payment_mgmt;')
+ common={'MICRONAUT_ENVIRONMENTS':'prd','DATASOURCES_DEFAULT_URL':f'jdbc:postgresql://{pg}:5432/gratilodb','DATASOURCES_DEFAULT_USERNAME':'postgres','DATASOURCES_DEFAULT_PASSWORD':'local-test-only','JWT_SECRET':'local-test-only-'+'x'*64,'INTERNAL_API_KEY':'local-test-only-'+'y'*64,'FEATURE_TIP_POOLS_ENABLED':'false'}
  def options(values):
   result=[]
   for key,value in values.items():result.extend(['-e',key+'='+value])
@@ -55,11 +55,11 @@ try:
  assert status=='404',status
  flags=json.loads(docker('exec',user,'curl','--fail','--silent','http://127.0.0.1/user-service/features').stdout)
  assert flags=={'tipPoolsEnabled':False}
- count=docker('exec',pg,'psql','-U','postgres','-d','tipsterdb','-At','-c',"SELECT count(*) FROM user_mgmt.payment_url_pool WHERE payment_url LIKE 'https://gratilo.eu/pay/%';").stdout.strip()
+ count=docker('exec',pg,'psql','-U','postgres','-d','gratilodb','-At','-c',"SELECT count(*) FROM user_mgmt.payment_url_pool WHERE payment_url LIKE 'https://gratilo.eu/pay/%';").stdout.strip()
  assert count=='100',count
  password='local-test-password'
  user_id=str(uuid.uuid4())
- docker('exec',pg,'psql','-U','postgres','-d','tipsterdb','-c',f"CREATE EXTENSION IF NOT EXISTS pgcrypto; INSERT INTO user_mgmt.users(id,email,password_hash,email_verified) VALUES ('{user_id}','ci@example.invalid',crypt('{password}',gen_salt('bf',4)),true);")
+ docker('exec',pg,'psql','-U','postgres','-d','gratilodb','-c',f"CREATE EXTENSION IF NOT EXISTS pgcrypto; INSERT INTO user_mgmt.users(id,email,password_hash,email_verified) VALUES ('{user_id}','ci@example.invalid',crypt('{password}',gen_salt('bf',4)),true);")
  login=json.loads(docker('exec',user,'curl','--fail','--silent','-X','POST','-H','Content-Type: application/json','-d',json.dumps({'email':'ci@example.invalid','password':password}),'http://127.0.0.1/user-service/auth/login').stdout)
  token=login['accessToken']
  for endpoint in ['user-service/users/me','payment-service/transactions']:
@@ -79,7 +79,7 @@ try:
   if body is not None: args+=['-d',json.dumps(body)]
   status=docker('exec',user,*args,'http://127.0.0.1/payment-service/'+path).stdout
   assert status=='503',(method,path,status)
- tx_count=docker('exec',pg,'psql','-U','postgres','-d','tipsterdb','-At','-c','SELECT count(*) FROM payment_mgmt.transactions;').stdout.strip()
+ tx_count=docker('exec',pg,'psql','-U','postgres','-d','gratilodb','-At','-c','SELECT count(*) FROM payment_mgmt.transactions;').stdout.strip()
  assert tx_count=='0',tx_count
  print('Payments disabled: checkout, onboarding, webhooks, payouts and ledger writes blocked; zero transactions.')
  print('Authentication: seeded test user can log in and access both services with the same JWT.')

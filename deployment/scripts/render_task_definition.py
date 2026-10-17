@@ -71,7 +71,7 @@ def render(response, images, config):
             require(env.get("FEATURE_TIP_POOLS_ENABLED", "false").lower() == "false", "Pool splitting must remain disabled for this production baseline")
             db = urlparse(env.get("DATASOURCES_DEFAULT_URL", "").removeprefix("jdbc:"))
             query = parse_qs(db.query)
-            require(db.scheme == "postgresql" and db.path == "/tipsterdb" and db.hostname not in (None, "localhost", "127.0.0.1", "postgres"), "Expected private RDS URL for existing tipsterdb: " + name)
+            require(db.scheme == "postgresql" and db.path == "/gratilodb" and db.hostname not in (None, "localhost", "127.0.0.1", "postgres"), "Expected private RDS URL for existing gratilodb: " + name)
             require(not db.username and not db.password and not {"password", "user"}.intersection(query), "Do not put credentials into JDBC URL")
             require(query.get("sslmode") == ["verify-full"] and query.get("sslrootcert") == ["/app/rds-ca-bundle.pem"], "RDS requires verify-full and bundled CA")
             required = {"DATASOURCES_DEFAULT_USERNAME", "DATASOURCES_DEFAULT_PASSWORD", "JWT_SECRET", "INTERNAL_API_KEY"}
