@@ -1,11 +1,57 @@
 # Gratilo: HTTPS und kanonische Domain
 
-Stand: 17.10.2026. Der Betreiber hat die beschriebenen Änderungen anschließend
-mit „ja mache das“ ausdrücklich freigegeben. Der erste Änderungsversuch scheiterte
-am Netzwerkzugriff dieser Sitzung; **es wurde keine produktive Änderung wirksam**.
-Die Freigabe für die beschriebenen Maßnahmen liegt weiterhin vor.
+Stand: 18.10.2026. **Live erfolgreich bestätigt:** Beide HTTPS-Domains haben
+gültiges TLS; www und beide HTTP-Varianten leiten mit genau einem HTTP 301 auf
+die Hauptdomain weiter. Die Konfiguration war beim erneuten Zugriff bereits
+vollständig vorhanden; in diesem Lauf wurden keine AWS-Ressourcen geändert.
 
-## Nachgewiesener Ist-Zustand
+## Abschließende Live-Prüfung am 18.10.2026
+
+Nach erneuter SSO-Anmeldung waren alle AWS-Abfragen mit `--profile gratilo
+--region eu-central-1` erfolgreich. Konto `070351676632` wurde bestätigt.
+
+Bereits vorhanden und deshalb unverändert belassen:
+
+- Route-53-A-Alias `www.gratilo.eu` auf denselben ALB wie `gratilo.eu`,
+  HostedZoneId `Z215JYRZR1TBD5`, EvaluateTargetHealth false. Keine abweichenden
+  www-A-/AAAA-/CNAME-Einträge vorhanden. Die ACM-Validierungs-CNAMEs bleiben erhalten.
+- HTTPS-Regel Priorität 10, Host `www.gratilo.eu`, HTTP_301 nach
+  `https://gratilo.eu:443/#{path}?#{query}`. Regel-ARN:
+  `arn:aws:elasticloadbalancing:eu-central-1:070351676632:listener-rule/app/gratilo-prd-alb/dde865703a3c421d/03f1eb0ac46a0816/19eb37b4b693de7d`.
+- HTTP-Standardaktion mit identischem kanonischen Ziel und HTTP_301.
+- Bestehendes ACM-Zertifikat ISSUED, beide Domains enthalten, Ablauf 01.05.2027.
+  HTTPS-Standardaktion leitet unverändert zum Frontend-Target weiter.
+
+| Aufruf | Erste Antwort | Redirects bis Hauptdomain | Endstatus |
+|---|---|---|---|
+| `https://gratilo.eu` | 200 | 0 | 200 |
+| `https://www.gratilo.eu` | 301 | 1 | 200 |
+| `http://gratilo.eu` | 301 | 1 | 200 |
+| `http://www.gratilo.eu` | 301 | 1 | 200 |
+
+Alle curl-Aufrufe erfolgreich, ohne `-k`; beide initialen HTTPS-Verbindungen
+und alle finalen HTTPS-Verbindungen melden `ssl_verify_result=0`.
+Das Ziel `https://gratilo.eu:443/` ist die kanonische HTTPS-Domain mit explizitem
+Standardport. Keine Redirect-Schleifen. Zusätzliche Prüfungen erfolgreich:
+
+- `/register?source=www-check` auf www: 301, Pfad und Query exakt erhalten.
+- `https://gratilo.eu/user-service/features`: 200, `tipPoolsEnabled:false`.
+- `https://gratilo.eu/payment-service/transactions`: erwartete 401 ohne Anmeldung,
+  kein Redirect und kein Proxy-Fehler.
+
+Es wurde kein DNS-Change eingereicht; Warten auf einen neuen Change entfiel.
+Die tatsächliche öffentliche Auflösung und Erreichbarkeit wurden durch die
+erfolgreichen URL-Tests bestätigt. Wer die bereits vorhandenen Änderungen wann
+umgesetzt hat, wurde hier nicht ermittelt. Der frühere Browserfehler lässt sich
+am nun funktionierenden Zustand nicht rückwirkend eindeutig nachweisen.
+
+**Tatsächlich in diesem Lauf umgesetzt:** ausschließlich Dokumentation aktualisiert.
+Keine AWS-Schreibaufrufe, keine Änderungen an ECS, Datenbank oder Zertifikaten,
+keine Mails/Zahlungen und kein Git-Push. Die folgenden Abschnitte dokumentieren
+die frühere Analyse und die vorbereiteten Befehle; sie sind kein aktueller
+Änderungsbedarf.
+
+## Historischer Prüfstand vom 17.10.2026
 
 - `https://gratilo.eu`: curl HTTP 200, `ssl_verify_result=0`.
 - Der HTTPS-Listener von `gratilo-prd-alb` verwendet das ACM-Zertifikat

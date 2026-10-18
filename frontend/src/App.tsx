@@ -1,6 +1,5 @@
 import { useTipPoolsEnabled } from './features'
 import { useEffect, useState, type FormEvent } from 'react'
-import { QRCodeSVG } from 'qrcode.react'
 import { api, type Session } from './api'
 import { prepareProfileImage } from './profileImage'
 import { Dashboard, DemoPayment, PoolInvitation, PoolInvitationLogin, type Profile } from './Dashboard'
@@ -77,12 +76,16 @@ export function App() {
   if (location.pathname.startsWith('/pool/invitations/') && session) return <PoolInvitation session={session} onSwitchUser={() => { setSession(null); setProfile(null); setSessionExpired(false) }} />
   if (session && profile) return <Dashboard session={session} profile={profile} onProfile={setProfile} onLogout={(expired = false) => { setSession(null); setProfile(null); setSessionExpired(expired === true); navigate('/login') }} />
   if (sessionExpired) return <><main className="shell" /><div className="session-dialog-backdrop"><section className="session-dialog" role="dialog" aria-modal="true" aria-labelledby="session-expired-title"><span className="session-dialog-icon">◷</span><h2 id="session-expired-title">Deine Sitzung ist abgelaufen</h2><p>Aus Sicherheitsgründen wurdest du automatisch abgemeldet. Melde dich erneut an, um weiterzumachen.</p><button className="primary" onClick={() => setSessionExpired(false)}>Anmelden <span aria-hidden="true">→</span></button></section></div></>
-  return <main className="shell">
+  return <main className="shell auth-shell">
     <aside className="story">
-      <a className="brand" href="/login" onClick={event => { event.preventDefault(); if (!busy) navigate('/login') }} aria-label="Gratilo Startseite"><span className="brand-mark">g</span>gratilo<span className="brand-dot">.</span></a>
-      <div className="story-content"><span className="eyebrow">GOOD PEOPLE DESERVE MORE</span><h1>Trinkgeld<br />geht jetzt<span className="serif"> einfach.</span></h1><p>Wertschätzung zeigen. Einfach scannen. Direkt unterstützen.</p>
-        <div className="illustration" aria-hidden="true"><div className="orbit" /><span className="spark spark-one">✦</span><span className="spark spark-two">✦</span><div className="thanks-card"><span className="landing-qr"><QRCodeSVG value={`${location.origin}/pay/gratilo-001`} size={58} marginSize={1} level="M" title="QR-Code zum Trinkgeld" /></span><strong>Das war großartig!</strong><span>Ein kleines Danke für dich.</span><div className="amount">+ 5,00 € <span>♥</span></div></div><div className="note">Scan to Tip <span>♡</span></div></div>
-        <div className="story-caption"><span /> DANKE FÜR GROSSARTIGE MOMENTE</div>
+      <a className="auth-brand" href="/login" onClick={event => { event.preventDefault(); if (!busy) navigate('/login') }} aria-label="Gratilo Startseite"><img src="/gratilo-logo.svg" alt="Gratilo – Good people deserve more" width="340" height="152" /></a>
+      <div className="story-content"><span className="eyebrow">EIN KLEINES DANKE. EIN GROSSES GEFÜHL.</span><h1>Trinkgeld <br />geht jetzt <span className="serif">einfach.</span></h1>
+        <ul className="auth-values">
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21 3.5 12.5C-2 7 5 0 12 7c7-7 14 0 8.5 5.5Z" /></svg>Wertschätzung zeigen.</li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2" /><path d="M9 5h6M10 19h4" /></svg>Einfach scannen.</li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="7" r="3" /><path d="M2 21v-4a7 7 0 0 1 14 0v4ZM17 4a3 3 0 0 1 0 6M18 14a5 5 0 0 1 4 5v2h-3" /></svg>Direkt unterstützen.</li>
+        </ul>
+        <div className="auth-art"><p className="auth-thanks"><span>Danke</span>FÜR GROSSARTIGE<br />MOMENTE!</p><img src="/gratilo-smile.svg" alt="" width="200" height="200" /></div>
       </div><p className="story-footer">EINFACH. SCHNELL. DIREKT.</p>
     </aside>
     <section className="form-side" aria-label="Dein Gratilo-Konto"><div className="top-note">{page === 'register' ? <>Schon dabei? {link('/login', 'Anmelden')}</> : <>Neu bei Gratilo? {link('/register', 'Konto erstellen ↗')}</>}</div>
