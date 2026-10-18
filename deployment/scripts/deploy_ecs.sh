@@ -28,6 +28,7 @@ rollback_deployment() {
       --desired-count "$old_count" --query 'service.serviceArn' --output text || return 1
   fi
   aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" || return 1
+  echo "Rollback service stabilized; verifying previous revision: $old_task"
   python3 deployment/scripts/verify_ecs_health.py "$old_task" || return 1
   echo "Rollback verified: $old_task"
 }
@@ -68,6 +69,8 @@ trap finish EXIT
 aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" > "$work_dir/service.json"
 old_task=$(python3 deployment/scripts/render_task_definition.py service "$work_dir/service.json")
 old_count=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["services"][0]["desiredCount"])' "$work_dir/service.json")
+# Probe health-query permissions before registration/update, without requiring a healthy baseline.
+python3 deployment/scripts/verify_ecs_health.py "$old_task" --permissions-only
 aws ecs describe-task-definition --task-definition "$old_task" --include TAGS > "$work_dir/task.json"
 python3 deployment/scripts/render_task_definition.py task "$work_dir/task.json" "$work_dir/new-task.json"
 

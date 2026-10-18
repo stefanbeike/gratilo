@@ -118,6 +118,15 @@ class EcsDeploymentTest(unittest.TestCase):
 import json, os, pathlib, sys
 p = pathlib.Path(os.environ['MOCK_DIR']); args = sys.argv[1:]; operation = args[1]
 with (p/'calls').open('a') as out: out.write(operation+'\\n')
+denied = ((os.environ['MOCK_MODE'] == 'iam-denied-preflight' and operation == 'list-tasks')
+          or (os.environ['MOCK_MODE'] == 'iam-denied-after-update' and operation == 'list-tasks' and (p/'updated').exists()))
+if operation == 'list-tasks':
+    count = int((p/'list-count').read_text())+1 if (p/'list-count').exists() else 1
+    (p/'list-count').write_text(str(count))
+    denied = denied or (os.environ['MOCK_MODE'] == 'iam-denied-persistent' and count > 1)
+if denied:
+    print('An error occurred (AccessDeniedException) when calling the ListTasks operation', file=sys.stderr)
+    sys.exit(254)
 if operation == 'describe-services':
     data = json.loads((p/'service.json').read_text())
     if (p/'updated').exists() and os.environ['MOCK_MODE'] != 'rollback':
@@ -144,7 +153,7 @@ elif operation == 'describe-tasks':
     revision = os.environ['NEW_TASK'] if (p/'updated').exists() and os.environ['MOCK_MODE'] != 'rollback' else json.loads((p/'service.json').read_text())['services'][0]['taskDefinition']
     healthy = not ((p/'updated').exists() and os.environ['MOCK_MODE'] == 'container-failure')
     print(json.dumps({'tasks':[{'taskDefinitionArn':revision, 'lastStatus':'RUNNING', 'containers':[{'name':name,'lastStatus':'RUNNING','healthStatus':'HEALTHY' if healthy else 'UNHEALTHY'} for name in ['frontend','user-service','payment-service']]}]}))
-elif operation == 'describe-target-health': print(json.dumps({'TargetHealthDescriptions':[{'TargetHealth':{'State':'healthy'}}]}))
+elif operation == 'describe-target-health': print(json.dumps({'TargetHealthDescriptions':[{'TargetHealth':{'State':'unhealthy' if (p/'updated').exists() and os.environ['MOCK_MODE']=='alb-failure' else 'healthy'}}]}))
 else: sys.exit('Unexpected AWS operation: '+operation)
 ''')
             mock.chmod(0o755)
@@ -184,12 +193,27 @@ print('false-body\\n401' if url.endswith('/transactions') else '{"tipPoolsEnable
         self.assertEqual(2, calls.splitlines().count("update-service"))
 
     def test_container_or_https_failure_rolls_back_but_stays_failed(self):
-        for mode in ("container-failure", "https-failure"):
+        for mode in ("container-failure", "https-failure", "alb-failure", "iam-denied-after-update"):
             with self.subTest(mode=mode):
                 result, calls = self.run_mock_deployment(mode)
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn("Rollback succeeded", result.stderr)
                 self.assertEqual(2, calls.splitlines().count("update-service"))
+
+    def test_missing_health_permissions_abort_before_any_resource_mutation(self):
+        result, calls = self.run_mock_deployment("iam-denied-preflight")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("IAM_ACCESS_DENIED: ecs:ListTasks", result.stderr)
+        self.assertNotIn("register-task-definition", calls)
+        self.assertNotIn("update-service", calls)
+
+    def test_restored_rollback_is_not_reported_verified_when_diagnosis_remains_denied(self):
+        result, calls = self.run_mock_deployment("iam-denied-persistent")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("IAM_ACCESS_DENIED: ecs:ListTasks", result.stderr)
+        self.assertIn("Rollback service stabilized", result.stdout)
+        self.assertIn("ROLLBACK NOT VERIFIED", result.stderr)
+        self.assertEqual(2, calls.splitlines().count("update-service"))
 
     def test_never_rolls_back_over_foreign_revision(self):
         result, calls = self.run_mock_deployment("foreign-revision")

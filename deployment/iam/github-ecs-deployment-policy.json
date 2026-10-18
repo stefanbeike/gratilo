@@ -10,8 +10,14 @@
     {
       "Sid": "RegisterAndReadOnlyGratiloDefinitions",
       "Effect": "Allow",
-      "Action": ["ecs:RegisterTaskDefinition", "ecs:DescribeTaskDefinition", "ecs:ListTagsForResource"],
+      "Action": ["ecs:RegisterTaskDefinition", "ecs:ListTagsForResource"],
       "Resource": "arn:aws:ecs:eu-central-1:070351676632:task-definition/gratilo-prd-app:*"
+    },
+    {
+      "Sid": "ReadTaskDefinitionMetadata",
+      "Effect": "Allow",
+      "Action": "ecs:DescribeTaskDefinition",
+      "Resource": "*"
     },
     {
       "Sid": "PreserveDefinitionTagsOnRegistration",
@@ -24,7 +30,7 @@
       "Sid": "ListOnlyClusterTasks",
       "Effect": "Allow",
       "Action": "ecs:ListTasks",
-      "Resource": "*",
+      "Resource": "arn:aws:ecs:eu-central-1:070351676632:container-instance/gratilo-prd-cluster/*",
       "Condition": {"ArnEquals": {"ecs:cluster": "arn:aws:ecs:eu-central-1:070351676632:cluster/gratilo-prd-cluster"}}
     },
     {

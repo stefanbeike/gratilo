@@ -2,6 +2,13 @@
 
 ## Ein manueller Einstieg
 
+**Healthcheck-/IAM-Korrektur vom 18.10.2026:** Die tatsächlich fehlenden
+ECS-/ALB-Leserechte wurden nach Freigabe in AWS ergänzt. Revision 1 läuft nach
+Rollback gesund. Der vorhandene v0.0.3-Lauf kann über **Re-run failed jobs**
+ohne neue Builds oder Tags wiederaufgenommen werden. Neue Deployments prüfen
+Diagnoseberechtigungen vor der ersten Ressourcenänderung. Nachweis, Grenzen
+und genaue Schritte: [Produktions-Healthcheck und IAM](ecs-healthcheck-iam-fix.md).
+
 GitHub → **Actions → Gratilo Release & Deploy Production → Run workflow**.
 Branch **main** wählen, `version_bump` auf `patch`, `minor` oder `major` setzen und
 als `confirmation` exakt **RELEASE DEPLOY gratilo-production** eingeben.
