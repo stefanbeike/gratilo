@@ -41,3 +41,9 @@
 .pool-transaction-breakdown{display:flex;flex-wrap:wrap;gap:3px 10px;margin-top:5px;color:#8796a5;font-size:9px}.pool-transaction-breakdown span{white-space:nowrap}
 .pool-member{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}.pool-member>div:first-child{min-width:0}.pool-member-actions{display:grid;grid-template-columns:112px 94px 94px 68px;align-items:center;justify-items:start;min-width:368px;gap:8px}.pool-member-actions>button{white-space:nowrap}.pool-action-placeholder{display:block;width:1px;height:1px}@media (max-width:700px){.pool-member{display:flex}.pool-member-actions{display:flex;min-width:0;width:100%;gap:10px;align-items:center;flex-wrap:wrap}.pool-action-placeholder{display:none}}
 .pool-membership .pool-member-actions{display:flex;min-width:0;gap:12px;justify-content:flex-end}
+/* Existing light account page: use the shared Gratilo identity. */
+.account-header .account-brand{flex-shrink:0;line-height:0}
+.account-brand img{display:block;width:140px;height:auto}
+.account-welcome{display:flex;align-items:center;gap:20px;min-width:0}
+.account-smile{display:block;width:80px;height:80px;flex-shrink:0;transform:rotate(-10deg)}
+@media(max-width:650px){.account-brand img{width:120px}.account-welcome{gap:12px}.account-smile{width:48px;height:48px}}
