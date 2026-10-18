@@ -51,6 +51,12 @@ Repository `stefanbeike/gratilo`, Repository Variable:
 |---|---|
 | `ECR_PUBLISH_ENABLED` | `true`, sobald die folgende Einrichtung geprüft ist |
 
+`release.yml` liest diesen Schalter außerhalb eines Environment-Jobs und übergibt
+ihn als erforderlichen String-Input `ecr_publish_enabled` an den Publisher.
+Nur exakt `true` erlaubt Veröffentlichung; fehlende oder andere Werte brechen ab.
+Keine gleichnamigen Environment-Variablen als Ersatz anlegen. Der Schalter ist
+kein Secret und keine Produktionsfreigabe.
+
 Zwei Environments anlegen bzw. konfigurieren: **release** und **production**.
 Beide auf **Branch main** beschränken; Tag-Regeln werden nicht mehr benötigt.
 In **beiden Environments** die folgenden Variables hinterlegen:
@@ -64,6 +70,11 @@ In **beiden Environments** die folgenden Variables hinterlegen:
 Die vorhandenen Variablen nur im Environment production sind für den Publisher
 im neuen Environment release nicht sichtbar; dort ebenfalls hinterlegen.
 Alternativ können diese nicht geheimen Werte Repository Variables sein.
+Bei Environment-Variablen müssen die drei Werte in **release und production**
+vorhanden sein. `production` vererbt seine Konfiguration nicht an `release`.
+Die Validierung prüft jeden Wert vor OIDC, meldet fehlende Variablen einzeln
+mit Environment und Einstellungsort und gibt keine Konfigurationswerte aus.
+Auch `AWS_REGION` muss ausdrücklich gesetzt sein; es gibt keinen stillen Default.
 
 - **release** benötigt keine Required reviewers: Tests/Scans und expliziter Start
   schützen die Veröffentlichung; die unabhängige Produktionsfreigabe folgt danach.
@@ -90,6 +101,68 @@ Beide AWS-Jobs erhalten `id-token: write`, sonst bleiben Tokens read-only.
 
 [GitHub Environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments),
 [Review-Historie und Actions-read-Berechtigung](https://docs.github.com/en/rest/actions/workflow-runs#get-the-review-history-for-a-workflow-run).
+
+## Nachgewiesener Konfigurationsfehler am 18.10.2026
+
+Der fehlgeschlagene [Lauf 39118328665](https://github.com/stefanbeike/gratilo/actions/runs/39118328665)
+verwendet Commit `0f85e0039ac7495aa4aeb5e542ebd0cd31dfbce1`. Die damalige
+Workflow-Datei wurde direkt für diesen Commit geprüft. CI, alle Docker-Builds,
+Trivy und der gemeinsame Container-Test waren erfolgreich; der Publish-Job
+scheiterte vor OIDC und ECR, Deploy wurde übersprungen.
+
+**Der Schalter war nicht der Fehler:** Das Runner-Log enthält `ENABLED: true`.
+Die Repository-Variable ist seit 16.10.2026 unverändert `true`. Der Text
+`ECR_PUBLISH_ENABLED must be true` stammt in diesem Lauf nur aus der
+automatischen Anzeige des Shell-Skripts, nicht aus einem ausgeführten Fehlerzweig.
+Die nächste, bisher kommentarlos abbrechende Prüfung scheitert am leeren
+`AWS_ACCOUNT_ID`; auch `AWS_DEPLOY_ROLE_ARN` ist leer.
+
+Rein lesende GitHub-CLI-Abfragen bestätigen: Environment **release** hat
+**0 Variablen**, Environment **production** hat die drei AWS-Variablen aus
+obiger Tabelle. Es gibt keine Environment-Overrides des Repository-Schalters.
+Die regionale Fallback-Konfiguration hatte nur den fehlenden Regionswert verdeckt.
+Wiederverwendbare Workflows verwenden die Repository-Variablen des Aufrufers;
+sie erhalten dadurch keinen Zugriff auf ein anderes Environment.
+[GitHub-Variablenreferenz](https://docs.github.com/en/actions/reference/workflows-and-actions/variables).
+
+### Noch manuell erforderlich, ohne Änderung durch diesen Fix
+
+1. **Settings → Environments → release → Environment variables:**
+   `AWS_ACCOUNT_ID=070351676632`, `AWS_REGION=eu-central-1`,
+   `AWS_DEPLOY_ROLE_ARN=arn:aws:iam::070351676632:role/gratilo-github-actions-role`
+   ergänzen. Die vorhandenen drei Werte in production beibehalten.
+   Alternativ dieselben drei Werte als Repository Variables für beide Jobs
+   hinterlegen und abweichende Environment-Werte bewusst prüfen.
+   Die vorhandene Repository-Variable `ECR_PUBLISH_ENABLED=true` bleibt bestehen.
+2. **release → Deployment branches and tags:** Selected branches, ausschließlich
+   Branch `main`. Aktuell fehlen Environment-Branchregeln; der Workflow selbst
+   ist bereits auf manuelle main-Läufe eingeschränkt. Keine Reviewerpflicht
+   des Produktionsjobs nach release verlagern.
+3. **production → Required reviewers:** eine andere berechtigte Person als
+   Starter/erneuter Starter hinzufügen und **Prevent self-review** aktivieren.
+   Aktuell ist nur `stefanbeike` eingetragen, Prevent self-review ist aus.
+   Der vorhandene Code lehnt dessen eigene Freigabe trotzdem zuverlässig ab.
+   Die bestehende Beschränkung auf Branch `main` und **kein Admin-Bypass**
+   sind bereits korrekt und bleiben erhalten.
+4. **AWS IAM**, erst nach ausdrücklicher Freigabe: Die lesend geprüfte aktuelle
+   Trust-Policy erlaubt ausschließlich den production-Subject. Für den Publisher
+   zusätzlich den exakten release-Subject aus
+   `deployment/iam/github-oidc-trust-policy.json` erlauben; Audience unverändert
+   `sts.amazonaws.com`. Ohne diese manuelle Ergänzung scheitert der anschließende
+   OIDC-Schritt auch nach erfolgreicher Variablenkorrektur. Es werden dafür keine
+   neuen GitHub-Tokenberechtigungen oder statischen AWS-Schlüssel benötigt.
+
+Die Korrektur muss zuerst kontrolliert nach main übernommen werden. Danach einen
+**neuen** manuellen Lauf von main starten; **Re-run jobs** des alten Laufs
+verwendet weiterhin dessen alten Workflow-Commit. In diesem Arbeitsauftrag
+wurde kein Workflow gestartet und keine GitHub- oder AWS-Einstellung verändert.
+
+Lokale Validierung: 79 Python-Tests (einschließlich 11 neuer Konfigurations- und
+Workflow-Regressionsfälle), 7 OIDC-Tests sowie Actionlint erfolgreich. Die Tests
+decken den tatsächlichen Fehlerkontext, strikte Schalterprüfung, fehlende/
+ungültige AWS-Werte, sichere Diagnosen und die unveränderte Kette
+Version → CI → Build/Trivy → Publish → unabhängige Freigabe → Deploy ab.
+Ein echter vollständiger Release-/Deploy-Lauf wurde ausdrücklich nicht ausgeführt.
 
 ## OIDC und AWS-IAM
 

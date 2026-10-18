@@ -46,6 +46,8 @@ jobs:
       id-token: write
     uses: ./.github/workflows/007_deploy_ecs.yml
     with:
+      # Resolve the repository switch outside any environment-scoped job.
+      ecr_publish_enabled: ${{ vars.ECR_PUBLISH_ENABLED }}
       image_tag: ${{ needs.images.outputs.image_tag }}
       version_bump: ${{ inputs.version_bump }}
       previous_version: ${{ needs.version.outputs.previous_version }}

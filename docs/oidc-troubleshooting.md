@@ -1,5 +1,23 @@
 # OIDC-Fehler beim ECR-Release
 
+## Aktueller Gesamtworkflow: release und production
+
+Für den Konfigurationsfehler aus Lauf `39118328665` vom 18.10.2026 gilt:
+`ECR_PUBLISH_ENABLED` kam korrekt als `true` an. Der Publisher hatte jedoch
+keine AWS-Account-/Rollenvariablen, weil diese nur in production konfiguriert
+waren. Die Anzeige der alten Shell-Fehlermeldung war kein Beleg für einen
+fehlenden Schalter. Der neue Validator unterscheidet fehlenden/gesperrten
+Repository-Schalter von jeder fehlenden AWS-Variable, ohne Werte auszugeben.
+
+Publish bleibt im Environment **release**, Deploy im unabhängig freizugebenden
+Environment **production**. Für beide Jobs sind AWS-Variablen und ein exakt
+passender OIDC-Subject notwendig. Die am 18.10.2026 erneut lesend geprüfte
+AWS-Trust-Policy erlaubt aktuell nur production; release muss nach Freigabe
+manuell ergänzt werden. Vollständiger Nachweis und genaue manuelle Einstellungen:
+[CI/CD-Konfigurationskorrektur](cicd.md#nachgewiesener-konfigurationsfehler-am-18102026).
+
+Die folgenden Abschnitte dokumentieren den früheren, separaten Subject-Fehler.
+
 ## Nachgewiesene Ursache am 16.10.2026
 
 Der fehlgeschlagene manuelle main-Lauf `38901743182` verwendet Commit
