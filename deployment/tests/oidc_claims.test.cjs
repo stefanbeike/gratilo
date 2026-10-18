@@ -12,6 +12,14 @@ const env = { ACTIONS_ID_TOKEN_REQUEST_URL: 'https://vstoken.actions.githubuserc
 function token(payload) { return 'test-header.' + Buffer.from(JSON.stringify(payload)).toString('base64url') + '.test-signature'; }
 function response(value) { return { ok: true, json: async () => ({ value }) }; }
 
+test('stable tag uses the same production subject and an explicit tag ref', async () => {
+  const ref = 'refs/tags/v1.2.3';
+  await diagnose({ ...env, EXPECTED_OIDC_REF: ref }, async () => response(token({ ...expected, ref })), () => {});
+  await assert.rejects(diagnose(env, async () => response(token({ ...expected, ref })), () => {}));
+  for (const invalid of ['refs/heads/feature', 'refs/tags/v1.2.3-rc.1', 'refs/tags/v01.2.3'])
+    await assert.rejects(diagnose({ ...env, EXPECTED_OIDC_REF: invalid }, async () => response(token({ ...expected, ref: invalid })), () => {}));
+});
+
 test('prints exactly five public claims, never token, credentials, or other payload fields', async () => {
   const jwt = token({ ...expected, secret_marker: 'never-print-this', job_workflow_ref: 'not-allowlisted' });
   let output = '';

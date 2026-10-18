@@ -204,8 +204,9 @@ Mit `environment: production` lautet er dagegen:
 `repo:stefanbeike@13099702/gratilo@1351208624:environment:production`.
 Die beiden Trust-JSON-Vorlagen stehen in `deployment/iam/github-oidc-*-trust.json`.
 Audience immer `sts.amazonaws.com`; keinen Wildcard-Repo-Subject verwenden.
-Beim Environment-Subject muss GitHub `production` ausschließlich main erlauben
-und Required reviewers erzwingen. Ein reiner main-Trust akzeptiert diesen
+Beim Environment-Subject muss GitHub `production` main und separat die geschützten
+Release-Tags `v*` erlauben und Required reviewers erzwingen. Der manuelle
+Deploy-Workflow selbst erlaubt weiterhin nur main. Ein reiner main-Trust akzeptiert diesen
 Environment-Subject nicht. Keine OIDC-Tokens für PR-Builds freigeben.
 
 AWS-Authentifizierung darf nur über `aws-actions/configure-aws-credentials`
@@ -220,8 +221,9 @@ AWS-Schlüssel oder geerbte CLI-Profile. Die GitHub-Rolle benötigt keine
 - [GitHub OIDC mit AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws)
 
 Der ECR-Publish nutzt das geschützte Environment `production`; deshalb gilt die
-Environment-Trust-Variante. Der ECS-Deploy-Job ist vollständig aus dem Release entfernt. Die genaue
-GitHub-Konfiguration steht in [aws-ecs-deployment.md](aws-ecs-deployment.md).
+Environment-Trust-Variante. Im Release gibt es keinen ECS-Deploy. Der neue separate
+manuelle Deploy-Workflow ist in [cicd.md](cicd.md) einschließlich zusätzlicher IAM-
+Rechte und Rollback beschrieben. Infrastruktur wird weiterhin manuell eingerichtet.
 
 ## Validierung und verbleibende Grenzen
 

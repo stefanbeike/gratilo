@@ -1,0 +1,66 @@
+name: Gratilo Production Deployment (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Published ECR version, for example v0.0.2 (also used for rollback)'
+        required: true
+        type: string
+      confirmation:
+        description: 'Type DEPLOY gratilo-production'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: gratilo-production-deployment
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      ECS_CLUSTER: gratilo-prd-cluster
+      ECS_SERVICE: gratilo-prd-app
+      ECS_TASK_FAMILY: gratilo-prd-app
+      ECS_TASK_EXECUTION_ROLE_ARN: arn:aws:iam::070351676632:role/gratilo-prd-ecs-execution-role
+      ECS_TASK_ROLE_ARN: arn:aws:iam::070351676632:role/gratilo-prd-ecs-task-role
+      RELEASE_VERSION: ${{ inputs.version }}
+      AWS_RETRY_MODE: standard
+      AWS_MAX_ATTEMPTS: '5'
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+        fetch-depth: 0
+    - name: Validate manual request
+      env:
+        CONFIRMATION: ${{ inputs.confirmation }}
+        ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      run: |
+        [[ "$CONFIRMATION" == 'DEPLOY gratilo-production' ]]
+        [[ "$AWS_ACCOUNT_ID" == 070351676632 && "$AWS_REGION" == eu-central-1 ]]
+        [[ "$ROLE" == arn:aws:iam::070351676632:role/gratilo-github-actions-role ]]
+        python3 -c 'import os,re; assert re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", os.environ["RELEASE_VERSION"])'
+    - name: Diagnose OIDC identity (public claims only)
+      run: node deployment/scripts/oidc_claims.cjs
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        audience: sts.amazonaws.com
+        role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+        role-session-name: gratilo-deploy-${{ github.run_id }}
+        unset-current-credentials: true
+    - name: Verify account and resolve all release images
+      run: |
+        [[ "$(aws sts get-caller-identity --query Account --output text)" == "$AWS_ACCOUNT_ID" ]]
+        python3 deployment/scripts/resolve_release_images.py
+    - name: Deploy, verify and roll back on failure
+      run: bash deployment/scripts/deploy_ecs.sh

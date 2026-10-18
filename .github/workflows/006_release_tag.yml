@@ -1,10 +1,6 @@
 name: Resolve Gratilo SemVer (read only)
 'on':
   workflow_call:
-    inputs:
-      version_bump:
-        required: true
-        type: string
     outputs:
       previous_version:
         value: ${{ jobs.resolve.outputs.previous_version }}
@@ -22,9 +18,9 @@ jobs:
     - uses: actions/checkout@v4
       with:
         persist-credentials: false
-    - name: Resolve highest stable Git tag and next version
+        fetch-depth: 0
+    - name: Validate stable release tag and main ancestry
       id: version
       env:
         GH_TOKEN: ${{ github.token }}
-        VERSION_BUMP: ${{ inputs.version_bump }}
-      run: python3 deployment/scripts/semver_release.py plan
+      run: python3 deployment/scripts/semver_release.py tag-plan

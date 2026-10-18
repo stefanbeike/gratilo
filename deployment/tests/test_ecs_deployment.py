@@ -38,7 +38,7 @@ class EcsDeploymentTest(unittest.TestCase):
         self.service = {"services": [{"status": "ACTIVE", "taskDefinition": self.old,
             "platformVersion": "1.4.0", "deploymentController": {"type": "ECS"},
             "deploymentConfiguration": {"deploymentCircuitBreaker": {"enable": True, "rollback": True}},
-            "loadBalancers": [{"containerName": "frontend", "containerPort": 80}],
+            "loadBalancers": [{"containerName": "frontend", "containerPort": 80, "targetGroupArn": "test-target"}],
             "desiredCount": 1, "runningCount": 1,
             "deployments": [{"status": "PRIMARY", "taskDefinition": self.old, "rolloutState": "COMPLETED"}]}], "failures": []}
 
@@ -123,18 +123,40 @@ if operation == 'describe-services':
     if (p/'updated').exists() and os.environ['MOCK_MODE'] != 'rollback':
         data['services'][0]['taskDefinition'] = os.environ['NEW_TASK']
         data['services'][0]['deployments'][0]['taskDefinition'] = os.environ['NEW_TASK']
+        if os.environ['MOCK_MODE'] == 'foreign-revision':
+            data['services'][0]['taskDefinition'] = 'unrelated-revision'
     print(json.dumps(data))
 elif operation == 'describe-task-definition': print((p/'task.json').read_text())
 elif operation == 'describe-images':
     service = args[args.index('--repository-name')+1].split('/')[1]
-    print('sha256:'+str(['frontend','user-service','payment-service'].index(service)+1)*64)
+    print('sha256:'+('f' if os.environ['MOCK_MODE']=='digest-conflict' else str(['frontend','user-service','payment-service'].index(service)+1))*64)
 elif operation == 'register-task-definition': print(os.environ['NEW_TASK'])
-elif operation == 'update-service': (p/'updated').touch(); print('test-service-arn')
-elif operation == 'wait': sys.exit(42 if os.environ['MOCK_MODE']=='wait-failure' else 0)
-elif operation == 'list-tasks': print('None')
+elif operation == 'update-service':
+    if args[args.index('--task-definition')+1] == os.environ['NEW_TASK']:
+        (p/'updated').touch()
+    else:
+        (p/'updated').unlink(missing_ok=True)
+    print('test-service-arn')
+elif operation == 'wait': sys.exit(42 if os.environ['MOCK_MODE']=='rollback-failure' or (os.environ['MOCK_MODE']=='wait-failure' and (p/'updated').exists()) else 0)
+elif operation == 'list-tasks':
+    print('None' if 'STOPPED' in args else json.dumps({'taskArns':['test-task']}))
+elif operation == 'describe-tasks':
+    revision = os.environ['NEW_TASK'] if (p/'updated').exists() and os.environ['MOCK_MODE'] != 'rollback' else json.loads((p/'service.json').read_text())['services'][0]['taskDefinition']
+    healthy = not ((p/'updated').exists() and os.environ['MOCK_MODE'] == 'container-failure')
+    print(json.dumps({'tasks':[{'taskDefinitionArn':revision, 'lastStatus':'RUNNING', 'containers':[{'name':name,'lastStatus':'RUNNING','healthStatus':'HEALTHY' if healthy else 'UNHEALTHY'} for name in ['frontend','user-service','payment-service']]}]}))
+elif operation == 'describe-target-health': print(json.dumps({'TargetHealthDescriptions':[{'TargetHealth':{'State':'healthy'}}]}))
 else: sys.exit('Unexpected AWS operation: '+operation)
 ''')
             mock.chmod(0o755)
+            curl = root / "curl"
+            curl.write_text('''#!/usr/bin/env python3
+import os, pathlib, sys
+new = (pathlib.Path(os.environ['MOCK_DIR'])/'updated').exists()
+if new and os.environ['MOCK_MODE'] == 'https-failure': sys.exit(60)
+url = sys.argv[-1]
+print('false-body\\n401' if url.endswith('/transactions') else '{"tipPoolsEnabled":false}\\n200' if url.endswith('/features') else '<html>Gratilo</html>\\n200', end='')
+''')
+            curl.chmod(0o755)
             environment = {**self.config, "PATH": folder + os.pathsep + "/usr/bin:/bin", "MOCK_DIR": folder,
                            "NEW_TASK": self.new, "MOCK_MODE": mode, "GITHUB_STEP_SUMMARY": str(root / "summary")}
             environment.update({name.upper().replace("-", "_") + "_IMAGE": value for name, value in self.images.items()})
@@ -158,6 +180,34 @@ else: sys.exit('Unexpected AWS operation: '+operation)
         result, calls = self.run_mock_deployment("wait-failure")
         self.assertEqual(42, result.returncode)
         self.assertIn("list-tasks", calls)
+        self.assertIn("Rollback succeeded", result.stderr)
+        self.assertEqual(2, calls.splitlines().count("update-service"))
+
+    def test_container_or_https_failure_rolls_back_but_stays_failed(self):
+        for mode in ("container-failure", "https-failure"):
+            with self.subTest(mode=mode):
+                result, calls = self.run_mock_deployment(mode)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("Rollback succeeded", result.stderr)
+                self.assertEqual(2, calls.splitlines().count("update-service"))
+
+    def test_never_rolls_back_over_foreign_revision(self):
+        result, calls = self.run_mock_deployment("foreign-revision")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("Rollback refused", result.stderr)
+        self.assertEqual(1, calls.splitlines().count("update-service"))
+
+    def test_digest_conflict_aborts_before_any_mutation(self):
+        result, calls = self.run_mock_deployment("digest-conflict")
+        self.assertNotEqual(0, result.returncode)
+        self.assertNotIn("register-task-definition", calls)
+        self.assertNotIn("update-service", calls)
+
+    def test_failed_rollback_is_explicit(self):
+        result, calls = self.run_mock_deployment("rollback-failure")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("ROLLBACK NOT VERIFIED", result.stderr)
+        self.assertEqual(2, calls.splitlines().count("update-service"))
 
 
 if __name__ == "__main__":

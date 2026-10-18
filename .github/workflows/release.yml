@@ -1,17 +1,7 @@
 name: Gratilo ECR Release (payments disabled)
 on:
-  workflow_dispatch:
-    inputs:
-      version_bump:
-        description: SemVer version increment
-        required: true
-        type: choice
-        default: patch
-        options: [patch, minor, major]
-      confirmation:
-        description: 'To request ECR publication approval, type: PUBLISH gratilo-sandbox'
-        required: true
-        type: string
+  push:
+    tags: ['v*.*.*']
 permissions:
   contents: read
   pull-requests: read
@@ -19,24 +9,8 @@ concurrency:
   group: gratilo-production-release
   cancel-in-progress: false
 jobs:
-  authorize-request:
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
-    steps:
-    - name: Require explicit opt-in
-      env:
-        ENABLED: ${{ vars.ECR_PUBLISH_ENABLED }}
-        CONFIRMATION: ${{ inputs.confirmation }}
-      run: |
-        [[ "$ENABLED" == true ]] || { echo 'Set repository variable ECR_PUBLISH_ENABLED=true only after manual AWS/GitHub setup.' >&2; exit 1; }
-        [[ "$CONFIRMATION" == 'PUBLISH gratilo-sandbox' ]] || { echo 'Explicit deployment confirmation is missing.' >&2; exit 1; }
   version:
-    needs: authorize-request
-    permissions:
-      contents: read
     uses: ./.github/workflows/006_release_tag.yml
-    with:
-      version_bump: ${{ inputs.version_bump }}
   ci:
     needs: version
     uses: ./.github/workflows/ci.yml
@@ -51,11 +25,11 @@ jobs:
   publish:
     needs: [version, images]
     permissions:
-      contents: write
+      contents: read
       id-token: write
     uses: ./.github/workflows/007_deploy_ecs.yml
     with:
       image_tag: ${{ needs.images.outputs.image_tag }}
-      version_bump: ${{ inputs.version_bump }}
+      version_bump: tag
       previous_version: ${{ needs.version.outputs.previous_version }}
       release_version: ${{ needs.version.outputs.version }}

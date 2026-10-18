@@ -178,21 +178,26 @@ Die neuen 503-/Resend-Funktionen benötigen zusätzlich das folgende Patch-Relea
 
 ### 3. Patch-Code über den vorhandenen Release-Prozess veröffentlichen
 
-Nach Codefreigabe und Git-Push den vorhandenen Workflow starten:
+Nach Codefreigabe und Git-Push den neuen [Tag-Release-Prozess](cicd.md) verwenden.
+Version zunächst anhand der tatsächlichen Remote-Tags prüfen, dann nach Freigabe:
 
 ```bash
-gh workflow run release.yml --repo stefanbeike/gratilo --ref main \
-  -f version_bump=patch -f 'confirmation=PUBLISH gratilo-sandbox'
+git tag -a v0.0.2 -m 'Gratilo v0.0.2'
+git push origin refs/tags/v0.0.2
 ```
 
-Bei unveränderter Tag-Historie ist die nächste Version `v0.0.2`; der Workflow
-ermittelt sie verbindlich neu. Alle drei Images erhalten denselben SemVer-Tag
+Bei unveränderter Tag-Historie ist die nächste Version `v0.0.2`; ein bereits
+existierender Tag darf nicht überschrieben werden. Alle drei Images erhalten denselben SemVer-Tag
 und ihren unveränderlichen SHA-/Run-Tag. Tests, HIGH-/CRITICAL-Trivy-Gates und
 die Freigabe im Environment `production` bleiben erhalten. Der Workflow
 veröffentlicht ausschließlich nach ECR; er registriert oder deployt keine ECS-Task.
 `v0.0.1` wird nicht überschrieben.
 
 ### 4. Neue ECS-Revision aus der tatsächlich laufenden Konfiguration vorbereiten
+
+Für den aktuellen Regelbetrieb den separaten manuellen Deploy-Workflow aus
+[cicd.md](cicd.md) verwenden. Die nachfolgenden CLI-Schritte dokumentieren den
+manuellen Alternativweg und dürfen nicht parallel zu Actions ausgeführt werden.
 
 Erst nach erfolgreichem, freigegebenem ECR-Release ausführen. Diese Vorbereitung
 liest AWS und schreibt eine lokale JSON-Datei mit **Secret-Referenzen**:

@@ -42,9 +42,11 @@ async function requestClaims(env, fetcher = fetch) {
   }
 }
 
-function validateClaims(claims) {
+function validateClaims(claims, expectedRef = 'refs/heads/main') {
+  if (expectedRef !== 'refs/heads/main' && !/^refs\/tags\/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(expectedRef))
+    throw new Error('Expected main or a stable release tag.');
   const expected = { sub: EXPECTED_SUBJECT, aud: AUDIENCE,
-    repository: 'stefanbeike/gratilo', ref: 'refs/heads/main', environment: 'production' };
+    repository: 'stefanbeike/gratilo', ref: expectedRef, environment: 'production' };
   if (PUBLIC_CLAIMS.some(key => claims[key] !== expected[key]))
     throw new Error('OIDC claims differ from the expected production identity; compare the five printed claims with the IAM trust policy.');
 }
@@ -52,7 +54,7 @@ function validateClaims(claims) {
 async function diagnose(env, fetcher, write = text => process.stdout.write(text)) {
   const claims = await requestClaims(env, fetcher);
   write(JSON.stringify(claims, null, 2) + '\n');
-  validateClaims(claims);
+  validateClaims(claims, env.EXPECTED_OIDC_REF);
 }
 
 if (require.main === module) {

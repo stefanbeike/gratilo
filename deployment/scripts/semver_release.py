@@ -86,6 +86,16 @@ class GitHub:
                 return False
             raise
 
+    def tag_commit(self, version):
+        obj = self.request("GET", "git/ref/tags/" + version)["object"]
+        for _ in range(16):
+            if obj.get("type") == "commit":
+                return obj["sha"]
+            if obj.get("type") != "tag" or not re.fullmatch(r"[0-9a-f]{40}", obj.get("sha", "")):
+                raise ReleaseError("Unexpected Git tag object")
+            obj = self.request("GET", "git/tags/" + obj["sha"])["object"]
+        raise ReleaseError("Git tag nesting exceeds safe limit")
+
     def create_tag(self, version, commit):
         # Create-only API: never PATCH, force-push, move, or delete an existing ref.
         response = self.request("POST", "git/refs", {"ref": "refs/tags/" + version, "sha": commit})
@@ -99,6 +109,16 @@ def check_version(github, plan):
     actual = next_version(github.tags(), plan["version_bump"])
     if actual != plan:
         raise ReleaseError("Version history changed since planning; start a new complete release")
+
+
+def tag_plan(github, version, commit):
+    parsed = stable_version(version)
+    if parsed is None or len(version) > 128:
+        raise ReleaseError("Expected stable tag vMAJOR.MINOR.PATCH without leading zeroes")
+    if github.tag_commit(version) != commit:
+        raise ReleaseError("Release tag no longer points at the tested commit")
+    previous = max((v for tag in github.tags() if (v := stable_version(tag)) is not None and v < parsed), default=(0, 0, 0))
+    return {"version_bump": "tag", "previous_version": "v" + ".".join(map(str, previous)), "version": version}
 
 
 class ECR:
@@ -163,16 +183,22 @@ def summary(plan, commit, outcome, rows=(), error=None):
     return "\n".join(lines) + "\n"
 
 
-def publish(github, ecr, plan, commit, sha_tag, write_summary):
+def publish(github, ecr, plan, commit, sha_tag, write_summary, existing_tag=False):
     rows = [{"service": service, "semver_image": ecr.image(service, plan["version"]),
              "sha_image": ecr.image(service, sha_tag), "pushed": []} for service in SERVICES]
-    write_attempted, tag_confirmed = False, False
+    write_attempted, tag_confirmed = False, existing_tag
+    def recheck():
+        if existing_tag:
+            if tag_plan(github, plan["version"], commit) != plan:
+                raise ReleaseError("Git tag history changed during publication")
+        else:
+            check_version(github, plan)
     try:
         if not re.fullmatch(r"[0-9a-f]{40}", commit) or not re.fullmatch(r"sha-" + re.escape(commit) + r"-[0-9]+-[0-9]+", sha_tag):
             raise ReleaseError("Image CI tag must identify this release commit and run")
-        if not stable_version(plan["previous_version"]) or next_version([plan["previous_version"]], plan["version_bump"]) != plan:
+        if not existing_tag and (not stable_version(plan["previous_version"]) or next_version([plan["previous_version"]], plan["version_bump"]) != plan):
             raise ReleaseError("Invalid planned SemVer version")
-        check_version(github, plan)
+        recheck()
         for service in SERVICES:
             ecr.require_immutable(service)
             for tag in (sha_tag, plan["version"]):
@@ -181,7 +207,7 @@ def publish(github, ecr, plan, commit, sha_tag, write_summary):
         for service in SERVICES:
             ecr.prepare(service, sha_tag, plan["version"])
         # Recheck immediately before the first publication, after all preflight work.
-        check_version(github, plan)
+        recheck()
         for row in rows:
             for tag in (sha_tag, plan["version"]):
                 write_attempted = True
@@ -193,8 +219,9 @@ def publish(github, ecr, plan, commit, sha_tag, write_summary):
                 raise ReleaseError("Image tags do not have the same confirmed digest for " + row["service"])
             row["digest"] = sha_digest
         # All six ECR references are verified before any Git reference is written.
-        check_version(github, plan)
-        github.create_tag(plan["version"], commit)
+        recheck()
+        if not existing_tag:
+            github.create_tag(plan["version"], commit)
         tag_confirmed = True
         write_summary(summary(plan, commit, "ERFOLGREICH – drei Images, beide Tags und Git-Tag bestätigt", rows))
         return rows
@@ -217,12 +244,31 @@ def append_file(name, content):
 
 def main():
     bump, commit = os.environ.get("VERSION_BUMP"), os.environ.get("GITHUB_SHA", "")
-    if len(sys.argv) != 2 or sys.argv[1] not in ("plan", "publish", "not-started") or not re.fullmatch(r"[0-9a-f]{40}", commit):
+    if len(sys.argv) != 2 or sys.argv[1] not in ("plan", "publish", "not-started", "tag-plan", "tag-publish") or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ReleaseError("Expected plan/publish command and release commit context")
+    if sys.argv[1] in ("tag-plan", "tag-publish"):
+        github = GitHub(os.environ.get("GH_TOKEN"), os.environ.get("GITHUB_REPOSITORY"))
+        version = os.environ.get("GITHUB_REF_NAME", "")
+        plan = tag_plan(github, version, commit)
+        if sys.argv[1] == "tag-plan":
+            if os.environ.get("GITHUB_REF") != "refs/tags/" + version:
+                raise ReleaseError("Expected a tag push")
+            ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", commit, "origin/main"], capture_output=True)
+            if ancestor.returncode:
+                raise ReleaseError("Release commit must belong to main history")
+            append_file("GITHUB_OUTPUT", "".join(f"{key}={value}\n" for key, value in plan.items()))
+            append_file("GITHUB_STEP_SUMMARY", summary(plan, commit, "TAG GEPRÜFT – CI und Veröffentlichung stehen aus"))
+        else:
+            if os.environ.get("RELEASE_VERSION") != version:
+                raise ReleaseError("Release input differs from pushed tag")
+            rows = publish(github, ECR(os.environ), plan, commit, os.environ.get("IMAGE_TAG", ""),
+                           lambda text: append_file("GITHUB_STEP_SUMMARY", text), existing_tag=True)
+            append_file("GITHUB_OUTPUT", "".join(f"{row['service'].replace('-', '_')}_image={row['semver_image'].rsplit(':', 1)[0]}@{row['digest']}\n" for row in rows))
+        return
     if sys.argv[1] == "not-started":
         plan = {"version_bump": bump, "previous_version": os.environ.get("PREVIOUS_VERSION", ""),
                 "version": os.environ.get("RELEASE_VERSION", "")}
-        if not stable_version(plan["previous_version"]) or next_version([plan["previous_version"]], bump) != plan:
+        if not stable_version(plan["version"]) or (bump != "tag" and next_version([plan["previous_version"]], bump) != plan):
             raise ReleaseError("Invalid planned SemVer version")
         rows = [{"service": service, "semver_image": f"{REGISTRY}/gratilo/{service}:" + plan["version"],
                  "sha_image": f"{REGISTRY}/gratilo/{service}:" + os.environ.get("IMAGE_TAG", ""),

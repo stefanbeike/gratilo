@@ -119,6 +119,6 @@ jobs:
       with:
         name: scanned-images-${{ steps.version.outputs.tag }}
         path: ${{ runner.temp }}/gratilo-images/*.tar
-        retention-days: 1
+        retention-days: 7
         compression-level: 0
         if-no-files-found: error

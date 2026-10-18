@@ -1,0 +1,53 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UpdateOnlyGratiloService",
+      "Effect": "Allow",
+      "Action": ["ecs:DescribeServices", "ecs:UpdateService"],
+      "Resource": "arn:aws:ecs:eu-central-1:070351676632:service/gratilo-prd-cluster/gratilo-prd-app"
+    },
+    {
+      "Sid": "RegisterAndReadOnlyGratiloDefinitions",
+      "Effect": "Allow",
+      "Action": ["ecs:RegisterTaskDefinition", "ecs:DescribeTaskDefinition", "ecs:ListTagsForResource"],
+      "Resource": "arn:aws:ecs:eu-central-1:070351676632:task-definition/gratilo-prd-app:*"
+    },
+    {
+      "Sid": "PreserveDefinitionTagsOnRegistration",
+      "Effect": "Allow",
+      "Action": "ecs:TagResource",
+      "Resource": "arn:aws:ecs:eu-central-1:070351676632:task-definition/gratilo-prd-app:*",
+      "Condition": {"StringEquals": {"ecs:CreateAction": "RegisterTaskDefinition"}}
+    },
+    {
+      "Sid": "ListOnlyClusterTasks",
+      "Effect": "Allow",
+      "Action": "ecs:ListTasks",
+      "Resource": "*",
+      "Condition": {"ArnEquals": {"ecs:cluster": "arn:aws:ecs:eu-central-1:070351676632:cluster/gratilo-prd-cluster"}}
+    },
+    {
+      "Sid": "ReadOnlyClusterTasks",
+      "Effect": "Allow",
+      "Action": "ecs:DescribeTasks",
+      "Resource": "arn:aws:ecs:eu-central-1:070351676632:task/gratilo-prd-cluster/*"
+    },
+    {
+      "Sid": "ReadTargetHealth",
+      "Effect": "Allow",
+      "Action": "elasticloadbalancing:DescribeTargetHealth",
+      "Resource": "*"
+    },
+    {
+      "Sid": "PassOnlyApplicationRolesToEcs",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::070351676632:role/gratilo-prd-ecs-execution-role",
+        "arn:aws:iam::070351676632:role/gratilo-prd-ecs-task-role"
+      ],
+      "Condition": {"StringEquals": {"iam:PassedToService": "ecs-tasks.amazonaws.com"}}
+    }
+  ]
+}
