@@ -26,13 +26,15 @@ Der Workflow `release.yml` führt innerhalb desselben Laufs die gesamte Kette au
    Digest prüfen. Erst nach sechs bestätigten ECR-Referenzen einen **annotierten
    Git-Tag** über die GitHub Git-API anlegen und seine Commit-Zuordnung bestätigen.
 5. **Deploy Production**: ausschließlich nach erfolgreichem Publish und Tag.
-   Wartet am Environment **production** auf eine unabhängige Freigabe. Erst
+   Wartet am Environment **production** auf eine manuelle Freigabe; der Starter
+   darf selbst freigeben. Erst
    danach liest der Job die Review-Historie und fordert AWS-Credentials an.
    ECR-Digests und Build-Provenienz müssen exakt den Outputs dieses Publish-Jobs
    entsprechen. Vorhandene Task klonen, nur die drei Images ändern, neue Revision
    registrieren und bestehenden Service kontrolliert aktualisieren.
 
-Der Produktionsjob bleibt ohne nachgewiesene unabhängige Freigabe gesperrt.
+Der Produktionsjob bleibt ohne nachgewiesene Production-Freigabe gesperrt.
+Ein unabhängiger Zweitprüfer ist nicht erforderlich; Selbstfreigabe ist erlaubt.
 Die Eingabe beim Start ist keine Deployment-Freigabe. In Actions beim wartenden
 Job **Review deployments → production → Approve** verwenden; danach läuft die
 Kette ohne weiteren manuellen Workflow fort.
@@ -77,13 +79,14 @@ mit Environment und Einstellungsort und gibt keine Konfigurationswerte aus.
 Auch `AWS_REGION` muss ausdrücklich gesetzt sein; es gibt keinen stillen Default.
 
 - **release** benötigt keine Required reviewers: Tests/Scans und expliziter Start
-  schützen die Veröffentlichung; die unabhängige Produktionsfreigabe folgt danach.
-- **production**: Required reviewers, **Prevent self-review**, kein Administrator-
-  Bypass. Mindestens eine andere berechtigte Person als der Starter bzw. ein
-  erneuter Starter des Laufs muss freigeben. main und Änderungen an Workflows schützen.
+  schützen die Veröffentlichung; die manuelle Produktionsfreigabe folgt danach.
+- **production**: Required reviewers, **Prevent self-review ausgeschaltet**, kein
+  Administrator-Bypass. `stefanbeike` kann seinen eigenen Lauf freigeben;
+  eine zweite Person ist nicht notwendig. main und Änderungen an Workflows schützen.
 - Der Deploy prüft die GitHub-Review-Historie desselben Runs zusätzlich:
-  menschlicher Reviewer, Environment production, Freigabe, andere Identität als
-  Starter/Retry-Starter, passender Workflow/Commit/Run/Attempt. Ablehnung, fehlende
+  menschlicher Reviewer, Environment production, Freigabe sowie passender
+  Workflow/Commit/Run/Attempt. Starter und Retry-Starter sind als Reviewer erlaubt.
+  Ablehnung, fehlende
   Freigabe oder nicht lesbare API stoppen den Job **vor AWS/OIDC**.
 - Fehlen Required reviewers im verwendeten GitHub-Tarif, gibt es **keinen stillen
   automatischen Ersatz**. Der Deploy scheitert ohne Review-Nachweis. Zuerst einen
@@ -103,6 +106,12 @@ Beide AWS-Jobs erhalten `id-token: write`, sonst bleiben Tokens read-only.
 [Review-Historie und Actions-read-Berechtigung](https://docs.github.com/en/rest/actions/workflow-runs#get-the-review-history-for-a-workflow-run).
 
 ## Nachgewiesener Konfigurationsfehler am 18.10.2026
+
+**Aktueller Stand nach der anschließenden Einrichtung:** Die drei AWS-Variablen
+sind inzwischen auch im Environment release vorhanden. Nach ausdrücklicher
+Freigabe wurde die Trust-Policy um den exakten release-Subject ergänzt und
+anschließend aus AWS zurückgelesen. Die untenstehenden ursprünglichen Hinweise
+zu diesen fehlenden Werten dokumentieren den damaligen Fehlerzustand.
 
 Der fehlgeschlagene [Lauf 39118328665](https://github.com/stefanbeike/gratilo/actions/runs/39118328665)
 verwendet Commit `0f85e0039ac7495aa4aeb5e542ebd0cd31dfbce1`. Die damalige
@@ -138,10 +147,9 @@ sie erhalten dadurch keinen Zugriff auf ein anderes Environment.
    Branch `main`. Aktuell fehlen Environment-Branchregeln; der Workflow selbst
    ist bereits auf manuelle main-Läufe eingeschränkt. Keine Reviewerpflicht
    des Produktionsjobs nach release verlagern.
-3. **production → Required reviewers:** eine andere berechtigte Person als
-   Starter/erneuter Starter hinzufügen und **Prevent self-review** aktivieren.
-   Aktuell ist nur `stefanbeike` eingetragen, Prevent self-review ist aus.
-   Der vorhandene Code lehnt dessen eigene Freigabe trotzdem zuverlässig ab.
+3. **production → Required reviewers:** `stefanbeike` kann eingetragen bleiben;
+   **Prevent self-review ausgeschaltet lassen**. Diese aktuelle Konfiguration
+   erlaubt nach der Codekorrektur auch die Freigabe des eigenen Laufs.
    Die bestehende Beschränkung auf Branch `main` und **kein Admin-Bypass**
    sind bereits korrekt und bleiben erhalten.
 4. **AWS IAM**, erst nach ausdrücklicher Freigabe: Die lesend geprüfte aktuelle
@@ -161,8 +169,29 @@ Lokale Validierung: 79 Python-Tests (einschließlich 11 neuer Konfigurations- un
 Workflow-Regressionsfälle), 7 OIDC-Tests sowie Actionlint erfolgreich. Die Tests
 decken den tatsächlichen Fehlerkontext, strikte Schalterprüfung, fehlende/
 ungültige AWS-Werte, sichere Diagnosen und die unveränderte Kette
-Version → CI → Build/Trivy → Publish → unabhängige Freigabe → Deploy ab.
+Version → CI → Build/Trivy → Publish → Production-Freigabe → Deploy ab.
 Ein echter vollständiger Release-/Deploy-Lauf wurde ausdrücklich nicht ausgeführt.
+
+## Production-Freigabe ohne Zweitprüfer
+
+Auf ausdrücklichen Wunsch ist kein unabhängiger zweiter Reviewer mehr nötig.
+Der fehlgeschlagene Lauf `39121335772` enthielt bereits eine menschliche
+production-Freigabe von `stefanbeike`; die zusätzliche Identitätsprüfung hatte
+diese Selbstfreigabe abgewiesen. `production_approval.py` akzeptiert jetzt auch
+den Starter und den erneuten Starter als Reviewer. Es bleiben die Prüfung von
+Workflow, Run, Attempt, Commit und manuellem main-Start sowie die Ablehnung von
+Bots, fehlenden Freigaben, falschen Environments und abgelehnten Reviews erhalten.
+
+Die vorhandenen GitHub-Einstellungen passen bereits: Required reviewer
+`stefanbeike`, Prevent self-review **aus**, ausschließlich Branch main und
+kein Admin-Bypass. Unter **Review deployments → production → Approve** kannst
+du deinen eigenen Lauf bestätigen. Keine GitHub-Einstellung wurde hierfür
+geändert und kein Deployment gestartet.
+
+81 Python-Tests einschließlich Selbstfreigabe- und Retry-Regressionen, 7 OIDC-
+Tests und Actionlint sind erfolgreich. Nach Übernahme der Korrektur nach main
+einen neuen Gesamtworkflow starten; ein Retry des alten Commits lädt weiterhin
+den alten Prüfer. Bereits veröffentlichte Git-/Image-Tags niemals überschreiben.
 
 ## OIDC und AWS-IAM
 
@@ -281,7 +310,7 @@ Immutability begrenzt. Zwischen AWS und GitHub gibt es keine atomare Transaktion
   Kein Deployment, kein automatischer Bypass, gleiche Recovery-Regeln wie oben.
 - **Publish+Tag erfolgreich, Deploy fehlgeschlagen:** bevorzugt **Re-run failed
   jobs** im selben Lauf. Kein erneuter Build/Publish; ursprüngliche geprüfte
-  Digests bleiben gebunden. Production-Protection und unabhängige Freigabe erneut
+  Digests bleiben gebunden. Production-Protection und manuelle Freigabe erneut
   beachten. Artefakte werden sieben Tage aufbewahrt.
 
 Der Git-Tag wird mit GITHUB_TOKEN als annotiertes Objekt plus neuer Ref erstellt.
@@ -319,7 +348,7 @@ bash -n deployment/scripts/deploy_ecs.sh
 
 Die Regressionstests mocken AWS, Docker und GitHub; sie führen keinen Release
 oder Deploy aus. Sie prüfen SemVer, Main-Änderungen, Konflikte und Wiederholungen,
-annotierte Tags, Publish-Outputs, Digest-Bindung, unabhängige menschliche Freigabe,
+annotierte Tags, Publish-Outputs, Digest-Bindung, menschliche Production-Freigabe,
 Fehler/403/fehlende Reviews, Task-Erhaltung, Healthchecks und Rollback einschließlich
 HTTPS-Fehlern und Schutz vor fremden Revisionen. Backend-/Frontend-/PostgreSQL-
 Tests und Trivy bleiben unverändert verpflichtende Gates im Gesamtworkflow.

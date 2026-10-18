@@ -1,4 +1,7 @@
-"""Require an independent human production review on this manual workflow run.
+"""Verify a human production review on this manual workflow run.
+
+The workflow initiator may approve their own deployment when GitHub's
+production environment permits self-review. No second person is required.
 
 Read-only GitHub API calls. Missing protection/review/API access fails closed,
 before requesting AWS credentials. Never prints response bodies or tokens.
@@ -18,11 +21,8 @@ def validate_approval(run, reviews, env):
             or str(run.get("id")) != env.get("GITHUB_RUN_ID")
             or str(run.get("run_attempt")) != env.get("GITHUB_RUN_ATTEMPT")):
         raise ReleaseError("Production requires this exact manual release workflow and commit")
-    initiators = {str(value).lower() for value in (
-        env.get("RELEASE_ACTOR"), env.get("TRIGGERING_ACTOR"),
-        run.get("actor", {}).get("login"), run.get("triggering_actor", {}).get("login")) if value}
-    if not initiators or not isinstance(reviews, list):
-        raise ReleaseError("Could not verify independent production approval")
+    if not isinstance(reviews, list):
+        raise ReleaseError("Could not verify production environment approval")
     production_reviews = [r for r in reviews if any(
         e.get("name", "").lower() == "production" for e in r.get("environments", []))]
     if any(r.get("state") == "rejected" for r in production_reviews):
@@ -30,9 +30,9 @@ def validate_approval(run, reviews, env):
     for review in production_reviews:
         user = review.get("user", {})
         if (review.get("state") == "approved" and user.get("type") == "User"
-                and user.get("login") and user["login"].lower() not in initiators):
+                and user.get("login")):
             return
-    raise ReleaseError("Independent production approval missing; configure Required reviewers and Prevent self-review")
+    raise ReleaseError("Production approval missing; approve production under Review deployments. Self-approval is allowed when the environment permits it.")
 
 
 def main():
@@ -45,7 +45,7 @@ def main():
     run = github.request("GET", "actions/runs/" + run_id)
     reviews = github.request("GET", "actions/runs/" + run_id + "/approvals")
     validate_approval(run, reviews, env)
-    print("Independent human production approval verified for this workflow run.")
+    print("Human production approval verified for this workflow run; self-approval is permitted.")
 
 
 if __name__ == "__main__":

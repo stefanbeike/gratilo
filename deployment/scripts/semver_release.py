@@ -1,7 +1,7 @@
 """Plan stable SemVer releases and publish scanned artifacts without overwriting tags.
 
 Only the GitHub publish job invokes the mutating path after CI/security gates.
-The separate production job enforces independent environment approval.
+The separate production job enforces environment approval, allowing self-review.
 Tests inject fake GitHub and ECR clients; this module performs no work on import.
 """
 import json
@@ -286,7 +286,7 @@ def main():
             plan = next_version(github.tags(), bump)
             check_version(github, plan)
             append_file("GITHUB_OUTPUT", "".join(f"{key}={value}\n" for key, value in plan.items()))
-            append_file("GITHUB_STEP_SUMMARY", summary(plan, commit, "GEPLANT – CI, Publish und unabhängige Production-Freigabe stehen aus"))
+            append_file("GITHUB_STEP_SUMMARY", summary(plan, commit, "GEPLANT – CI, Publish und Production-Freigabe stehen aus"))
         else:
             plan = {"version_bump": bump, "previous_version": os.environ.get("PREVIOUS_VERSION", ""),
                     "version": os.environ.get("RELEASE_VERSION", "")}

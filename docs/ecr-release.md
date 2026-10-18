@@ -2,7 +2,8 @@
 
 Der [einzige manuelle Gesamtworkflow](cicd.md) übernimmt Versionsplanung,
 CI/Security, einmalige Docker-Builds, Trivy, ECR-Publish, annotierten Git-Tag
-und nach unabhängiger Production-Freigabe das ECS-Deployment.
+und nach manueller Production-Freigabe das ECS-Deployment. Du kannst deinen
+eigenen Lauf freigeben; ein unabhängiger Zweitprüfer ist nicht erforderlich.
 
 Start ausschließlich auf main mit version_bump und der exakten Bestätigung
 RELEASE DEPLOY gratilo-production. Tag-Pushes starten keinen Release mehr.

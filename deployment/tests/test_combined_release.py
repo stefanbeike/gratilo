@@ -108,8 +108,8 @@ class ProductionApprovalTest(unittest.TestCase):
     def test_independent_human_review_is_accepted(self):
         approval.validate_approval(self.run, [self.review], self.env)
 
-    def test_absent_self_bot_release_environment_or_rejection_fails_closed(self):
-        variants = [[], [{**self.review, "user": {"type": "User", "login": "operator"}}],
+    def test_absent_bot_release_environment_or_rejection_fails_closed(self):
+        variants = [[],
                     [{**self.review, "user": {"type": "Bot", "login": "review-bot"}}],
                     [{**self.review, "environments": [{"name": "release"}]}],
                     [{**self.review, "state": "rejected"}]]
@@ -123,9 +123,20 @@ class ProductionApprovalTest(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(release.ReleaseError):
                 approval.validate_approval({**self.run, key: value}, [self.review], self.env)
 
-    def test_rerun_by_original_reviewer_cannot_approve_itself(self):
-        with self.assertRaises(release.ReleaseError):
-            approval.validate_approval(self.run, [self.review], {**self.env, "TRIGGERING_ACTOR": "independent-reviewer"})
+    def test_original_starter_can_approve_own_production_deployment(self):
+        review = {**self.review, "user": {"type": "User", "login": "operator"}}
+        approval.validate_approval(self.run, [review], self.env)
+
+    def test_retry_starter_can_approve_own_production_deployment(self):
+        approval.validate_approval(self.run, [self.review], {**self.env, "TRIGGERING_ACTOR": "independent-reviewer"})
+
+    def test_self_approval_cannot_bypass_rejection_or_wrong_environment(self):
+        review = {**self.review, "user": {"type": "User", "login": "operator"}}
+        for invalid in ({**review, "state": "rejected"},
+                        {**review, "environments": [{"name": "release"}]},
+                        {**review, "user": {"type": "Bot", "login": "operator"}}):
+            with self.assertRaises(release.ReleaseError):
+                approval.validate_approval(self.run, [invalid], self.env)
 
     def test_api_error_is_not_treated_as_approval(self):
         with patch.dict(approval.os.environ, self.env, clear=True), patch.object(approval, "GitHub") as github:

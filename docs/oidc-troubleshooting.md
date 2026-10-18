@@ -9,7 +9,7 @@ waren. Die Anzeige der alten Shell-Fehlermeldung war kein Beleg für einen
 fehlenden Schalter. Der neue Validator unterscheidet fehlenden/gesperrten
 Repository-Schalter von jeder fehlenden AWS-Variable, ohne Werte auszugeben.
 
-Publish bleibt im Environment **release**, Deploy im unabhängig freizugebenden
+Publish bleibt im Environment **release**, Deploy im manuell freizugebenden
 Environment **production**. Für beide Jobs sind AWS-Variablen und ein exakt
 passender OIDC-Subject notwendig. Die am 18.10.2026 erneut lesend geprüfte
 AWS-Trust-Policy erlaubt aktuell nur production; release muss nach Freigabe
@@ -75,7 +75,8 @@ vorgesehen und enthält jetzt ebenfalls die unveränderlichen IDs. Der aktuelle
 Gesamtworkflow verwendet für Publish das Environment `release`, für Deploy
 `production`. Bei einer gemeinsamen Rolle die kombinierte Trust-Vorlage verwenden.
 Beide Environments ausschließlich auf main beschränken; Required reviewers und
-Prevent self-review im Environment production aktivieren. Siehe [aktuelle CI/CD-Anleitung](cicd.md).
+Selbstfreigabe im Environment production erlauben (Prevent self-review aus).
+Siehe [aktuelle CI/CD-Anleitung](cicd.md).
 
 Es wurden keine AWS-Einstellungen gelesen oder geändert, kein Workflow gestartet,
 kein OIDC-Token angefordert und keine Images veröffentlicht. Die tatsächlichen
