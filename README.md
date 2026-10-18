@@ -223,6 +223,6 @@ bilden. Neue Changesets verwenden `gratilo`. Die Git-Historie bleibt erhalten.
 Der lokale Checkout-Ordner kann nach dem Schließen der IDE in `gratilo`
 umbenannt und anschließend erneut geöffnet werden.
 
-Der [SemVer-Tag-Release ohne Stripe](docs/ecr-release.md) baut und prüft alle drei
-Images. Produktionsdeployments erfolgen ausschließlich über den separaten
-[manuellen Deploy-Workflow](docs/cicd.md); Zahlungen bleiben deaktiviert.
+Der [manuelle Gesamtworkflow Gratilo Release & Deploy Production](docs/cicd.md)
+versioniert, baut und prüft alle drei Images und deployt erst nach unabhängiger
+Production-Freigabe. Pushes und Tags deployen nicht; Zahlungen bleiben deaktiviert.

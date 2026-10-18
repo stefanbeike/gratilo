@@ -1,21 +1,37 @@
-name: Gratilo ECR Release (payments disabled)
+name: Gratilo Release & Deploy Production
 on:
-  push:
-    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: Stable SemVer increment
+        required: true
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+      confirmation:
+        description: 'Type RELEASE DEPLOY gratilo-production'
+        required: true
+        type: string
 permissions:
   contents: read
   pull-requests: read
 concurrency:
-  group: gratilo-production-release
+  group: gratilo-production-release-deploy
   cancel-in-progress: false
 jobs:
   version:
+    name: Validate & Version
     uses: ./.github/workflows/006_release_tag.yml
+    with:
+      version_bump: ${{ inputs.version_bump }}
+      confirmation: ${{ inputs.confirmation }}
   ci:
+    name: CI & Security
     needs: version
     uses: ./.github/workflows/ci.yml
     secrets: inherit
   images:
+    name: Build & Scan
     needs: ci
     permissions:
       contents: read
@@ -23,13 +39,28 @@ jobs:
     with:
       upload_artifacts: true
   publish:
+    name: Publish ECR
     needs: [version, images]
     permissions:
-      contents: read
+      contents: write
       id-token: write
     uses: ./.github/workflows/007_deploy_ecs.yml
     with:
       image_tag: ${{ needs.images.outputs.image_tag }}
-      version_bump: tag
+      version_bump: ${{ inputs.version_bump }}
       previous_version: ${{ needs.version.outputs.previous_version }}
       release_version: ${{ needs.version.outputs.version }}
+  deploy:
+    name: Deploy Production
+    needs: [version, images, publish]
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    uses: ./.github/workflows/deploy-production.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      image_tag: ${{ needs.images.outputs.image_tag }}
+      frontend_image: ${{ needs.publish.outputs.frontend_image }}
+      user_service_image: ${{ needs.publish.outputs.user_service_image }}
+      payment_service_image: ${{ needs.publish.outputs.payment_service_image }}

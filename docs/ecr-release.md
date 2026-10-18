@@ -1,13 +1,10 @@
-# Gratilo ECR-Release ohne Stripe
+# Gratilo Release & Deploy Production
 
-Die aktuelle Anleitung steht unter [CI/CD: Tag-Release und manuelles Deployment](cicd.md).
+Der [einzige manuelle Gesamtworkflow](cicd.md) übernimmt Versionsplanung,
+CI/Security, einmalige Docker-Builds, Trivy, ECR-Publish, annotierten Git-Tag
+und nach unabhängiger Production-Freigabe das ECS-Deployment.
 
-Ein stabiler SemVer-Tag-Push startet jetzt Tests, einmalige Docker-Builds und
-Trivy-Scans. Nach der bestehenden production-Freigabe werden die geprüften Images
-nach ECR veröffentlicht. Der Release deployt niemals ECS.
-
-Der bisherige manuelle Release mit version_bump und PUBLISH gratilo-sandbox wurde
-abgelöst. Git-Tags werden vom Betreiber angelegt; der Publisher benötigt nur
-contents: read. Für ECS gibt es ausschließlich den separaten manuellen Workflow
-deploy-production.yml. GitHub-Einstellungen, IAM, Konflikte und Rollback sind in
-der verlinkten Anleitung vollständig beschrieben.
+Start ausschließlich auf main mit version_bump und der exakten Bestätigung
+RELEASE DEPLOY gratilo-production. Tag-Pushes starten keinen Release mehr.
+Es gibt keinen separaten manuellen Publish- oder Deploy-Workflow.
+Zahlungen bleiben deaktiviert. Einrichtung, Konflikte und Rollback: [cicd.md](cicd.md).

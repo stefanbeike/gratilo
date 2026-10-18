@@ -200,7 +200,8 @@ konfigurierte Anwendung sind echte Versandtests und wurden hier nicht ausgeführ
 Aktueller Betriebsweg: [manueller ECS-Betrieb](manual-ecs-production.md).
 Das vorhandene SMTP-Secret heißt `gratilo/prd/smtp` mit `username` und `password`;
 kein zusätzliches SES-Secret anlegen. Ein ECS-Deploy erfolgt ausschließlich über
-den separaten [manuellen Deploy-Workflow](cicd.md), niemals durch den ECR-Release.
+den [manuellen Gesamtworkflow](cicd.md) nach unabhängiger Production-Freigabe;
+Pushes und Git-Tags starten keinen Deploy.
 
 Bei SMTP 535 zuerst die Benutzerkennung prüfen: `username` muss die
 Access-Key-ID des SES-SMTP-IAM-Benutzers sein. Das zugehörige SMTP-Passwort ist

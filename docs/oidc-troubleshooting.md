@@ -54,10 +54,10 @@ Keine Wildcards oder Erweiterung auf alle Branches verwenden.
 
 Die separate `github-oidc-main-trust.json` ist nur für Jobs ohne Environment
 vorgesehen und enthält jetzt ebenfalls die unveränderlichen IDs. Der aktuelle
-Publish-Job benötigt die production-Variante. Für den aktuellen Tag-Release im
-GitHub Environment main und eine separate Tag-Regel `v*` erlauben; Required
-reviewers beibehalten. Der manuelle Produktionsdeploy ist im Workflow zusätzlich
-auf main beschränkt. Siehe [aktuelle CI/CD-Anleitung](cicd.md).
+Gesamtworkflow verwendet für Publish das Environment `release`, für Deploy
+`production`. Bei einer gemeinsamen Rolle die kombinierte Trust-Vorlage verwenden.
+Beide Environments ausschließlich auf main beschränken; Required reviewers und
+Prevent self-review im Environment production aktivieren. Siehe [aktuelle CI/CD-Anleitung](cicd.md).
 
 Es wurden keine AWS-Einstellungen gelesen oder geändert, kein Workflow gestartet,
 kein OIDC-Token angefordert und keine Images veröffentlicht. Die tatsächlichen

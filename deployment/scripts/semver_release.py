@@ -1,6 +1,7 @@
 """Plan stable SemVer releases and publish scanned artifacts without overwriting tags.
 
-Only the GitHub publish job invokes the mutating path, after environment approval.
+Only the GitHub publish job invokes the mutating path after CI/security gates.
+The separate production job enforces independent environment approval.
 Tests inject fake GitHub and ECR clients; this module performs no work on import.
 """
 import json
@@ -96,11 +97,38 @@ class GitHub:
             obj = self.request("GET", "git/tags/" + obj["sha"])["object"]
         raise ReleaseError("Git tag nesting exceeds safe limit")
 
+    def main_commit(self):
+        commit = self.request("GET", "git/ref/heads/main").get("object", {}).get("sha", "")
+        if not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise ReleaseError("Unexpected main ref response")
+        return commit
+
     def create_tag(self, version, commit):
-        # Create-only API: never PATCH, force-push, move, or delete an existing ref.
-        response = self.request("POST", "git/refs", {"ref": "refs/tags/" + version, "sha": commit})
-        if response.get("ref") != "refs/tags/" + version or response.get("object", {}).get("sha") != commit:
-            raise ReleaseError("Git tag creation was not confirmed")
+        # An annotated object plus a CREATE-only ref; never PATCH or force-push.
+        annotation = self.request("POST", "git/tags", {
+            "tag": version, "message": f"Gratilo {version}\nTested commit: {commit}",
+            "object": commit, "type": "commit",
+            "tagger": {"name": "Gratilo Release", "email": "github-actions[bot]@users.noreply.github.com"}})
+        tag_sha = annotation.get("sha", "")
+        if not re.fullmatch(r"[0-9a-f]{40}", tag_sha):
+            raise ReleaseError("Annotated tag object was not confirmed")
+        response = self.request("POST", "git/refs", {"ref": "refs/tags/" + version, "sha": tag_sha})
+        if (response.get("ref") != "refs/tags/" + version
+                or response.get("object", {}).get("sha") != tag_sha
+                or response.get("object", {}).get("type") != "tag"
+                or self.tag_commit(version) != commit):
+            raise ReleaseError("Annotated Git tag creation was not confirmed")
+
+
+def check_main(github, commit):
+    if github.main_commit() != commit:
+        raise ReleaseError("main advanced or differs from this tested commit; start a new complete workflow")
+
+
+def check_manual_context(env):
+    if (env.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
+            or env.get("GITHUB_REF") != "refs/heads/main"):
+        raise ReleaseError("Only a manual workflow on main may release/deploy")
 
 
 def check_version(github, plan):
@@ -183,11 +211,13 @@ def summary(plan, commit, outcome, rows=(), error=None):
     return "\n".join(lines) + "\n"
 
 
-def publish(github, ecr, plan, commit, sha_tag, write_summary, existing_tag=False):
+def publish(github, ecr, plan, commit, sha_tag, write_summary, existing_tag=False, verify_main=False):
     rows = [{"service": service, "semver_image": ecr.image(service, plan["version"]),
              "sha_image": ecr.image(service, sha_tag), "pushed": []} for service in SERVICES]
     write_attempted, tag_confirmed = False, existing_tag
     def recheck():
+        if verify_main:
+            check_main(github, commit)
         if existing_tag:
             if tag_plan(github, plan["version"], commit) != plan:
                 raise ReleaseError("Git tag history changed during publication")
@@ -244,8 +274,26 @@ def append_file(name, content):
 
 def main():
     bump, commit = os.environ.get("VERSION_BUMP"), os.environ.get("GITHUB_SHA", "")
-    if len(sys.argv) != 2 or sys.argv[1] not in ("plan", "publish", "not-started", "tag-plan", "tag-publish") or not re.fullmatch(r"[0-9a-f]{40}", commit):
+    if len(sys.argv) != 2 or sys.argv[1] not in ("plan", "publish", "not-started", "tag-plan", "tag-publish", "release-plan", "release-publish") or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ReleaseError("Expected plan/publish command and release commit context")
+    if sys.argv[1] in ("release-plan", "release-publish"):
+        check_manual_context(os.environ)
+        github = GitHub(os.environ.get("GH_TOKEN"), os.environ.get("GITHUB_REPOSITORY"))
+        check_main(github, commit)
+        if sys.argv[1] == "release-plan":
+            if os.environ.get("CONFIRMATION") != "RELEASE DEPLOY gratilo-production":
+                raise ReleaseError("Exact RELEASE DEPLOY gratilo-production confirmation required")
+            plan = next_version(github.tags(), bump)
+            check_version(github, plan)
+            append_file("GITHUB_OUTPUT", "".join(f"{key}={value}\n" for key, value in plan.items()))
+            append_file("GITHUB_STEP_SUMMARY", summary(plan, commit, "GEPLANT – CI, Publish und unabhängige Production-Freigabe stehen aus"))
+        else:
+            plan = {"version_bump": bump, "previous_version": os.environ.get("PREVIOUS_VERSION", ""),
+                    "version": os.environ.get("RELEASE_VERSION", "")}
+            rows = publish(github, ECR(os.environ), plan, commit, os.environ.get("IMAGE_TAG", ""),
+                           lambda text: append_file("GITHUB_STEP_SUMMARY", text), verify_main=True)
+            append_file("GITHUB_OUTPUT", "".join(f"{row['service'].replace('-', '_')}_image={row['semver_image'].rsplit(':', 1)[0]}@{row['digest']}\n" for row in rows))
+        return
     if sys.argv[1] in ("tag-plan", "tag-publish"):
         github = GitHub(os.environ.get("GH_TOKEN"), os.environ.get("GITHUB_REPOSITORY"))
         version = os.environ.get("GITHUB_REF_NAME", "")

@@ -202,11 +202,12 @@ Ohne GitHub Environment lautet der main-Subject:
 `repo:stefanbeike@13099702/gratilo@1351208624:ref:refs/heads/main`.
 Mit `environment: production` lautet er dagegen:
 `repo:stefanbeike@13099702/gratilo@1351208624:environment:production`.
-Die beiden Trust-JSON-Vorlagen stehen in `deployment/iam/github-oidc-*-trust.json`.
+Die Trust-Vorlagen stehen in `deployment/iam/github-oidc-*-trust.json`; für die
+gemeinsame Rolle ist `github-oidc-trust-policy.json` die kombinierte Variante.
 Audience immer `sts.amazonaws.com`; keinen Wildcard-Repo-Subject verwenden.
-Beim Environment-Subject muss GitHub `production` main und separat die geschützten
-Release-Tags `v*` erlauben und Required reviewers erzwingen. Der manuelle
-Deploy-Workflow selbst erlaubt weiterhin nur main. Ein reiner main-Trust akzeptiert diesen
+Der Gesamtworkflow verwendet zusätzlich den entsprechenden Subject mit
+`environment:release` für ECR. Beide Environments nur auf main beschränken und
+für production Required reviewers und Prevent self-review erzwingen. Ein reiner main-Trust akzeptiert diesen
 Environment-Subject nicht. Keine OIDC-Tokens für PR-Builds freigeben.
 
 AWS-Authentifizierung darf nur über `aws-actions/configure-aws-credentials`
@@ -220,10 +221,10 @@ AWS-Schlüssel oder geerbte CLI-Profile. Die GitHub-Rolle benötigt keine
 - [ECS Execution Role / KMS](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_execution_IAM_role.html)
 - [GitHub OIDC mit AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws)
 
-Der ECR-Publish nutzt das geschützte Environment `production`; deshalb gilt die
-Environment-Trust-Variante. Im Release gibt es keinen ECS-Deploy. Der neue separate
-manuelle Deploy-Workflow ist in [cicd.md](cicd.md) einschließlich zusätzlicher IAM-
-Rechte und Rollback beschrieben. Infrastruktur wird weiterhin manuell eingerichtet.
+Der ECR-Publish nutzt `release`, der anschließende Deploy das geschützte Environment
+`production`. Der manuelle Gesamtworkflow mit unabhängiger Deploy-Freigabe ist in
+[cicd.md](cicd.md) einschließlich IAM-Rechten und Rollback beschrieben.
+Infrastruktur wird weiterhin manuell eingerichtet.
 
 ## Validierung und verbleibende Grenzen
 

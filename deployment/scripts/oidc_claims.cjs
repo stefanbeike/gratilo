@@ -3,7 +3,7 @@
 // Diagnostic decoding only. AWS still verifies the JWT signature and trust policy.
 const PUBLIC_CLAIMS = ['sub', 'aud', 'repository', 'ref', 'environment'];
 const AUDIENCE = 'sts.amazonaws.com';
-const EXPECTED_SUBJECT = 'repo:stefanbeike@13099702/gratilo@1351208624:environment:production';
+const SUBJECT_PREFIX = 'repo:stefanbeike@13099702/gratilo@1351208624:environment:';
 
 function publicClaims(token) {
   try {
@@ -42,11 +42,12 @@ async function requestClaims(env, fetcher = fetch) {
   }
 }
 
-function validateClaims(claims, expectedRef = 'refs/heads/main') {
+function validateClaims(claims, expectedRef = 'refs/heads/main', expectedEnvironment = 'production') {
+  if (!['production', 'release'].includes(expectedEnvironment)) throw new Error('Unexpected AWS environment.');
   if (expectedRef !== 'refs/heads/main' && !/^refs\/tags\/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(expectedRef))
     throw new Error('Expected main or a stable release tag.');
-  const expected = { sub: EXPECTED_SUBJECT, aud: AUDIENCE,
-    repository: 'stefanbeike/gratilo', ref: expectedRef, environment: 'production' };
+  const expected = { sub: SUBJECT_PREFIX + expectedEnvironment, aud: AUDIENCE,
+    repository: 'stefanbeike/gratilo', ref: expectedRef, environment: expectedEnvironment };
   if (PUBLIC_CLAIMS.some(key => claims[key] !== expected[key]))
     throw new Error('OIDC claims differ from the expected production identity; compare the five printed claims with the IAM trust policy.');
 }
@@ -54,7 +55,7 @@ function validateClaims(claims, expectedRef = 'refs/heads/main') {
 async function diagnose(env, fetcher, write = text => process.stdout.write(text)) {
   const claims = await requestClaims(env, fetcher);
   write(JSON.stringify(claims, null, 2) + '\n');
-  validateClaims(claims, env.EXPECTED_OIDC_REF);
+  validateClaims(claims, env.EXPECTED_OIDC_REF, env.EXPECTED_OIDC_ENVIRONMENT);
 }
 
 if (require.main === module) {

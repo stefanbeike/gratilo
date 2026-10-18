@@ -1,6 +1,13 @@
 name: Resolve Gratilo SemVer (read only)
 'on':
   workflow_call:
+    inputs:
+      version_bump:
+        required: true
+        type: string
+      confirmation:
+        required: true
+        type: string
     outputs:
       previous_version:
         value: ${{ jobs.resolve.outputs.previous_version }}
@@ -19,8 +26,10 @@ jobs:
       with:
         persist-credentials: false
         fetch-depth: 0
-    - name: Validate stable release tag and main ancestry
+    - name: Validate explicit main request and resolve next remote version
       id: version
       env:
         GH_TOKEN: ${{ github.token }}
-      run: python3 deployment/scripts/semver_release.py tag-plan
+        VERSION_BUMP: ${{ inputs.version_bump }}
+        CONFIRMATION: ${{ inputs.confirmation }}
+      run: python3 deployment/scripts/semver_release.py release-plan

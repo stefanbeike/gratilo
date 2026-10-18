@@ -1,313 +1,266 @@
-# Gratilo CI/CD: Tag-Release und manuelles Produktionsdeployment
+# Gratilo Release & Deploy Production
 
-## Ablauf
+## Ein manueller Einstieg
 
-`release.yml` startet bei einem Tag-Push `v*.*.*`. `006_release_tag.yml` prüft
-anschließend strikt `vMAJOR.MINOR.PATCH` (keine führenden Nullen, Prereleases oder
-Build-Metadaten) und verlangt, dass der Commit zur Historie von `origin/main`
-gehört. Fehlerhafte Tags beenden den Lauf vor CI/Build/Veröffentlichung.
+GitHub → **Actions → Gratilo Release & Deploy Production → Run workflow**.
+Branch **main** wählen, `version_bump` auf `patch`, `minor` oder `major` setzen und
+als `confirmation` exakt **RELEASE DEPLOY gratilo-production** eingeben.
 
-Danach laufen die bestehenden Prüfungen aus `ci.yml`: Python-Deployment-Tests,
-OIDC-Tests, Actionlint, Backend-Tests mit Java 21, Frontend-Tests und -Build,
-Registrierungsregression mit isoliertem PostgreSQL 15 und gemocktem SMTP,
-Source-Security-Scan und optional der konfigurierte Sonar-Gate.
-`005_docker_build.yml` baut genau einmal alle drei Linux/amd64-Images, scannt
-jedes mit Trivy (HIGH/CRITICAL blockieren, einschließlich ungefixter Findings)
-und prüft das gemeinsame Container-Netz mit PostgreSQL 15. Die geprüften Images
-werden als kurzlebige GitHub-Artefakte übergeben, nicht erneut gebaut.
+Der Workflow `release.yml` führt innerhalb desselben Laufs die gesamte Kette aus:
 
-`007_deploy_ecs.yml` bleibt trotz historischem Dateinamen **ausschließlich ECR-
-Publisher**. Nach der Freigabe im geschützten Environment `production` nutzt er
-OIDC und pusht je Image zwei Tags mit identischem, geprüftem Digest:
+1. **Validate & Version**: Remote-main muss dem gestarteten Commit entsprechen.
+   Die numerisch höchste stabile Remote-Git-Version wird ermittelt, ohne
+   Prereleases/Build-Metadaten und ohne führende Nullen. Startwert v0.0.0.
+   Patch/minor/major berechnet die nächste freie Git-Version; noch kein Tag.
+2. **CI & Security**: bestehende Backend-/Frontend-Tests, PostgreSQL-
+   Registrierungsregression, Actionlint, Deployment-/OIDC-Tests, Source-Security-
+   Scan und konfigurierte Sonar-Quality-Gates aus `ci.yml`. Ein Fehler stoppt alles.
+3. **Build & Scan**: alle drei Linux/amd64-Images genau einmal bauen; Trivy
+   HIGH/CRITICAL einschließlich ungefixter Findings blockiert. Gemeinsamer
+   Drei-Container-/PostgreSQL-15-Test. Nur diese geprüften Images werden als
+   Artefakte übergeben, nicht im Publisher oder Deploy erneut gebaut.
+4. **Publish ECR**: im Environment **release**, OIDC nach erfolgreicher CI.
+   main-Commit, Remote-Tags und ECR-Konflikte erneut prüfen. Alle drei Images
+   mit derselben SemVer-Version und dem gemeinsamen
+   `sha-<commit>-<run>-<attempt>` veröffentlichen, beide Tags je Image auf gleichen
+   Digest prüfen. Erst nach sechs bestätigten ECR-Referenzen einen **annotierten
+   Git-Tag** über die GitHub Git-API anlegen und seine Commit-Zuordnung bestätigen.
+5. **Deploy Production**: ausschließlich nach erfolgreichem Publish und Tag.
+   Wartet am Environment **production** auf eine unabhängige Freigabe. Erst
+   danach liest der Job die Review-Historie und fordert AWS-Credentials an.
+   ECR-Digests und Build-Provenienz müssen exakt den Outputs dieses Publish-Jobs
+   entsprechen. Vorhandene Task klonen, nur die drei Images ändern, neue Revision
+   registrieren und bestehenden Service kontrolliert aktualisieren.
 
-- `070351676632.dkr.ecr.eu-central-1.amazonaws.com/gratilo/frontend:vX.Y.Z`
-- `070351676632.dkr.ecr.eu-central-1.amazonaws.com/gratilo/user-service:vX.Y.Z`
-- `070351676632.dkr.ecr.eu-central-1.amazonaws.com/gratilo/payment-service:vX.Y.Z`
-- Zusätzlich jeweils `sha-<40-stellige Commit-SHA>-<Run-ID>-<Attempt>`.
+Der Produktionsjob bleibt ohne nachgewiesene unabhängige Freigabe gesperrt.
+Die Eingabe beim Start ist keine Deployment-Freigabe. In Actions beim wartenden
+Job **Review deployments → production → Approve** verwenden; danach läuft die
+Kette ohne weiteren manuellen Workflow fort.
 
-Kein `latest`, kein ECS-Deployment, kein Git-Tag-Schreiben im Release-Workflow.
-Die bisherige manuelle Release-Eingabe `version_bump`/`PUBLISH gratilo-sandbox`
-entfällt: Der vom Betreiber gepushte Git-Tag bestimmt die Version verbindlich.
-Die vorhandene numerische SemVer-Berechnung bleibt im getesteten Python-Modul
-für Versionsplanung erhalten; keine Versionsnummer wird in mehrere Dateien kopiert.
+**Nur release.yml hat workflow_dispatch.** Kein Tag-Push und kein normaler
+main-Push startet einen Release oder Deploy. Normale main-/PR-Ereignisse behalten
+ihre CI-Prüfungen. `006_release_tag.yml`, `007_deploy_ecs.yml` und
+`deploy-production.yml` sind ausschließlich wiederverwendbare Teilworkflows.
+Der frühere Tag-Release und der separate manuelle Deployment-Einstieg entfallen.
 
-Ein erfolgreicher Release wird **nicht** mit dem Deploy-Workflow verkettet.
-`deploy-production.yml` besitzt ausschließlich `workflow_dispatch`, verlangt
-`main`, eine veröffentlichte Version und `DEPLOY gratilo-production` und nutzt
-ebenfalls das Environment `production`. Ein Tag-Push kann diesen Workflow nicht
-starten. Pull Requests bekommen CI und Containerprüfungen ohne AWS-OIDC-Rechte.
+## Einmalige GitHub-Konfiguration
 
-## GitHub-Einstellungen vor dem ersten Lauf
+Repository `stefanbeike/gratilo`, Repository Variable:
 
-Repository: `stefanbeike/gratilo`. Repository Variable:
-
-| Name | Wert |
+| Variable | Wert |
 |---|---|
-| `ECR_PUBLISH_ENABLED` | `true` nach Prüfung der manuellen AWS-/GitHub-Einrichtung |
+| `ECR_PUBLISH_ENABLED` | `true`, sobald die folgende Einrichtung geprüft ist |
 
-Environment **production**, Variables:
+Zwei Environments anlegen bzw. konfigurieren: **release** und **production**.
+Beide auf **Branch main** beschränken; Tag-Regeln werden nicht mehr benötigt.
+In **beiden Environments** die folgenden Variables hinterlegen:
 
-| Name | Wert |
+| Variable | Wert |
 |---|---|
 | `AWS_ACCOUNT_ID` | `070351676632` |
 | `AWS_REGION` | `eu-central-1` |
 | `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::070351676632:role/gratilo-github-actions-role` |
 
-Keine neuen GitHub Secrets erforderlich. Keine AWS-Access-Keys, Stripe-Keys,
-SMTP-Zugangsdaten oder Datenbankpasswörter in GitHub hinterlegen. Bereits optional
-konfigurierte Sonar-Variablen `SONAR_PROJECT_KEY`, `SONAR_ORGANIZATION` und Secrets
-`SONAR_TOKEN`, `SONAR_HOST_URL` bleiben unverändert.
+Die vorhandenen Variablen nur im Environment production sind für den Publisher
+im neuen Environment release nicht sichtbar; dort ebenfalls hinterlegen.
+Alternativ können diese nicht geheimen Werte Repository Variables sein.
 
-Environment Protection Rules:
+- **release** benötigt keine Required reviewers: Tests/Scans und expliziter Start
+  schützen die Veröffentlichung; die unabhängige Produktionsfreigabe folgt danach.
+- **production**: Required reviewers, **Prevent self-review**, kein Administrator-
+  Bypass. Mindestens eine andere berechtigte Person als der Starter bzw. ein
+  erneuter Starter des Laufs muss freigeben. main und Änderungen an Workflows schützen.
+- Der Deploy prüft die GitHub-Review-Historie desselben Runs zusätzlich:
+  menschlicher Reviewer, Environment production, Freigabe, andere Identität als
+  Starter/Retry-Starter, passender Workflow/Commit/Run/Attempt. Ablehnung, fehlende
+  Freigabe oder nicht lesbare API stoppen den Job **vor AWS/OIDC**.
+- Fehlen Required reviewers im verwendeten GitHub-Tarif, gibt es **keinen stillen
+  automatischen Ersatz**. Der Deploy scheitert ohne Review-Nachweis. Zuerst einen
+  unterstützten Tarif/Repository-Modus bzw. eine separat geprüfte Freigabelösung
+  bereitstellen. Die Startbestätigung oder eine Variable genügt nicht.
+- Rulesets für `v*` müssen GitHub Actions das Erstellen annotierter Tags erlauben.
+  Verschieben/Löschen vorhandener Tags gesperrt lassen; keine Force-Pushes oder
+  automatischen Ruleset-Bypässe. Tag-Protection-Fehler werden als Fehler gemeldet.
 
-1. **Required reviewers** aktivieren, optional Self-review und Administrator-Bypass
-   ausschließen. Ohne Reviewer-Regel ist ein Environment allein keine manuelle
-   Freigabe. Tarif/Repository-Sichtbarkeit auf Unterstützung dieser Funktion prüfen.
-2. **Selected branches and tags**: explizite **Branch-Regel `main`** und separate
-   **Tag-Regel `v*`** anlegen. Die bisherige Beschränkung ausschließlich auf main
-   blockiert sonst den ECR-Publisher eines Tag-Laufs. Der Deploy-Workflow selbst
-   erlaubt weiterhin ausschließlich main.
-3. main schützen; Tag-Ruleset für `v*`: Erstellen nur durch vertrauenswürdige
-   Release-Verantwortliche, Update und Löschen sperren. Workflow-Codeänderungen
-   reviewen. Eine Tag-Ref kann eigenen Workflow-Code ausführen; Ancestry-Prüfung
-   allein ersetzt diese Repository-Schutzregeln nicht.
-4. Actions und erforderliche Marketplace-Actions erlauben; Default-GitHub-Token
-   darf read-only bleiben. Kein Job benötigt `contents: write`. Nur die beiden
-   AWS nutzenden Jobs erhalten `id-token: write`.
+Keine zusätzlichen GitHub Secrets, AWS Access Keys oder Stripe-Keys erforderlich.
+Optionale bestehende Sonar-Konfiguration bleibt erhalten (`SONAR_PROJECT_KEY`,
+`SONAR_ORGANIZATION`, `SONAR_TOKEN`, `SONAR_HOST_URL`). Nur Publish erhält GitHub
+`contents: write`; Deploy zusätzlich `actions: read` für die Review-Historie.
+Beide AWS-Jobs erhalten `id-token: write`, sonst bleiben Tokens read-only.
 
-Die Release-Pipeline startet automatisch, wartet aber weiterhin vor AWS-Zugriff
-auf die bestehende Environment-Freigabe. Artefakte bleiben sieben Tage verfügbar;
-danach vor dem ersten Push einen vollständigen neuen Lauf mit Tests/Build starten.
-GitHub-Concurrency verhindert gleichzeitige Releases bzw. Deployments mit getrennten
-Gruppen. GitHub garantiert keine FIFO-Warteschlange und kann ältere wartende Läufe
-durch neuere ersetzen; ausgelassene Releases ausdrücklich nachholen.
+[GitHub Environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments),
+[Review-Historie und Actions-read-Berechtigung](https://docs.github.com/en/rest/actions/workflow-runs#get-the-review-history-for-a-workflow-run).
 
-[GitHub: Environment-Regeln für Branches und Tags](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
+## OIDC und AWS-IAM
 
-## OIDC und IAM
+AWS-Konto `070351676632`, Frankfurt `eu-central-1`. Keine Terraform-/Crossplane-
+Ausführung oder automatische Infrastruktur-Einrichtung.
 
-Der tatsächliche OIDC-Subject dieses Repositorys enthält unveränderliche IDs:
+Die vorhandene GitHub-Rolle muss bei gemeinsamer Verwendung **genau diese beiden
+Subjects** mit Audience `sts.amazonaws.com` akzeptieren:
 
 ```text
+repo:stefanbeike@13099702/gratilo@1351208624:environment:release
 repo:stefanbeike@13099702/gratilo@1351208624:environment:production
 ```
 
-Audience ist `sts.amazonaws.com`. Die vorhandene Vorlage
-`deployment/iam/github-oidc-production-trust.json` bleibt gültig, da beide Jobs
-`environment: production` verwenden. Ein ausschließlich auf den Branch-main-
-Subject begrenzter Trust genügt nicht. Der Environment-Subject ist für Tag und
-main identisch; die Ref-Beschränkungen setzen Environment und Workflow um.
-Keine Wildcard-Trust-Erweiterung vornehmen. Die Diagnose protokolliert nur
-`sub`, `aud`, `repository`, `ref`, `environment`, niemals den Token. Beim Publisher
-wird die exakte Tag-Ref geprüft, beim Deploy ausschließlich main.
+Die unveränderlichen Owner-/Repository-IDs sind Teil der tatsächlichen Identität;
+kein Wechsel zum alten Subject ohne IDs. Die kombinierte Vorlage ist
+`deployment/iam/github-oidc-trust-policy.json`. Die getrennten Templates
+`github-oidc-release-trust.json` und `github-oidc-production-trust.json` zeigen
+jeweils nur einen Subject. Für eine gemeinsame Rolle die kombinierte Variante
+verwenden; keine Wildcard-Subjects. Die fünf öffentlichen OIDC-Claims werden
+geprüft, der vollständige Token niemals ausgegeben.
 
-Manuell an der bestehenden Rolle prüfen/ergänzen:
+Die am 18.10.2026 nur lesend abgefragte aktuelle Trust-Policy erlaubt noch
+**ausschließlich production**. **release muss daher manuell ergänzt werden.**
+Die Rolle besitzt die Inline-Policies `gratilo-github-ecr-push` und
+`gratilo-github-ecs-deploy`; das allein bestätigt noch nicht jede benötigte Aktion.
+Eine zusätzliche rein lesende IAM-Simulation von 33 benötigten Aktion-/Resource-
+Paaren ergab sechs **implicitDeny**:
 
-- `deployment/iam/github-deployment-policy.json`: vorhandene ECR-Login-/Push-/
-  Describe-Rechte ausschließlich für die drei Gratilo-Repositories.
-- `deployment/iam/github-ecs-deployment-policy.json`: zusätzliche ECS-Rechte
-  für den einen Service, die Familie `gratilo-prd-app:*`, bestehende Task-Tags,
-  Task-Status im Cluster und lesende ALB-Target-Health-Abfragen. `iam:PassRole`
-  ausschließlich für Execution Role und Task Role, nur an `ecs-tasks.amazonaws.com`.
-  Die Policy enthält keine Ressourcenanlage außer neuer Task-Definition-Revisionen,
-  keine Infrastruktur-Löschrechte und keinen Secret-Value-Zugriff.
+- `ecs:DescribeTaskDefinition`
+- `ecs:ListTagsForResource`
+- `ecs:TagResource`
+- `ecs:ListTasks`
+- `ecs:DescribeTasks`
+- `elasticloadbalancing:DescribeTargetHealth`
 
-`ecs:ListTasks` ist auf den Cluster per Condition begrenzt; die lesende ALB-API
-`DescribeTargetHealth` benötigt Resource `*`. Task-Definition-Rechte sind auf die
-Familie begrenzt. `ecs:TagResource` ist nur für `RegisterTaskDefinition` erlaubt.
-Die bestehende gemeinsame GitHub-Rolle hat damit die Vereinigungsmenge von ECR-
-und ECS-Rechten. Eine spätere Rollentrennung kann die Publisher-Rechte zusätzlich
-isolieren, ist für diesen Ausbau aber keine neue Infrastrukturvoraussetzung.
+Diese Rechte gemäß der untenstehenden ECS-Policy-Vorlage manuell ergänzen.
+Die übrigen geprüften ECR-, Service-Update-, RegisterTaskDefinition- und beiden
+PassRole-Paare waren erlaubt. Die Simulation ersetzt keine Prüfung von GitHub-
+Protection Rules, OIDC-Trust oder eventuell übergeordneten SCPs.
 
-Live-Prüfung der angehängten/Inline-Policies wurde versucht, scheiterte in dieser
-Sitzung mit `Could not connect to the endpoint URL: https://iam.amazonaws.com/`.
-**Die aktuell wirksamen Rechte sind deshalb nicht bestätigt.** In der AWS-Konsole
-Policies, Permissions Boundary und eventuelle SCPs vor dem ersten Deploy prüfen;
-Vorlagen werden hier nicht automatisch angehängt. Ein gegebenenfalls verwendeter
-IAM Policy Simulator ist nur ein zusätzlicher Test, keine vollständige Prüfung
-von Trust, SCPs oder GitHub-Environment-Regeln.
+Benötigte Berechtigungen, vorhandene lokale Vorlagen:
 
-[AWS: ECS-Aktionen und Resource-Scope](https://docs.aws.amazon.com/service-authorization/latest/reference/list_ecs.html),
-[Tag-on-create](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/supported-iam-actions-tagging.html).
+- `deployment/iam/github-deployment-policy.json`: ECR-Login und Push/Describe
+  nur auf `gratilo/frontend`, `gratilo/user-service`, `gratilo/payment-service`.
+  Alle Repositories müssen **IMMUTABLE ohne Ausnahmen** sein; der Workflow prüft
+  das, ändert diese Einstellung aber nicht.
+- `deployment/iam/github-ecs-deployment-policy.json`: Register/Describe/Tag der
+  Familie `gratilo-prd-app:*`; Update/Describe ausschließlich des bestehenden
+  Service im Cluster `gratilo-prd-cluster`; Task-Status, Target-Health und gezieltes
+  `iam:PassRole` nur für `gratilo-prd-ecs-execution-role` sowie
+  `gratilo-prd-ecs-task-role`, ausschließlich an `ecs-tasks.amazonaws.com`.
+- Keine Anwendungs-Secret-Value-Rechte oder Secrets-Manager-Schreibrechte für
+  GitHub. Credentials werden weiterhin von der ECS Execution Role injiziert.
+  Keine IAM-Key-Erstellung, DNS-, Netzwerk-, RDS- oder Zertifikatsänderung.
 
-## AWS-Laufzeitvoraussetzungen
+Die gemeinsame Rolle hat die Vereinigungsmenge von ECR- und ECS-Rechten. Für eine
+spätere strengere Rollentrennung kann release eine reine ECR-Rolle über seine
+Environment-Variable nutzen; dann beide Rollen jeweils mit dem engen Trust-
+Template konfigurieren. Der Deploy verwendet die vorgegebene bestehende Rolle.
+IAM-/Trust-Änderungen sind manuelle Einrichtung, nicht Teil dieser Implementierung.
 
-- Drei ECR-Repositories müssen **IMMUTABLE ohne Ausnahmen** sein. Sowohl der
-  Publisher als auch die manuelle Versionsauswahl prüfen dies lesend.
-- Bestehender ECS-Service `gratilo-prd-app` im Cluster `gratilo-prd-cluster`,
-  rolling ECS Deployment Controller, Circuit Breaker **enable + rollback**,
-  Fargate Linux 1.4.0+, ALB-Zuordnung frontend:80 und `ip`-Target.
-- Gemeinsame Familie `gratilo-prd-app`: 1 vCPU / 3072 MiB, frontend:80,
-  user-service:8081, payment-service:8082, interne Kommunikation localhost.
-  Alle Container brauchen ECS-Healthchecks und awslogs; frontend wartet auf
-  beide gesunden Backends. Vorhandene Limits, Umgebungsvariablen, Secret-
-  Referenzen, Sidecars, Task-Tags, Netzwerk und ALB-Konfiguration werden erhalten.
-- Private Subnetze ohne öffentliche Task-IP, RDS über private SG-Verbindung,
-  Zugriff auf ECR, Logs und Secrets Manager über vorhandenen NAT-Egress oder
-  ECR-api/dkr-, Logs-, Secrets-Manager- und S3-Gateway-Endpunkte. SES-SMTP benötigt
-  separaten erreichbaren SMTP-Egress bzw. einen geeigneten Endpunkt.
-- RDS `gratilodb`, Schemas `user_mgmt`/`payment_mgmt`, JDBC `sslmode=verify-full`
-  mit `/app/rds-ca-bundle.pem`. Keine Secret-Werte im Task-JSON.
-- Die Execution Role darf die referenzierten JSON-Secrets `gratilo/prd/database`,
-  `gratilo/prd/smtp`, `gratilo/prd/jwt`, `gratilo/prd/internal-api` lesen; bei eigenem
-  KMS-Key zusätzlich gezieltes `kms:Decrypt`. Gemeinsames JWT und internes Secret
-  in beiden Backends. Die Task Role bleibt davon getrennt.
-- `https://gratilo.eu` muss einschließlich gültigem TLS vom GitHub-Runner
-  erreichbar sein. Kein pauschales Abschalten von HTTPS-/Hostnamenprüfung.
+## Deployment und Funktionsprüfung
 
-Der Renderer prüft den vorhandenen Produktionszustand vor jeder Registrierung
-und ersetzt nur die drei Images durch `repository@sha256:...`. Bei veralteter
-Task-Konfiguration bricht er mit einem Konfigurationshinweis ab. Insbesondere
-legacy SMTP-Overrides sind zuerst kontrolliert mit der vorhandenen prd-Mail-
-Konfiguration abzugleichen; die Pipeline korrigiert Produktionsvariablen nicht
-still nebenbei. Details: [manueller Laufzeitbetrieb](manual-ecs-production.md).
-Stripe und Pool-Splitting bleiben aus; keine Stripe-Secrets erforderlich.
+Ziel: Cluster `gratilo-prd-cluster`, Service `gratilo-prd-app`. Die bestehende
+Task-Definition wird einschließlich CPU/RAM, Container-Limits, Healthchecks,
+Secrets-Referenzen, Umgebungsvariablen, Tags und Sidecars übernommen. Nur die drei
+Images werden auf die gerade bestätigten `repository@sha256:...` umgestellt.
+Desired Count bleibt erhalten, ebenso Service-Netzwerk und ALB-Zuordnung.
 
-## Einen neuen Release veröffentlichen
+Voraussetzungen: vorhandener Fargate-Service, ECS Rolling Deployment Controller,
+Circuit Breaker enable+rollback, private Task-IP, frontend:80 am ip-Target,
+interne Backend-Ports 8081/8082 und localhost-Kommunikation. RDS `gratilodb` mit
+verify-full und gebündeltem CA, CloudWatch Logs sowie erreichbare ECR-/Secrets-/
+Logs-/S3-Endpunkte oder bestehender NAT-Egress. Ressourcen werden nicht angelegt.
+Details zur manuellen Laufzeiteinrichtung: [manual-ecs-production.md](manual-ecs-production.md).
 
-Erst nach Review/Freigabe der Codeänderungen und dem ausdrücklich freigegebenen
-Push dieser Pipeline nach main. Folgende Beispiele **nicht** unbesehen ausführen:
-Sie erzeugen/pushen einen Release-Tag und wurden bei der Implementierung nicht ausgeführt.
+Nach services-stable werden die angeforderte neue Revision und Running/Desired
+nochmals geprüft. Ein stabiler automatischer Rollback zählt nicht als erfolgreicher
+Deploy. Danach alle drei Container HEALTHY in der neuen Revision, gesundes
+ALB-Target, gültiges TLS auf `https://gratilo.eu`, Frontend 200, User-Service-
+Features mit ausgeschalteten Pools und geschützter anonymer Payment-GET 401/403.
+Keine Registrierungs-, Mail- oder Zahlungsaufrufe im Deployment-Healthcheck.
 
-```bash
-git switch main
-git pull --ff-only
-git fetch origin --tags
-python3 -c 'import subprocess,sys; sys.path.insert(0,"deployment/scripts"); from semver_release import next_version; print(next_version(subprocess.check_output(["git","tag","--list"],text=True).splitlines(),"patch")["version"])'
-# Ausgabe prüfen; v0.0.2 nur verwenden, falls das tatsächlich die freie nächste Version ist:
-git tag -a v0.0.2 -m 'Gratilo v0.0.2'
-git push origin refs/tags/v0.0.2
-```
+Stripe und Pool-Splitting bleiben deaktiviert. SMTP-Secret und sonstige Secrets
+werden nicht verändert. **Ein Image-Deployment repariert keine ungültigen SMTP-
+Credentials.** Die separat bereits freigegebene und ausgeführte SMTP-Reparatur
+ist im [Registrierungs-/SMTP-Bericht](registration-smtp-fix.md) dokumentiert.
 
-SemVer basiert auf der numerisch höchsten stabilen Git-Version, Startwert v0.0.0;
-`patch`, `minor`, `major` sind für die lokale Berechnung möglich. Eine geplante
-Version kann durch zwischenzeitliche Releases belegt sein: vor dem Tag-Push
-erneut Remote-Tags prüfen, nie erzwingen oder verschieben. Mit dem Repository-
-`GITHUB_TOKEN` erzeugte Tags starten normalerweise keinen neuen Push-Workflow;
-den Tag deshalb hier mit der normalen Betreiber-Git-Authentifizierung pushen.
-[GitHub: Vermeidung rekursiver Workflow-Trigger](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
+## Konflikte und Wiederanlauf
 
-In Actions den automatisch gestarteten ECR-Release verfolgen. Alle Tests und
-Scans müssen erfolgreich sein. Den wartenden Publish-Job nach Prüfung über
-**Review deployments → production** freigeben. Die Summary enthält Version,
-Commit, beide Image-Tags pro Service, Digests und bestätigte Pushes.
+Eine einzige Concurrency-Gruppe serialisiert den vollständigen Ablauf bis nach
+Deployment/Approval. cancel-in-progress=false; ein laufender Release wird nicht
+abgebrochen. GitHub garantiert keine FIFO-Schlange und kann ältere wartende Runs
+ersetzen. Keine konkurrierenden Releases außerhalb dieses Workflows ausführen.
 
-Die vorhandene Git-Ref wird vor dem ersten Push und nach den Pushes erneut gegen
-den getesteten Commit geprüft, auch bei annotierten Tags. Existiert einer der
-ECR-Tags bereits, bricht der Lauf ab, statt etwas zu überschreiben. Ein Rerun nach
-erfolgreicher oder teilweiser Veröffentlichung darf keine vorhandene Version
-ersetzen. Bei Teilveröffentlichung die Summary prüfen, nichts automatisch löschen
-und nach Korrektur einen neuen Patch-Tag auf einen geprüften main-Commit setzen.
-Die drei SemVer-Tags sind erst dann als freigegebener Release nutzbar, wenn der
-Release-Lauf vollständig erfolgreich war; die Deploy-Auswahl verlangt zusätzlich
-die gemeinsame Commit/Run/Attempt-Provenienz aller drei Digests.
+Vor dem ersten ECR-Push werden Remote-main, Remote-Tags und alle sechs ECR-Tags
+nochmals geprüft. Existierende ECR-Tags werden nie überschrieben. Remote-main
+oder Versionshistorie geändert: neuer vollständiger Lauf statt Umbenennen schon
+gebauter Artefakte. Externe Rennen werden durch CREATE-only-Git-Refs und ECR-
+Immutability begrenzt. Zwischen AWS und GitHub gibt es keine atomare Transaktion.
 
-## Eine Version nach Production deployen
+- **Vor dem ersten Push fehlgeschlagen:** Ursache korrigieren, neuen vollständigen
+  manuellen Lauf starten. Er plant die Version neu und führt alle Prüfungen aus.
+- **ECR teilweise oder vollständig veröffentlicht, Tag fehlt:** Workflow bleibt
+  fehlgeschlagen und deployt nichts. Summary nennt bestätigte Pushes/Digests.
+  Nicht blind wiederholen, löschen oder überschreiben. Fehlgeschlagene Version
+  ist in ECR belegt, selbst wenn der Git-Tag fehlt. Nach Korrektur kann über einen
+  freien größeren SemVer-Sprung (z.B. minor) ein neuer vollständiger Lauf erfolgen.
+  Falls unbedingt ein weiterer Patch benötigt wird, zuerst eine ausdrücklich
+  geprüfte administrative Recovery/Reservierung der belegten Version durchführen;
+  keine automatische Tag-Erzeugung für unvollständige Releases. Auch ein Rerun
+  des Publish-Jobs überschreibt keine existierenden Tags und bricht bei Konflikten ab.
+- **Tag-Erstellung durch Protection verweigert:** zuerst Repository-Regel für den
+  vorgesehenen Release-Aktor prüfen; sechs ECR-Referenzen können bereits bestehen.
+  Kein Deployment, kein automatischer Bypass, gleiche Recovery-Regeln wie oben.
+- **Publish+Tag erfolgreich, Deploy fehlgeschlagen:** bevorzugt **Re-run failed
+  jobs** im selben Lauf. Kein erneuter Build/Publish; ursprüngliche geprüfte
+  Digests bleiben gebunden. Production-Protection und unabhängige Freigabe erneut
+  beachten. Artefakte werden sieben Tage aufbewahrt.
 
-1. Erfolgreichen ECR-Release und Digests prüfen.
-2. Actions → **Gratilo Production Deployment (manual)** → **Run workflow**.
-3. Branch **main**, Version exakt beispielsweise `v0.0.2`, Bestätigung
-   **DEPLOY gratilo-production** eingeben.
-4. Die separate Environment-Freigabe für `production` erteilen.
-5. Die Auswahl prüft alle drei vorhandenen Images, identische Build-Provenienz
-   und Übereinstimmung mit dem Commit des ausgewählten Git-Tags aus main. Sie
-   pinnt Digests. Vor der Registrierung werden die Tags erneut auf dieselben
-   Digests geprüft. Es werden keine Images neu gebaut oder veröffentlicht.
-6. Der Deploy liest die aktuelle Task-Definition inklusive Tags, validiert sie,
-   registriert eine neue Revision und aktualisiert nur den vorhandenen Service.
-   Die bisherige Desired Count bleibt erhalten. Die Summary enthält alte/neue
-   Revision und Version; `services-stable` allein genügt nicht: angeforderte
-   Revision, Running/Desired und abgeschlossener Rollout werden ausdrücklich geprüft.
-7. Anschließend: alle drei Container HEALTHY in der ausgewählten Revision,
-   ALB-Target gesund, HTTPS-Frontend 200, `/user-service/features` mit deaktivierten
-   Pools, `/payment-service/transactions` ohne Anmeldung 401/403. Nur lesende
-   Requests; keine Registrierung, Mail, Login oder Zahlung.
+Der Git-Tag wird mit GITHUB_TOKEN als annotiertes Objekt plus neuer Ref erstellt.
+Es gibt keinen aktiven Tag-Push-Release-Trigger; auch ein anderer Token würde
+keinen zweiten Release/Deploy starten. Die normalen GitHub-Regeln zur Vermeidung
+rekursiver Token-Events bieten eine zusätzliche Absicherung.
 
-## Rollback und Fehlerdiagnose
+## Rollback
 
-Bei Fehlern nach dem ersten Service-Update: sichere ECS-Events/Stop-Gründe
-ausgeben, anschließend vorherige Revision mit vorheriger Desired Count
-wiederherstellen, auf Stabilität warten und dieselben Health-/HTTPS-Prüfungen
-ausführen. Ein durch ECS Circuit Breaker bereits erfolgter Rollback wird erkannt.
-Ein stabiler Rollback zählt **nicht** als erfolgreicher Deploy; der Job bleibt rot.
-Zeigt der Service inzwischen auf eine fremde Revision, wird der automatische
-Rollback verweigert, um eine außerhalb von Actions erfolgte Änderung nicht zu
-überschreiben. Ein fehlgeschlagener Rollback wird deutlich in Log/Summary gemeldet.
+Bei Fehlern nach dem Service-Update: ECS-Diagnosefelder ausgeben, vorherige
+Task-Revision und Desired Count wiederherstellen, Stabilität und dieselben
+Healthchecks prüfen. Job bleibt **fehlgeschlagen**, auch bei erfolgreichem Rollback.
+Zeigt der Service inzwischen auf eine fremde Revision, wird nicht darübergerollt;
+Operator-Eingriff erforderlich. Automatischer Rollback des ECS Circuit Breakers
+wird erkannt. Ein nicht verifizierter Rollback erscheint deutlich in der Summary.
 
-Gezielter späterer Rollback: denselben manuellen Deploy-Workflow auf main starten
-und eine frühere vollständig veröffentlichte SemVer-Version auswählen. Das erzeugt
-eine neue Revision mit den alten Image-Digests und der aktuellen Konfiguration.
-Bei abgebrochenem Runner/Job oder erzwungenem Timeout ist die Shell-Aufräumroutine
-nicht garantiert; dann ECS Circuit Breaker/Service-Events prüfen und gegebenenfalls
-die in der Summary genannte alte Task-Revision manuell wiederherstellen.
+Ein erzwungen beendeter Runner kann keine Shell-Aufräumroutine garantieren.
+Dann ECS-Events/Circuit Breaker und die in der Summary genannte vorherige Revision
+prüfen und nötigenfalls nach expliziter operativer Freigabe manuell zurücksetzen.
+Kein zusätzlicher GitHub-Dispatch-Workflow wird dafür angeboten. Für einen
+geplanten fachlichen Rollback den Code auf main reviewt zurücknehmen und einen
+neuen Patch über denselben Gesamtworkflow veröffentlichen.
 
-Rollback betrifft Images/Task-Revisionen, **nicht** Datenbankschemata oder Daten.
-Liquibase-Migrationen müssen rückwärtskompatibel sein; keine Datenbank-Downgrades,
-Secret-Rotationen oder Löschungen durch diese Pipeline. Ein defektes SMTP-Secret
-wird durch ein Image-Rollback nicht repariert.
+Rollback setzt keine Datenbankmigrationen zurück, ändert keine Secrets und löscht
+keine Daten. Liquibase-Änderungen müssen rückwärtskompatibel sein.
 
-Typische Blocker: production erlaubt Tags nicht; OIDC-Subject ohne IDs; fehlende
-ECS-/PassRole-/TagResource-Rechte; Mutable ECR; fehlende Image-Version oder gemischte
-Builds; fehlender Circuit Breaker; ungültige JDBC-/Secret-/SMTP-Konfiguration;
-private Netzwerk-Egress-Probleme; unerreichbares öffentliches HTTPS. Keine
-vollständigen Task-Umgebungen, Secrets oder CloudWatch-Anwendungslogs werden durch
-die Deploy-Skripte ausgegeben. AWS-Fehlertexte/Events können betriebliche Details
-enthalten; Anwendungslogs und Konfigurationen dürfen selbst keine Secrets enthalten.
-
-## Lokale Validierung und Grenzen
-
-Auszuführen ohne AWS-Änderungen:
+## Lokale Validierung und Dateiübersicht
 
 ```bash
 python3 -m unittest discover -s deployment/tests -v
 node --test deployment/tests/oidc_claims.test.cjs
 actionlint
 bash -n deployment/scripts/deploy_ecs.sh
-cd frontend && npm test && npm run build
 ```
 
-Die Pipeline-Tests mocken AWS, Docker und curl. Sie prüfen Versionen, annotierte
-Tags, main-Ancestry, Konflikte/Reruns, sechs unveränderliche Image-Referenzen,
-gemeinsame Image-Provenienz, Task-Erhaltung, ECS-Stabilität, Container-/HTTPS-
-Fehler, verifizierten Rollback und Schutz vor fremden Revisionen. Es wird dabei
-kein produktiver Deploy gestartet. Die bestehende CI behält die vollständigen
-Backend-, PostgreSQL- und Drei-Container-Tests bei.
+Die Regressionstests mocken AWS, Docker und GitHub; sie führen keinen Release
+oder Deploy aus. Sie prüfen SemVer, Main-Änderungen, Konflikte und Wiederholungen,
+annotierte Tags, Publish-Outputs, Digest-Bindung, unabhängige menschliche Freigabe,
+Fehler/403/fehlende Reviews, Task-Erhaltung, Healthchecks und Rollback einschließlich
+HTTPS-Fehlern und Schutz vor fremden Revisionen. Backend-/Frontend-/PostgreSQL-
+Tests und Trivy bleiben unverändert verpflichtende Gates im Gesamtworkflow.
 
-### Ergebnis dieser Implementierung am 17.10.2026
+Geändert: die vier Release-/Deploy-YAML-Dateien, SemVer-, OIDC- und Image-Auswahl-
+Skripte, neue `production_approval.py`, zugehörige Tests, kombinierte/Release-OIDC-
+Trust-Vorlagen und aktuelle CI/CD-Dokumentation. `ci.yml`, Docker-Build-/Scan-
+Implementierung und `deploy_ecs.sh` werden unverändert wiederverwendet.
+Die vor Arbeitsbeginn vorhandenen lokalen Änderungen am SMTP-Bericht bleiben
+unverändert erhalten. Kein Commit, Push, Tag, AWS-Schreibzugriff, Workflow-Start,
+Mailversand oder Produktionsdeployment wurde bei dieser CI/CD-Änderung ausgeführt.
 
-- Arbeitsbeginn auf main `dee2e57`, Arbeitsbaum sauber. Bereits vorhandene Mail-
-  und HTTPS-Vorbereitungen sind in diesem Commit enthalten und wurden erhalten.
-- 57 Python-Tests erfolgreich, einschließlich bestehender SemVer-, ECS- und SMTP-
-  Tests und neuer Tag-/Auswahl-/Rollback-Regressionen. OIDC-Node-Tests erfolgreich.
-- Alle 10 aktiven Workflows mit Actionlint 1.7.7 erfolgreich geprüft. Zusätzlich
-  YAML geparst, Job-Abhängigkeiten auf Zyklen/fehlende Jobs geprüft, Pflichtinputs
-  wiederverwendbarer Workflows und Trennung der Deploy-Trigger validiert.
-- 21 Frontend-Tests und Produktionsbuild erfolgreich. Shell-Syntax, Python-AST,
-  IAM-JSON und `git diff --check` erfolgreich.
-- Die vorhandene lokale v0.0.1-Task-Datei wurde mit dem unveränderten Renderer
-  geprüft und akzeptiert; dies ersetzt keine aktuelle Live-ECS-Prüfung.
-- Backend-Rerun blockiert: Gradle-Wrapper kann in dieser Sitzung nicht herunterladen;
-  auch die vorhandene lokale Gradle-8.10-Installation scheitert beim Java-21-
-  Daemonstart mit `java.net.SocketException: Operation not permitted`.
-- Container-/PostgreSQL-Rerun blockiert: kein Zugriff auf `/var/run/docker.sock`.
-  Keine neuen lokalen Docker-Builds oder Trivy-Image-Scans behauptet. Die unverändert
-  verpflichtenden CI-Gates führen diese Prüfungen vor jeder Veröffentlichung aus.
-- Live-IAM-Prüfung wegen nicht erreichbarem IAM-Endpunkt offen; Environment-
-  Einstellungen und zusätzliche Rechte müssen manuell bestätigt werden.
-- Keine AWS-Schreibzugriffe, Secrets gelesen, Mails/Zahlungen ausgelöst, Git-Tags
-  erstellt, Commits gepusht, GitHub-Läufe gestartet oder produktiv deployed.
-
-### Geänderte Dateien
-
-| Bereich | Dateien relativ zum Repository |
-|---|---|
-| Workflows | `.github/workflows/release.yml`, `005_docker_build.yml`, `006_release_tag.yml`, `007_deploy_ecs.yml`, neu `deploy-production.yml` im selben Verzeichnis |
-| Skripte | `deployment/scripts/semver_release.py`, `oidc_claims.cjs`, `deploy_ecs.sh`, neu `resolve_release_images.py`, neu `verify_ecs_health.py` im selben Verzeichnis |
-| Tests | `deployment/tests/test_ecs_deployment.py`, `oidc_claims.test.cjs`, neu `test_tag_pipeline.py` im selben Verzeichnis |
-| IAM | neu `deployment/iam/github-ecs-deployment-policy.json` |
-| Dokumentation | `README.md`, neu `docs/cicd.md`, `docs/ecr-release.md`, `docs/aws-ecs-deployment.md`, `docs/manual-ecs-production.md`, `docs/oidc-troubleshooting.md`, `docs/registration-smtp-fix.md`, `docs/amazon-ses.md` |
-
-`ci.yml` wurde geprüft und bleibt unverändert: seine bestehenden Tests, Security-
-Gates und Workflow-Validierung werden vom Tag-Release wiederverwendet. Der aktive
-Release ruft keine alte Git-Tag-Schreibfunktion des SemVer-Moduls auf; die bisherige
-Logik und ihre Regressionstests bleiben zur Kompatibilität erhalten.
+Prüfergebnis dieser Änderung: **68 Python-Regressionstests**, **7 OIDC-Node-Tests**
+und **Actionlint 1.7.7 für alle zehn Workflows** erfolgreich. Zusätzlich YAML-
+Abhängigkeiten/Pflichtinputs, genau ein Dispatch-Einstieg, fünf Stufen und die
+Freigabeprüfung vor AWS validiert; Python-AST, IAM-JSON, Shell-Syntax und
+`git diff --check` erfolgreich. Kein echter Release-/Deploy-Test ausgeführt.

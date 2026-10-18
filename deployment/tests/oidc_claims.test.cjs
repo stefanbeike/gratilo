@@ -12,6 +12,13 @@ const env = { ACTIONS_ID_TOKEN_REQUEST_URL: 'https://vstoken.actions.githubuserc
 function token(payload) { return 'test-header.' + Buffer.from(JSON.stringify(payload)).toString('base64url') + '.test-signature'; }
 function response(value) { return { ok: true, json: async () => ({ value }) }; }
 
+test('release publisher has its own explicitly allowed OIDC environment', async () => {
+  const claims = { ...expected, environment: 'release', sub: expected.sub.replace(':production', ':release') };
+  await diagnose({ ...env, EXPECTED_OIDC_ENVIRONMENT: 'release' }, async () => response(token(claims)), () => {});
+  await assert.rejects(diagnose(env, async () => response(token(claims)), () => {}));
+  await assert.rejects(diagnose({ ...env, EXPECTED_OIDC_ENVIRONMENT: 'unknown' }, async () => response(token(claims)), () => {}));
+});
+
 test('stable tag uses the same production subject and an explicit tag ref', async () => {
   const ref = 'refs/tags/v1.2.3';
   await diagnose({ ...env, EXPECTED_OIDC_REF: ref }, async () => response(token({ ...expected, ref })), () => {});

@@ -1,28 +1,34 @@
-name: Gratilo Production Deployment (manual)
+name: Deploy approved Gratilo release to production
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
       version:
-        description: 'Published ECR version, for example v0.0.2 (also used for rollback)'
         required: true
         type: string
-      confirmation:
-        description: 'Type DEPLOY gratilo-production'
+      image_tag:
+        required: true
+        type: string
+      frontend_image:
+        required: true
+        type: string
+      user_service_image:
+        required: true
+        type: string
+      payment_service_image:
         required: true
         type: string
 permissions:
   contents: read
-concurrency:
-  group: gratilo-production-deployment
-  cancel-in-progress: false
+  actions: read
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read
+      actions: read
       id-token: write
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -33,6 +39,10 @@ jobs:
       ECS_TASK_EXECUTION_ROLE_ARN: arn:aws:iam::070351676632:role/gratilo-prd-ecs-execution-role
       ECS_TASK_ROLE_ARN: arn:aws:iam::070351676632:role/gratilo-prd-ecs-task-role
       RELEASE_VERSION: ${{ inputs.version }}
+      EXPECTED_BUILD_TAG: ${{ inputs.image_tag }}
+      EXPECTED_FRONTEND_IMAGE: ${{ inputs.frontend_image }}
+      EXPECTED_USER_SERVICE_IMAGE: ${{ inputs.user_service_image }}
+      EXPECTED_PAYMENT_SERVICE_IMAGE: ${{ inputs.payment_service_image }}
       AWS_RETRY_MODE: standard
       AWS_MAX_ATTEMPTS: '5'
     steps:
@@ -40,12 +50,16 @@ jobs:
       with:
         persist-credentials: false
         fetch-depth: 0
-    - name: Validate manual request
+    - name: Verify independent production approval (fail closed)
       env:
-        CONFIRMATION: ${{ inputs.confirmation }}
+        GH_TOKEN: ${{ github.token }}
+        RELEASE_ACTOR: ${{ github.actor }}
+        TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+      run: python3 deployment/scripts/production_approval.py
+    - name: Validate deployment configuration
+      env:
         ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
       run: |
-        [[ "$CONFIRMATION" == 'DEPLOY gratilo-production' ]]
         [[ "$AWS_ACCOUNT_ID" == 070351676632 && "$AWS_REGION" == eu-central-1 ]]
         [[ "$ROLE" == arn:aws:iam::070351676632:role/gratilo-github-actions-role ]]
         python3 -c 'import os,re; assert re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", os.environ["RELEASE_VERSION"])'

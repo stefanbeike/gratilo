@@ -1,8 +1,150 @@
 # Registrierung und SES-SMTP: Fehleranalyse und freizugebende Korrektur
 
-Stand: 17.10.2026. Änderungen liegen lokal auf `main`. Kein Push, Release,
-Secret-Update oder Produktionsdeployment wurde für diesen Fix ausgeführt.
+Stand: 18.10.2026. Die Backend-Korrekturen sind in Git-Commit `dee2e57` enthalten.
+Sie sind noch nicht im laufenden Image `v0.0.1` enthalten. Nach der erneuten
+lesenden Prüfung wurde die Credential-Korrektur ausdrücklich freigegeben und
+umgesetzt; siehe Ausführungsstand unten. Einmalige echte Registrierung mit
+HTTP 201 erfolgreich; Eingang der Bestätigungs-E-Mail vom Betreiber bestätigt.
 Die vorangegangene Inbetriebnahme ist im [Deploymentbericht](deployment-v0.0.1-2026-10-17.md) dokumentiert.
+
+## Erneute lesende Produktionsprüfung am 18.10.2026
+
+Alle AWS-Abfragen mit Profil `gratilo`, Region `eu-central-1`; Secret-Werte
+wurden ausschließlich im Speicher verarbeitet und weder ausgegeben noch gespeichert.
+
+- ECS weiterhin `gratilo-prd-app:1`, 1/1 Tasks, Rollout COMPLETED, alle drei
+  Container HEALTHY. Alle Images `v0.0.1`. User-Service-Digest
+  `sha256:5364a85c848e72cba7b828abc9106e402fc0c08eb642423a172d01bca36f3305`.
+- ECR enthält für den User-Service `v0.0.1` und einen älteren SHA-Build;
+  kein neues Release-Image mit dem Backend-Fix vorhanden.
+- Laufzeit: `MICRONAUT_ENVIRONMENTS=prd`,
+  `MAIL_HOST=email-smtp.eu-central-1.amazonaws.com`, `MAIL_PORT=587`,
+  Systemabsender `noreply@gratilo.eu`, allgemeiner Absender `info@gratilo.eu`.
+  Keine Klartext-SMTP-Credentials und keine widersprüchlichen JavaMail-Overrides.
+- `JAVAMAIL_AUTHENTICATION_USERNAME` und `JAVAMAIL_AUTHENTICATION_PASSWORD`
+  referenzieren korrekt die Schlüssel `username`/`password` von
+  `gratilo/prd/smtp-dViEp7`, jeweils AWSCURRENT ohne fest gepinnte Version.
+  Letzte Secret-Änderung 16.10.2026 11:07:18 Europe/Berlin, vor dem Taskstart.
+- Die prd-Konfiguration des zugehörigen Git-Releases aktiviert SMTP-AUTH,
+  STARTTLS inklusive required und TLS-Hostname-Prüfung. Keine Laufzeit-Overrides.
+- AUTH-Test über Frankfurt-Port 587 mit geprüftem STARTTLS: **535**. Keine
+  `MAIL FROM`-/`RCPT TO`-/`DATA`-Befehle ausgeführt.
+- Gespeicherte Kennung ist keine gültige langfristige Access-Key-ID, enthält
+  auch keine eingebettete solche ID oder bloß zusätzliche äußere Leerzeichen.
+  Sie entspricht keinem vorhandenen IAM-Benutzernamen. Das Passwort hat
+  SES-SMTP-v4-Format, was allein keine Gültigkeit belegt.
+- Es existiert genau ein SES-/SMTP-benannter IAM-Benutzer mit genau einem
+  aktiven Access Key. Auch dessen echte Access-Key-ID zusammen mit dem
+  gespeicherten SMTP-Passwort erreicht **keine erfolgreiche Anmeldung**.
+  Ein zweiter Key-Slot ist frei. Es wurden keine Keys angelegt oder deaktiviert.
+- IAM-Simulation für diesen Benutzer: `ses:SendRawEmail` für die Domainidentität
+  `gratilo.eu` mit From `noreply@gratilo.eu` **allowed**, keine fehlenden ContextKeys.
+  Dies bestätigt die geprüfte IAM-Berechtigung, ersetzt keinen echten Versandtest.
+- SES: ProductionAccessEnabled=true, SendingEnabled=true, Enforcement HEALTHY.
+  Domain VerifiedForSendingStatus=true, VerificationStatus SUCCESS, DKIM SUCCESS.
+  Die Domainverifizierung deckt beide vorgesehenen Absender ab.
+- CloudWatch im User-Service: 243 Trefferzeilen des numerischen Filters `535`
+  in den letzten sieben Tagen, zuletzt **18.10.2026 08:27:45 UTC**;
+  darunter AuthenticationFailedException vorhanden. Numerische Treffer können
+  auch andere Debug-Inhalte erfassen und sind keine Zahl der SMTP-Fehler oder
+  Registrierungsversuche. Die AUTH-Prüfung belegt den alten 535 unabhängig davon.
+  Es wurden nur Zählwerte, Zeitpunkte und Fehlerkategorien ausgegeben, keine
+  vollständigen Anwendungslogs oder Empfängerdaten.
+
+**Aktuelle Ursache:** ungültiges SMTP-Zugangsdatenpaar im bestehenden Secret,
+nicht falsche Region, Port, Secret-Key-Zuordnung, Sandbox oder fehlende
+Domainverifizierung. Der vorhandene gültige IAM-Key allein repariert das
+gespeicherte Passwort nicht. Ohne den ursprünglich sicher aufbewahrten passenden
+AWS Secret Access Key kann dessen SMTP-Passwort nicht wiederhergestellt werden.
+
+### Konkrete Korrektur zur Freigabe
+
+1. Falls extern bereits ein gültiges vollständiges Frankfurt-SMTP-Paar sicher
+   vorliegt: dieses zuerst per TLS/AUTH prüfen und verwenden. Keine Werte im Chat.
+2. Andernfalls **einen zusätzlichen Access Key am vorhandenen SES-SMTP-IAM-
+   Benutzer** erzeugen; keinen neuen Benutzer oder zusätzliche IAM-Rechte anlegen.
+   Der bisherige Key bleibt unverändert aktiv. Neue Credentials ausschließlich
+   im Speicher verarbeiten: AccessKeyId als SMTP-username, SecretAccessKey mit
+   der bereits getesteten SES-v4-Ableitung für eu-central-1 in SMTP-password
+   umwandeln. Der rohe AWS Secret Access Key gehört nicht ins SMTP-Secret.
+3. Nach erfolgreicher SMTP-AUTH-Prüfung des neuen Paares eine neue AWSCURRENT-
+   Version von `gratilo/prd/smtp` mit den beiden JSON-Schlüsseln schreiben;
+   andere Schlüssel erhalten. Bestehende Secret-Versionen/Keys nicht löschen.
+4. Nach gesonderter ausdrücklicher Freigabe den vorhandenen ECS-Service mit
+   `force-new-deployment` erneuern, damit das Secret neu injiziert wird.
+   Dafür kein neues Image und keine Task-Revision nötig. **Die gemeinsame Task
+   startet zwangsläufig alle drei Container neu**, obwohl nur der User-Service
+   SMTP verwendet. Frontend-/Payment-Images und Konfiguration bleiben gleich.
+5. Stabilität, Container-/ALB-Health und CloudWatch prüfen. Eine echte
+   Verifizierungs-E-Mail ausschließlich an die ausdrücklich freigegebene
+   Testadresse und mit abgeklärtem Kontostatus auslösen. Kein mehrfaches
+   Registrieren derselben Adresse und keine Mails an bestehende Nutzer.
+
+Der neue 503-Handler und der Resend-Endpunkt brauchen zusätzlich ein neues,
+getestetes Release-Image und dessen freigegebenen Rollout. `v0.0.1` hat noch
+keinen Resend-Endpunkt. Ein vorhandenes unbestätigtes Konto daher nicht durch
+erneute Kontoanlage ersetzen; dafür zunächst den Code-Fix deployen. Die reine
+Credential-Korrektur stellt den regulären Versand wieder her, deployed aber
+nicht automatisch diese neuen Codefunktionen.
+
+**Freigabe erteilt:** Der Betreiber hat die vier vorgeschlagenen Schritte mit
+„ja ich gebe es frei“ ausdrücklich freigegeben. Anschließend hat er eine konkrete
+Testadresse für eine echte Bestätigungs-E-Mail freigegeben und den Eingang bestätigt.
+
+### Freigegebene Umsetzung am 18.10.2026
+
+- 08:58:45 UTC: einen zusätzlichen Access Key am bestehenden SES-SMTP-IAM-
+  Benutzer angelegt; vorherigen Key unverändert aktiv gelassen. Keine neuen
+  IAM-Benutzer oder zusätzlichen IAM-Berechtigungen angelegt.
+- SMTP-Passwort für eu-central-1 aus dem neuen Key abgeleitet. Credentials
+  ausschließlich im Arbeitsspeicher verarbeitet, weder Dateien noch Logs oder
+  Shell-Argumenten übergeben. Vor dem Secret-Update SMTP-AUTH **235** bestätigt.
+- Neue AWSCURRENT-Version von `gratilo/prd/smtp`:
+  `76052418-92af-49b9-a2de-9f04ccd13636`. Vorherige Version
+  `912c0052-0fa9-45e5-9476-68b28e44ab71` erhalten; sonstige JSON-Felder erhalten.
+  Anschließend das gespeicherte Paar erneut ausgelesen und erfolgreich mit
+  geprüftem STARTTLS authentifiziert: **235**. Kein Mailversand.
+- AWS CLI konnte in dieser Umgebung JSON von `/dev/stdin` nicht korrekt laden
+  (zuvor ausschließlich mit nicht geheimem Testpayload geprüft). Der freigegebene
+  Secret-Schreibzugriff erfolgte deshalb über boto3 mit Session-Profil `gratilo`,
+  Region `eu-central-1`, direkt aus dem Speicher; keine Credential-Datei erzeugt.
+- 08:59:09 UTC: bestehenden ECS-Service mit `force-new-deployment` erneuert,
+  Deployment-ID `ecs-svc/0948075629231406828`. Familie/Revision unverändert
+  `gratilo-prd-app:1`, alle drei Images unverändert `v0.0.1`, Desired Count 1.
+  Keine neue Task-Definition registriert, keine Datenbank- oder Netzwerkänderung.
+- Ersatz-Task: `4494655ea95442ff989626a252a2840a`. ECS-Waiter erfolgreich;
+  anschließend exakt diese neue Deployment-ID mit Rollout **COMPLETED**, einer
+  aktiven Deployment-Revision und **Running/Desired 1/1** bestätigt. Neue Task und
+  alle drei Container HEALTHY. Alle drei Image-Digests unverändert bestätigt.
+- Neues ALB-Target `10.42.159.150:80` healthy; altes Target beim abschließenden
+  Check regulär draining. Keine Listener-/Target-Group-Konfiguration verändert.
+- Abschließende HTTPS-Tests mit Zertifikats-/Hostnamenprüfung: Hauptdomain **200**,
+  `/user-service/features` **200**, geschützter anonymer GET auf
+  `/payment-service/transactions` erwartungsgemäß **401**. Jeweils
+  `ssl_verify_result=0`; kein Login, keine Registrierung und keine Zahlung ausgelöst.
+- Secret nach dem Neustart erneut geprüft: gültiges Username-/Passwort-Format,
+  SMTP-AUTH **235**. CloudWatch ausschließlich für den neuen User-Service-Stream
+  vollständig paginiert geprüft: **0 AuthenticationFailedException**, **0
+  Authentication Credentials Invalid**, **0 ERROR-Ereignisse**. 18 numerische
+  Treffer für `535` sind keine solchen Authentifizierungsfehler. Da noch kein
+  Versand ausgelöst wurde, belegt dies nicht den vollständigen Registrierungsweg.
+- 09:07:02–09:07:05 UTC: genau ein freigegebener echter Aufruf von
+  `POST https://gratilo.eu/user-service/users/register`, Ergebnis **201 Created**.
+  Testkonto mit Profilnamen `Gratilo Registrierungs-Test`, Newsletter aus.
+  Keine automatische Wiederholung und kein doppeltes Konto angelegt. Das zufällige
+  Testpasswort wurde ausschließlich im Speicher verarbeitet, nicht ausgegeben
+  oder dauerhaft gespeichert. Zum späteren Zugriff kann der Kontoinhaber den
+  regulären Passwort-Reset verwenden; kein zusätzlicher Reset-Versand ausgelöst.
+- Die Bestätigungs-E-Mail wurde von `noreply@gratilo.eu` an die ausdrücklich
+  freigegebene Testadresse versendet. Der Betreiber bestätigt anschließend:
+  **„hat geklappt. die email kam an“**. Damit sind echte Registrierung und
+  Postfachzustellung nachgewiesen; kein Verifizierungslink automatisch aufgerufen.
+- CloudWatch für die neue Task ab Beginn dieses Registrierungsaufrufs vollständig
+  paginiert geprüft: **0 AuthenticationFailedException**, **0 ERROR-Ereignisse**.
+- Systemabsender bleibt `noreply@gratilo.eu` für Registrierung und Passwort-Reset;
+  `info@gratilo.eu` bleibt allgemeiner Absender. Keine Umstellung auf die
+  zwischenzeitlich genannte andere Domain. Beide System-Mailmethoden verwenden
+  bereits dieselbe konfigurierte noreply-Adresse; dafür keine Codeänderung nötig.
 
 ## Nachgewiesene Ursache
 
@@ -105,10 +247,12 @@ Korrektur. Es wurde kein Terraform eingeführt oder ausgeführt.
 
 ## Freigabegrenze
 
-**Alle folgenden Schreibbefehle sind vorbereitet, nicht ausgeführt.** Vor
-Secret-Änderung, Credential-Rotation, Git-Push, Release und ECS-Deployment
-ist die ausdrückliche Freigabe des Betreibers erforderlich. Keine neuen
-SMTP-/IAM-Zugangsdaten werden automatisch angelegt.
+Die folgenden Abschnitte enthalten Referenzbefehle aus der ursprünglichen
+Vorbereitung. Der aktuelle tatsächliche Ausführungsstand steht oben; die
+freigegebene Credential-Korrektur und der ECS-Neustart sind abgeschlossen.
+Keine erneute Rotation oder Wiederholung ohne Anlass ausführen. Git-Push,
+neues Code-Release und dessen Deployment benötigen weiterhin ausdrückliche
+Freigabe; sie waren nicht Teil der vier freigegebenen operativen Schritte.
 
 ### 1. Bestehendes Secret sicher korrigieren
 

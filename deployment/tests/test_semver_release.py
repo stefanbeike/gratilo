@@ -239,9 +239,16 @@ class PublicationTest(unittest.TestCase):
 class ClientSafetyTest(unittest.TestCase):
     def test_git_tag_uses_create_only_ref_api(self):
         github = release.GitHub("unit-test-token", "stefanbeike/gratilo")
-        with patch.object(github, "request", return_value={"ref": "refs/tags/v1.2.4", "object": {"sha": COMMIT}}) as request:
+        tag_sha = "b" * 40
+        responses = [{"sha": tag_sha},
+                     {"ref": "refs/tags/v1.2.4", "object": {"sha": tag_sha, "type": "tag"}},
+                     {"object": {"sha": tag_sha, "type": "tag"}},
+                     {"object": {"sha": COMMIT, "type": "commit"}}]
+        with patch.object(github, "request", side_effect=responses) as request:
             github.create_tag("v1.2.4", COMMIT)
-            request.assert_called_once_with("POST", "git/refs", {"ref": "refs/tags/v1.2.4", "sha": COMMIT})
+            self.assertEqual("git/tags", request.call_args_list[0].args[1])
+            self.assertEqual({"ref": "refs/tags/v1.2.4", "sha": tag_sha}, request.call_args_list[1].args[2])
+            self.assertTrue(all(call.args[0] in ("POST", "GET") for call in request.call_args_list))
 
     def test_github_errors_do_not_print_token_or_response_body(self):
         github = release.GitHub("secret-unit-test-token", "stefanbeike/gratilo")

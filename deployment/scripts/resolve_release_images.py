@@ -36,6 +36,17 @@ def resolve(version, account, region, describe, expected_commit=None):
     return images, sorted(common_tags)[0]
 
 
+def verify_publish_outputs(images, provenance, env):
+    expected_build = env.get("EXPECTED_BUILD_TAG")
+    if expected_build is not None:
+        if expected_build != provenance:
+            raise ValueError("Published build provenance differs from this workflow's artifacts")
+        for name, image in images.items():
+            key = "EXPECTED_" + name.upper().replace("-", "_") + "_IMAGE"
+            if env.get(key) != image:
+                raise ValueError("ECR release differs from confirmed publish output: " + name)
+
+
 def main():
     # Validate input before constructing any CLI request.
     version = os.environ.get("RELEASE_VERSION", "")
@@ -63,6 +74,7 @@ def main():
         return json.loads(result.stdout)
 
     images, provenance = resolve(version, account, region, describe, expected_commit=commit)
+    verify_publish_outputs(images, provenance, os.environ)
     with open(os.environ["GITHUB_ENV"], "a") as output:
         output.write("IMAGE_TAG=" + version + "\n")
         for name, image in images.items():
