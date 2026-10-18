@@ -17,7 +17,11 @@ RUN case "$VITE_STRIPE_PUBLISHABLE_KEY" in ""|pk_test_*) ;; *) echo "Only Stripe
     && if [ "$VITE_PAYMENTS_ENABLED" = true ]; then case "$VITE_STRIPE_PUBLISHABLE_KEY" in pk_test_*) ;; *) echo "Sandbox build requires a Stripe test publishable key" >&2; exit 1;; esac; fi \
     && npm run build
 
-FROM nginx:stable-alpine AS runtime
+FROM nginx:1.30.6-alpine3.24 AS runtime
+
+# CVE-2026-77214: use the fixed package from the official stable Alpine repositories.
+# Fail the build if the security fix is not available; allow later patched versions.
+RUN apk add --no-cache --upgrade 'libexpat>=2.9.0-r0'
 
 ENV USER_SERVICE_HOST=user-service \
     PAYMENT_SERVICE_HOST=payment-service
@@ -29,4 +33,4 @@ RUN touch /var/run/nginx.pid \
 USER nginx
 EXPOSE 80
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
-  CMD wget --quiet --tries=1 --spider http://localhost/ || exit 1
+  CMD wget --quiet --tries=1 --spider http://127.0.0.1/ || exit 1

@@ -37,6 +37,8 @@ jobs:
         tags: gratilo/frontend:${{ steps.version.outputs.tag }}
         cache-from: type=gha,scope=frontend
         cache-to: type=gha,mode=max,scope=frontend
+        # Refresh official Alpine security packages even when the base digest is unchanged.
+        no-cache-filters: runtime
         build-args: |
           VITE_PAYMENTS_ENABLED=false
     - name: Scan frontend
