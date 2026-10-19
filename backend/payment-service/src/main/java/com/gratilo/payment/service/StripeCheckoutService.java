@@ -39,17 +39,8 @@ public class StripeCheckoutService {
                 || request.idempotencyKey() == null || !request.idempotencyKey().matches("[A-Za-z0-9_-]{1,100}"))
             throw new IllegalArgumentException("Invalid tip amount or idempotency key");
         if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
-        recipients.requireEnabled(recipient);
-        var account = accounts.findByUserId(recipient).orElseThrow(() -> new IllegalStateException("Connected account missing"));
+        var account = eligibleAccount(recipient);
         String accountId = account.getStripeAccountId();
-        if (accountId == null || !accountId.matches("acct_[A-Za-z0-9]+") || accountId.startsWith("acct_demo_"))
-            throw new IllegalStateException("Connected account unavailable");
-        // Re-read Stripe's state so stale local or client-written flags cannot authorize payments.
-        var remote = json(connect.retrieveAccount(accountId));
-        if (!Boolean.FALSE.equals(remote.get("livemode")) || !Boolean.TRUE.equals(remote.get("charges_enabled"))
-                || !Boolean.TRUE.equals(remote.get("payouts_enabled"))) throw new IllegalStateException("Stripe onboarding incomplete");
-        var capabilities = remote.get("capabilities") instanceof Map<?, ?> map ? map : Map.of();
-        if (!"active".equals(capabilities.get("transfers"))) throw new IllegalStateException("Stripe transfers unavailable");
         long fee = request.feeCovered() ? TipPricing.serviceFeeMinor(request.tipAmountMinor(), feePercent, fixedFeeMinor) : 0, total = request.tipAmountMinor() + fee;
         String key = request.idempotencyKey();
         if (key == null || key.isBlank()) throw new IllegalArgumentException("An idempotency key is required");
@@ -81,6 +72,36 @@ public class StripeCheckoutService {
             throw new IllegalStateException("Invalid Stripe test Checkout response");
         tx.setProviderReference(id); tx.setPaymentMethod("card"); transactions.update(tx);
         return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false));
+    }
+
+    public boolean canReceiveTips(UUID recipient) {
+        try { eligibleAccount(recipient); return true; }
+        catch (Exception unavailable) { return false; }
+    }
+
+    private ConnectedAccountEntity eligibleAccount(UUID recipient) throws Exception {
+        if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
+        recipients.requireEnabled(recipient);
+        var account = accounts.findByUserId(recipient).orElseThrow(() -> new RecipientNotReadyException());
+        String id = account.getStripeAccountId();
+        if (id == null || !id.matches("acct_[A-Za-z0-9]+") || id.startsWith("acct_demo_"))
+            throw new RecipientNotReadyException();
+        StripeAccountStatus status;
+        try {
+            status = StripeAccountStatus.parse(id, connect.retrieveAccount(id));
+        } catch (Exception unavailable) {
+            new StripeAccountStatus(false).applyTo(account);
+            accounts.update(account);
+            throw unavailable;
+        }
+        status.applyTo(account);
+        accounts.update(account);
+        if (!status.canReceiveTips()) throw new RecipientNotReadyException();
+        return account;
+    }
+
+    public static class RecipientNotReadyException extends IllegalStateException {
+        public RecipientNotReadyException() { super("Recipient is not enabled for tips"); }
     }
 
     protected String stripeRequest(String path, String form, String idempotency) throws Exception {

@@ -15,7 +15,11 @@ class StripeCheckoutTest {
     private TransactionEntity stored;
     private String form, stripeKey;
     private int creates;
-    private boolean ready = true, available = true, failOnce;
+    private boolean ready = true, available = true, failOnce, providerFailure;
+    private boolean accountPresent = true;
+    private String accountId = "acct_fixture";
+    private String stripeResponse;
+    private int reads;
     private final String session = "cs_test_fixture";
 
     @SuppressWarnings("unchecked")
@@ -31,12 +35,18 @@ class StripeCheckoutTest {
             default -> throw new AssertionError(m.getName());
         });
         var accounts = proxy(ConnectedAccountRepository.class, (p, m, a) -> {
-            var account = new ConnectedAccountEntity(); account.setStripeAccountId("acct_fixture");
+            if (m.getName().equals("update")) return a[0];
+            if (!accountPresent) return Optional.empty();
+            var account = new ConnectedAccountEntity(); account.setStripeAccountId(accountId);
+            account.setChargesEnabled(true); account.setPayoutsEnabled(true); account.setOnboardingStatus("COMPLETE");
             return Optional.of(account);
         });
         var connect = new StripeConnectService("sk_test_fixture", "http://localhost:3000") {
             @Override public String retrieveAccount(String id) {
-                return "{\"livemode\":false,\"charges_enabled\":" + ready + ",\"payouts_enabled\":true,\"capabilities\":{\"transfers\":\"active\"}}";
+                reads++;
+                if (providerFailure) throw new IllegalStateException("Stripe unavailable");
+                if (stripeResponse != null) return stripeResponse;
+                return ready ? StripeAccountFixtures.readyJson() : StripeAccountFixtures.readyJson().replace("active", "pending");
             }
         };
         var recipients = new RecipientAvailability("http://localhost") {
@@ -61,6 +71,7 @@ class StripeCheckoutTest {
         assertTrue(form.contains("transfer_data][amount]=500&"));
         assertTrue(form.contains("transfer_data][destination]=acct_fixture&"));
         assertTrue(form.contains("payment_method_types[0]=card&"));
+        assertFalse(form.contains("customer"));
         assertEquals("checkout-" + stored.getId(), stripeKey);
         assertEquals(TransactionStatus.PENDING, stored.getStatus());
         // PostgreSQL JSONB normalizes whitespace and object key order.
@@ -87,6 +98,50 @@ class StripeCheckoutTest {
         ready = true; available = false;
         assertThrows(IllegalStateException.class, () -> service.create(recipient, new TipPaymentRequest(500L, null, "key")));
         assertNull(stored); assertEquals(0, creates);
+    }
+
+    @Test void missingInvalidAndDemoAccountsCannotCreateSessions() {
+        var service = service();
+        accountPresent = false;
+        assertFalse(service.canReceiveTips(recipient));
+        assertThrows(StripeCheckoutService.RecipientNotReadyException.class,
+                () -> service.create(recipient, new TipPaymentRequest(500L, null, "missing")));
+        accountPresent = true;
+        for (String id : new String[]{null, "", "acct_demo_123", "not-an-account"}) {
+            accountId = id;
+            assertFalse(service.canReceiveTips(recipient));
+            assertThrows(StripeCheckoutService.RecipientNotReadyException.class,
+                    () -> service.create(recipient, new TipPaymentRequest(500L, null, "invalid")));
+        }
+        assertEquals(0, reads); assertEquals(0, creates); assertNull(stored);
+    }
+
+    @Test void rechecksStripeAfterPublicEligibilityAndRejectsRevokedOrUnavailableAccounts() throws Exception {
+        var service = service();
+        assertTrue(service.canReceiveTips(recipient));
+        assertEquals(1, reads);
+        ready = false;
+        assertThrows(StripeCheckoutService.RecipientNotReadyException.class,
+                () -> service.create(recipient, new TipPaymentRequest(500L, null, "revoked")));
+        assertEquals(2, reads); assertEquals(0, creates); assertNull(stored);
+        stripeResponse = "invalid JSON";
+        assertFalse(service.canReceiveTips(recipient));
+        assertThrows(Exception.class, () -> service.create(recipient, new TipPaymentRequest(500L, null, "malformed")));
+        stripeResponse = null;
+        providerFailure = true;
+        assertFalse(service.canReceiveTips(recipient));
+        assertThrows(IllegalStateException.class, () -> service.create(recipient, new TipPaymentRequest(500L, null, "offline")));
+        assertEquals(0, creates); assertNull(stored);
+    }
+
+    @Test void everyV2IneligibleFixtureIsRejectedBeforeCreatingALedgerEntryOrSession() {
+        var service = service();
+        for (String json : StripeAccountFixtures.ineligible()) {
+            stripeResponse = json;
+            assertFalse(service.canReceiveTips(recipient));
+            assertThrows(IllegalStateException.class, () -> service.create(recipient, new TipPaymentRequest(500L, null, "blocked")));
+            assertEquals(0, creates); assertNull(stored);
+        }
     }
 
     @Test void confirmsOnlyMatchingSessionWithoutRevivingRefunds() throws Exception {

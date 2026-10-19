@@ -19,7 +19,7 @@ it('shows success only after Stripe session confirmation', async () => {
   vi.stubGlobal('fetch', fetch)
   render(<DemoPayment />)
   expect(await screen.findByText('Dein Trinkgeld wurde erfolgreich übermittelt.')).toBeInTheDocument()
-  expect(fetch).toHaveBeenCalledWith('/payment-service/tips/checkout/confirm?sessionId=cs_test_fixture')
+  expect(fetch).toHaveBeenCalledWith('/payment-service/tips/checkout/confirm?sessionId=cs_test_fixture', { headers: {} })
 })
 
 it('retains the idempotency key when retrying the same failed checkout', async () => {
@@ -27,17 +27,20 @@ it('retains the idempotency key when retrying the same failed checkout', async (
   history.replaceState({}, '', `/pay/${user}`)
   const fetch = vi.fn(async (url: string) => {
     if (url.includes('/checkout')) return { ok: false, json: async () => ({ message: 'Verbindung unterbrochen' }) }
+    if (url.includes('/eligibility')) return { ok: true, json: async () => ({ canReceiveTips: true }) }
     if (url.includes('/quote')) return { ok: true, json: async () => ({ tipAmountMinor: 500, totalAmountMinor: 500, serviceFeeMinor: 0 }) }
     return { ok: true, json: async () => ({ userId: user, firstName: 'Alex', paymentEnabled: true }) }
   })
   vi.stubGlobal('fetch', fetch)
-  render(<DemoPayment />)
+  render(<DemoPayment session={{ accessToken: 'test-jwt-fixture', userId: user, email: 'test@example.invalid' }} />)
   const button = screen.getByRole('button', { name: /Mit Apple Pay/ })
   await waitFor(() => expect(button).toBeEnabled())
   fireEvent.click(button)
   await screen.findByText('Verbindung unterbrochen')
   fireEvent.click(button)
   await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url.includes('/checkout'))).toHaveLength(2))
+  const firstCheckout = (fetch.mock.calls as unknown as Array<[string, { headers: Record<string, string> }]>).find(([url]) => url.includes('/checkout'))
+  expect(firstCheckout?.[1].headers.Authorization).toBe('Bearer test-jwt-fixture')
   const calls = fetch.mock.calls as unknown as Array<[string, { body: string }]>
   const attempts = calls.filter(([url]) => url.includes('/checkout')).map(([, options]) => JSON.parse(options.body))
   expect(attempts[0].idempotencyKey).toBeTruthy()
@@ -50,4 +53,48 @@ it('shows cancellation without starting or confirming a payment', () => {
   render(<DemoPayment />)
   expect(screen.getByText('Zahlung abgebrochen.')).toBeInTheDocument()
   expect(fetch).not.toHaveBeenCalled()
+})
+
+it.each([false, null])('keeps payment disabled when Stripe eligibility is %s', async allowed => {
+  const user = '11111111-1111-1111-1111-111111111111'
+  history.replaceState({}, '', `/pay/${user}`)
+  const fetch = vi.fn(async (url: string) => {
+    if (url.includes('/eligibility')) {
+      if (allowed === null) throw new Error('offline')
+      return { ok: true, json: async () => ({ canReceiveTips: allowed }) }
+    }
+    if (url.includes('/quote')) return { ok: true, json: async () => ({ tipAmountMinor: 500, totalAmountMinor: 500, serviceFeeMinor: 0 }) }
+    return { ok: true, json: async () => ({ userId: user, paymentEnabled: true, stripeOnboardingCompleted: true }) }
+  })
+  vi.stubGlobal('fetch', fetch)
+  render(<DemoPayment />)
+  await screen.findByText(/Dieser Empfänger kann derzeit keine Trinkgelder empfangen oder/)
+  const button = screen.getByRole('button', { name: /Mit Apple Pay/ })
+  expect(button).toBeDisabled()
+  fireEvent.click(button)
+  expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(false)
+})
+
+it('allows an unregistered guest to start checkout after positive eligibility and disables after revocation', async () => {
+  const user = '11111111-1111-1111-1111-111111111111'
+  history.replaceState({}, '', `/pay/${user}`)
+  let allowed = true
+  const fetch = vi.fn(async (url: string) => {
+    if (url.includes('/eligibility')) return { ok: true, json: async () => ({ canReceiveTips: allowed }) }
+    if (url.includes('/quote')) return { ok: true, json: async () => ({ tipAmountMinor: 500, totalAmountMinor: 500, serviceFeeMinor: 0 }) }
+    if (url.includes('/checkout')) return { ok: true, json: async () => ({}) }
+    return { ok: true, json: async () => ({ userId: user, paymentEnabled: true }) }
+  })
+  vi.stubGlobal('fetch', fetch)
+  render(<DemoPayment />)
+  const button = screen.getByRole('button', { name: /Mit Apple Pay/ })
+  expect(button).toBeDisabled()
+  await waitFor(() => expect(button).toBeEnabled())
+  fireEvent.click(button)
+  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(true))
+  const calls = fetch.mock.calls as unknown as Array<[string, { headers: Record<string, string> }]>
+  expect(calls.find(([url]) => url.includes('/checkout'))?.[1].headers.Authorization).toBeUndefined()
+  allowed = false
+  fireEvent(window, new Event('focus'))
+  await waitFor(() => expect(button).toBeDisabled())
 })

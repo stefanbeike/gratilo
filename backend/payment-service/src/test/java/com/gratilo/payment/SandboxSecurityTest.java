@@ -101,6 +101,13 @@ class SandboxSecurityTest {
         assertEquals(HttpStatus.METHOD_NOT_ALLOWED, filter.filter(io.micronaut.http.HttpRequest.POST("/payment-service/transactions/id/refund", "{}")).getStatus());
     }
 
+    @Test void doesNotAcknowledgeAccountsV2ThinEventsWithThePaymentSigningSecret() throws Exception {
+        var controller = new StripeWebhookController(null, WEBHOOK, true, JsonMapper.createDefault());
+        String payload = "{\"livemode\":false,\"type\":\"v2.core.account.updated\",\"related_object\":{\"id\":\"acct_fixture\"}}";
+        assertEquals(HttpStatus.BAD_REQUEST, controller.receive(payload,
+                signature(payload, System.currentTimeMillis()/1000)).getStatus());
+    }
+
     private String signature(String payload, long timestamp) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(WEBHOOK.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));

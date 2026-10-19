@@ -171,7 +171,19 @@ beim Löschen eines Kontos bleibt aktiv.
 
 Einzeltrinkgelder werden über Stripe-hosted Checkout als Destination Charge an
 genau ein Connected Account verarbeitet. Vor jedem Checkout prüft der Server die
-aktive Zahlungsseite, Stripe-Testmodus, Charges, Payouts und Transfers-Capability.
+aktive Zahlungsseite und ein frisch geladenes Accounts-v2-Konto mit passender ID,
+`livemode=false`, nicht geschlossenem Konto und angewendeten Konfigurationen
+`merchant`/`recipient`. Diese v2-Capabilities müssen jeweils `status=active` haben:
+`configuration.merchant.capabilities.card_payments`,
+`configuration.recipient.capabilities.stripe_balance.payouts` und
+`configuration.recipient.capabilities.stripe_balance.stripe_transfers`.
+Die explizite v2-Abfrage enthält `configuration.merchant`, `configuration.recipient`
+und `requirements` im `include`. Fehlende/ungültige Antworten, offene `currently_due`-
+oder `past_due`-Pflichtangaben sowie laufende Stripe-Prüfungen blockieren Trinkgelder.
+Zukünftige `eventually_due`-Anforderungen allein sperren ein sonst aktives Konto nicht.
+Die bisherigen DTO-Felder `chargesEnabled`/`payoutsEnabled`/`detailsSubmitted` werden
+nur als kompatible Projektion dieser Gesamtentscheidung ausgegeben; sie sind keine
+ungeprüft übernommenen v1-Felder und keine clientseitige Autorisierung.
 Identitäts- und Bankdaten werden im eingebetteten Stripe-Onboarding erfasst.
 Accounts-v2-Aufrufe verwenden die feste Version `2026-09-30.endive`.
 
@@ -228,10 +240,106 @@ Manuell in AWS **erst nach Freigabe**, bevorzugt in einer getrennten Testumgebun
 - `FRONTEND_BASE_URL`, `STRIPE_SUCCESS_URL` mit `{CHECKOUT_SESSION_ID}` und
   `STRIPE_CANCEL_URL` auf dieselbe Testdomain setzen. Keine Secrets in Logs/Images.
 
+Die vorbereitete AWS-Testeinrichtung verwendet den tatsächlichen lokalen Code und
+leitet die Execution Role aus der aktuell laufenden ECS-Task ab. Ein rein lesendes
+Prüfwerkzeug erstellt lokale Review-Dateien, ohne AWS-Schreiboperationen auszuführen:
+
+```shell
+aws sso login --profile gratilo
+python3 deployment/scripts/prepare_stripe_test.py --check-stripe \
+  --test-user-id <GRATILO-TESTER-UUID> --test-user-id <EMPFÄNGER-UUID>
+```
+
+Es prüft die AWS-Identität gegen Konto `070351676632` und verwendet ausschließlich
+`eu-central-1`. `SecretString` wird nur im Prozessspeicher ausgewertet; ausgegeben
+werden keine Secret-Werte. Die Prüfung verlangt die JSON-Felder `secret_key` mit
+`sk_test_` und `webhook_secret` mit `whsec_` in `gratilo/prd/stripe-test`. Die
+abgeleitete Policy erlaubt nur `secretsmanager:GetSecretValue` auf den vollständigen
+ermittelten Secret-ARN. Bei einem kundeneigenen KMS-Key enthält sie zusätzlich ein
+auf diesen Key, Secrets Manager und dessen Secret-Verschlüsselungskontext begrenztes
+`kms:Decrypt`. Die Key Policy sowie Grenzen/SCPs sind zusätzlich zu berücksichtigen.
+Eine bereits erlaubte Berechtigung erfordert keine zusätzliche Allow-Policy.
+
+Die Review-Artefakte liegen mit Dateimodus 0600 unter `.local/stripe-test-plan/`
+(ignoriert von Git): `audit.json`, `execution-policy.proposed.json` und, sobald
+Benutzer-UUIDs angegeben wurden, `task-definition.proposed.json`. Die Task enthält
+die beiden exakten JSON-Key-Referenzen `<secret-arn>:secret_key::` und
+`<secret-arn>:webhook_secret::` nur beim Payment-Service. Ihre Images stammen zunächst
+unverändert aus der laufenden Task. **Vor einer Registrierung müssen alle drei
+Images durch geprüfte Digests des neuen Builds ersetzt und der finale Diff freigegeben
+werden.** Das Prüfwerkzeug registriert nichts und aktualisiert keinen Service.
+
+Im Profil `prd` verlangt `PAYMENTS_ENABLED=true` zwingend eine nicht leere
+`PAYMENTS_TEST_USER_IDS`-Liste. Nur angemeldete Benutzer mit gültigem Gratilo-JWT und
+einer dort aufgeführten Benutzer-UUID können Checkout, Quote, Bestätigung,
+Onboarding/Sync oder simulierte Auszahlungen ausführen. Auch der Trinkgeldempfänger
+muss auf der Liste stehen. Öffentliche Registrierung verleiht keine Testrechte.
+Gespeicherte Konto-/Transaktionslesezugriffe behalten ihre bisherige Authentifizierung;
+der Webhook bleibt für Stripe erreichbar und prüft seine eigene Signatur. Stripe
+Checkout selbst ist nach Session-Erstellung eine von Stripe gehostete URL und sollte
+nicht weitergegeben werden. Testdaten bleiben in der gemeinsamen Produktionsdatenbank
+sichtbar, wenn dieselbe ECS-Task verwendet wird.
+
+Der neue manuelle Workflow `.github/workflows/stripe-test-build.yml` baut und scannt
+nur Images und lädt Artefakte hoch; er kann weder ECR veröffentlichen noch Tags
+anlegen oder ECS deployen. Er verlangt `main` und die Bestätigung `BUILD STRIPE TEST`.
+Der öffentliche Testschlüssel kommt aus der Repository-Variable
+`STRIPE_TEST_PUBLISHABLE_KEY` und wird als `VITE_STRIPE_PUBLISHABLE_KEY` übergeben;
+`VITE_PAYMENTS_ENABLED=true` gilt ausschließlich für diesen ausdrücklich gewählten
+Testbuild. Es werden keine Backend-Secrets an GitHub oder Docker übergeben. Normale
+Release-/PR-Builds behalten deaktivierte Zahlungen. Der bisherige Produktionsrenderer
+verweigert aktivierte Zahlungen weiterhin absichtlich; den Release-Workflow nicht für
+diese Testaktivierung verwenden. Neue lokale Dateien müssen erst nach Review in den
+gewählten Commit gelangen, bevor GitHub sie bauen kann; bisher wurde nichts gepusht.
+
+Die öffentliche QR-Seite fragt `GET /payment-service/tips/{userId}/eligibility`
+beim Öffnen, alle 30 Sekunden und bei erneutem Fensterfokus ab. Bis zu einer
+positiven Antwort bleibt der Bezahlbutton gesperrt; bei Fehlern oder entzogener
+Freigabe wird er wieder deaktiviert. Die Antwort enthält nur `canReceiveTips` und
+`Cache-Control: no-store`, keine Stripe-ID oder KYC-Daten. Dieselbe Entscheidung
+wird bei Onboarding-Sync und nochmals vor jeder Checkout-Erstellung verwendet.
+Ein zuvor positives Browserergebnis ersetzt diese Backend-Prüfung niemals.
+Es besteht kein zusätzlicher v2-Webhook und kein Hintergrund-Scheduler; der
+gespeicherte Status wird bei diesen frischen Abfragen aktualisiert. Zwischen
+Abfragen kann die Darstellung bis zu 30 Sekunden alt sein, die Checkout-Prüfung
+bleibt davon unabhängig. Bereits bei Stripe erzeugte Sessions werden durch diese
+Änderung nicht nachträglich storniert; ihre spätere Verarbeitung unterliegt Stripe.
+
+Gäste benötigen für den normalen Checkout weder eine Gratilo-Anmeldung noch ein
+Stripe-Benutzerkonto. Der autorisierte AWS-Testbetrieb im Profil `prd` behält jedoch
+seine zusätzliche JWT-/Benutzerfreigabeliste. Anonyme Tests auf der öffentlichen
+Domain werden dadurch weiterhin abgewiesen. Diese Betriebssperre wird nicht für
+den Gastfluss entfernt; dessen anonyme HTTP-/Frontend-Tests laufen isoliert ohne
+AWS-Testgate und mit simuliertem Stripe. Vor einem offenen Gastbetrieb ist eine
+separate Freigabe und Prüfung der Zugangsbeschränkung erforderlich.
+
+Ein einzelner Snapshot-Testwebhook für **Plattformereignisse** genügt für die oben
+aufgeführten Checkout-/PaymentIntent-/Refund-Ereignisse. Keine zusätzlichen
+Connect-Account-/Payout- oder v2-Thin-Ereignisse in dieselbe Einrichtung aufnehmen.
+Die Statusabfrage erfolgt nativ über Accounts v2; Account Sessions verwenden
+weiterhin den dafür vorgesehenen v1-Endpunkt. Thin Events würden einen eigenen Verarbeitungsweg und Signing-Secret
+benötigen und werden derzeit mit 400 abgewiesen. Mit `GET /v1/webhook_endpoints`
+kann das Prüfwerkzeug URL, Testmodus und Ereignisliste prüfen, jedoch nicht beweisen,
+dass das gespeicherte Signing-Secret zum Endpoint gehört. Das muss nach genehmigtem
+Deployment anhand einer echten signierten Stripe-Testzustellung bestätigt werden.
+
+Vor **jeder AWS-Schreiboperation** werden der konkrete IAM-/KMS-/Task-Diff und dessen
+Zielressourcen zur Freigabe vorgelegt. Ein ECS-Service-Update, Neustart oder eine
+öffentliche Aktivierung benötigt eine gesonderte Deploymentfreigabe. Keine neue
+NAT-, ALB-, ECS- oder Secret-Ressource ist automatisch vorgesehen. IAM selbst verursacht
+keine zusätzliche Servicegebühr; Builds/ECR-Speicherung, Secret-Zugriffe, Logs und
+eventuelle zusätzliche Task-Laufzeit können bestehende Nutzungskosten erhöhen.
+Netzwerkrouten und Security Groups belegen noch keine funktionierende TLS-Verbindung
+aus der Task; NAT/NACL/DNS und Stripe-Erreichbarkeit müssen vor Aktivierung bestätigt
+werden. Die gemeinsamen Produktionsdaten und ein Task-Rollout sind die wesentlichen
+Betriebsrisiken; ein Image-Rollback entfernt keine Stripe-Testdaten.
+
 Keine AWS-Ressourcen, Secrets oder Deployments wurden hierfür verändert.
 
 Quellen: [Destination Charges](https://docs.stripe.com/connect/destination-charges),
-[Accounts v2](https://docs.stripe.com/api/v2/core/accounts/create),
+[Accounts v2](https://docs.stripe.com/connect/accounts-v2),
+[ECS JSON-Key-Secrets](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/secrets-envvar-secrets-manager.html),
+[IAM-Kosten](https://docs.aws.amazon.com/IAM/latest/UserGuide/introduction.html),
 [Checkout-Status](https://docs.stripe.com/api/checkout/sessions/object).
 
 ## User-Service API

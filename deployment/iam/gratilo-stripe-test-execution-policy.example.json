@@ -1,0 +1,11 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadOnlyGratiloStripeTest",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "<EXACT_STRIPE_TEST_SECRET_ARN_FROM_DESCRIBE_SECRET>"
+    }
+  ]
+}

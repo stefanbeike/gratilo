@@ -45,12 +45,19 @@ public class ConnectedAccountController {
     }
     @Post("/sync") public HttpResponse<?> sync(Authentication authentication) {
         var account = repository.findByUserId(UUID.fromString(authentication.getName())).orElse(null);
-        if (account == null || account.getStripeAccountId() == null || account.getStripeAccountId().startsWith("acct_demo_")) return account == null ? HttpResponse.notFound() : HttpResponse.ok(ConnectedAccountResponse.from(account));
+        if (account == null) return HttpResponse.notFound();
+        if (account.getStripeAccountId() == null || !account.getStripeAccountId().matches("acct_[A-Za-z0-9]+")) {
+            new com.gratilo.payment.service.StripeAccountStatus(false).applyTo(account);
+            return HttpResponse.ok(ConnectedAccountResponse.from(repository.update(account)));
+        }
         try {
             String body = stripe.retrieveAccount(account.getStripeAccountId());
-            account.setChargesEnabled(StripeConnectService.booleanField(body, "charges_enabled")); account.setPayoutsEnabled(StripeConnectService.booleanField(body, "payouts_enabled")); account.setDetailsSubmitted(StripeConnectService.booleanField(body, "details_submitted"));
-            account.setOnboardingStatus(account.isChargesEnabled() && account.isPayoutsEnabled() ? "COMPLETE" : "IN_PROGRESS");
+            com.gratilo.payment.service.StripeAccountStatus.parse(account.getStripeAccountId(), body).applyTo(account);
             return HttpResponse.ok(ConnectedAccountResponse.from(repository.update(account)));
-        } catch (Exception e) { return HttpResponse.serverError(java.util.Map.of("message", "Stripe-Status konnte nicht synchronisiert werden.")); }
+        } catch (Exception e) {
+            new com.gratilo.payment.service.StripeAccountStatus(false).applyTo(account);
+            repository.update(account);
+            return HttpResponse.serverError(java.util.Map.of("message", "Stripe-Status konnte nicht synchronisiert werden."));
+        }
     }
 }

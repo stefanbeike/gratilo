@@ -1,0 +1,32 @@
+name: Prepare Stripe test images (no publish or deploy)
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type BUILD STRIPE TEST; builds artifacts only'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: gratilo-stripe-test-build
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require deliberate manual main-branch build
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$CONFIRMATION" == 'BUILD STRIPE TEST' ]]
+  images:
+    needs: validate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/005_docker_build.yml
+    with:
+      upload_artifacts: true
+      stripe_test_mode: true
+      stripe_test_publishable_key: ${{ vars.STRIPE_TEST_PUBLISHABLE_KEY }}

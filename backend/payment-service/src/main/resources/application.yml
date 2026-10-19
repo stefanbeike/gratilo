@@ -1,5 +1,6 @@
 payments:
   enabled: ${PAYMENTS_ENABLED:false}
+  test-user-ids: ${PAYMENTS_TEST_USER_IDS:}
 
 features:
   tip-pools-enabled: ${FEATURE_TIP_POOLS_ENABLED:false}

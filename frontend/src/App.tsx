@@ -70,7 +70,7 @@ export function App() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Bitte versuche es erneut.') }
     finally { setBusy(false) }
   }
-  if (location.pathname.startsWith('/pay/')) return <DemoPayment />
+  if (location.pathname.startsWith('/pay/')) return <DemoPayment session={session} />
   if (location.pathname.startsWith('/pool/invitations/') && !tipPoolsEnabled) return <main className="shell"><section className="account-card"><h1>Diese Funktion ist derzeit nicht verfügbar.</h1><a href="/account">Zum Konto</a></section></main>
   if (location.pathname.startsWith('/pool/invitations/') && !session) return <PoolInvitationLogin onLogin={() => { sessionStorage.setItem('gratilo.invitationPath', location.pathname); window.location.assign('/login') }} onRegister={() => { sessionStorage.setItem('gratilo.invitationPath', location.pathname); window.location.assign('/register') }} />
   if (location.pathname.startsWith('/pool/invitations/') && session) return <PoolInvitation session={session} onSwitchUser={() => { setSession(null); setProfile(null); setSessionExpired(false) }} />

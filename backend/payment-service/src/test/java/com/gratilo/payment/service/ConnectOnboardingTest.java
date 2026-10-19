@@ -25,6 +25,33 @@ class ConnectOnboardingTest {
         assertEquals("express", body.get("dashboard"));
     }
 
+    @Test void syncProjectsFreshV2EligibilityAndRevokesStaleLocalFlags() {
+        var account = new ConnectedAccountEntity(); account.setStripeAccountId("acct_fixture");
+        var body = new AtomicReference<>(StripeAccountFixtures.readyJson());
+        var repository = (ConnectedAccountRepository) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class[]{ConnectedAccountRepository.class}, (p, m, args) ->
+                    m.getName().equals("findByUserId") ? Optional.of(account) : args[0]);
+        var stripe = new StripeConnectService("sk_test_fixture", "http://localhost") {
+            @Override public String retrieveAccount(String id) {
+                if (body.get() == null) throw new IllegalStateException("offline");
+                return body.get();
+            }
+        };
+        var controller = new ConnectedAccountController(repository, stripe);
+        var auth = Authentication.build(UUID.randomUUID().toString());
+        assertEquals(HttpStatus.OK, controller.sync(auth).getStatus());
+        assertEquals("COMPLETE", account.getOnboardingStatus());
+        assertTrue(account.isChargesEnabled()); assertTrue(account.isDetailsSubmitted());
+        body.set(StripeAccountFixtures.readyJson().replace("active", "restricted"));
+        assertEquals(HttpStatus.OK, controller.sync(auth).getStatus());
+        assertFalse(account.isChargesEnabled()); assertFalse(account.isPayoutsEnabled());
+        assertEquals("IN_PROGRESS", account.getOnboardingStatus());
+        body.set(StripeAccountFixtures.readyJson()); controller.sync(auth);
+        body.set(null);
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, controller.sync(auth).getStatus());
+        assertFalse(account.isChargesEnabled()); assertFalse(account.isDetailsSubmitted());
+    }
+
     @Test void reusesPersistedAccountAfterOnboardingSessionFailure() {
         var stored = new AtomicReference<ConnectedAccountEntity>();
         var repository = (ConnectedAccountRepository) Proxy.newProxyInstance(getClass().getClassLoader(),

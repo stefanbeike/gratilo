@@ -17,6 +17,10 @@ public class TipController {
                          @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor) {
         this.checkoutService = checkoutService; this.feePercent = feePercent; this.fixedFeeMinor = fixedFeeMinor;
     }
+    @Get("/{recipientUserId}/eligibility") public HttpResponse<?> eligibility(UUID recipientUserId) {
+        return HttpResponse.ok(java.util.Map.of("canReceiveTips", checkoutService.canReceiveTips(recipientUserId)))
+                .header("Cache-Control", "no-store");
+    }
     @Get("/{recipientUserId}/quote") public TipQuote quote(UUID recipientUserId, @QueryValue @jakarta.validation.constraints.Min(100) @jakarta.validation.constraints.Max(1000000) long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) {
         long fee = feeCovered ? TipPricing.serviceFeeMinor(amountMinor, feePercent, fixedFeeMinor) : 0; return new TipQuote(amountMinor, fee, amountMinor + fee, "EUR", (int) Math.round(feePercent), fixedFeeMinor);
     }
@@ -32,6 +36,8 @@ public class TipController {
             var checkout = checkoutService.create(recipientUserId, request);
             if (checkout.isPresent()) return HttpResponse.ok(checkout.get());
             return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("message", "Stripe Checkout ist noch nicht verfügbar."));
+        } catch (StripeCheckoutService.RecipientNotReadyException unavailable) {
+            return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code", "RECIPIENT_NOT_READY", "message", "Dieser Empfänger kann derzeit keine Trinkgelder empfangen."));
         } catch (Exception exception) { return HttpResponse.status(HttpStatus.BAD_GATEWAY).body(java.util.Map.of("message", "Stripe Checkout konnte nicht erstellt werden.")); }
     }
 }

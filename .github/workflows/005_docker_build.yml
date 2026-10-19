@@ -5,6 +5,14 @@ name: Build and scan Gratilo images
       upload_artifacts:
         type: boolean
         default: false
+      stripe_test_mode:
+        description: Explicit opt-in; never used by the normal release workflow
+        type: boolean
+        default: false
+      stripe_test_publishable_key:
+        description: Public pk_test key supplied by the dedicated test-build caller
+        type: string
+        default: ''
     outputs:
       image_tag:
         value: ${{ jobs.build.outputs.image_tag }}
@@ -23,6 +31,11 @@ jobs:
     - name: Resolve immutable version
       id: version
       run: echo "tag=sha-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+    - name: Validate Stripe test build inputs
+      env:
+        STRIPE_TEST_MODE: ${{ inputs.stripe_test_mode }}
+        STRIPE_TEST_PUBLISHABLE_KEY: ${{ inputs.stripe_test_publishable_key }}
+      run: python3 deployment/scripts/validate_stripe_test_build.py
     - uses: docker/setup-buildx-action@v3
     - name: Build frontend
       uses: docker/build-push-action@v6
@@ -40,7 +53,8 @@ jobs:
         # Refresh official Alpine security packages even when the base digest is unchanged.
         no-cache-filters: runtime
         build-args: |
-          VITE_PAYMENTS_ENABLED=false
+          VITE_PAYMENTS_ENABLED=${{ inputs.stripe_test_mode && 'true' || 'false' }}
+          VITE_STRIPE_PUBLISHABLE_KEY=${{ inputs.stripe_test_mode && inputs.stripe_test_publishable_key || '' }}
     - name: Scan frontend
       uses: aquasecurity/trivy-action@v0.36.0
       with:

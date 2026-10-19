@@ -34,6 +34,9 @@ public class StripeWebhookController {
             if (testOnly && !Boolean.FALSE.equals(body.get("livemode"))) return HttpResponse.unauthorized();
         } catch (java.io.IOException exception) { return HttpResponse.badRequest(); }
         String event = body.get("type") instanceof String value ? value : null;
+        // A single signing secret serves v1 snapshot payment events. Accounts-v2
+        // thin events require a separate event destination/secret and are not acknowledged.
+        if (event != null && event.startsWith("v2.")) return HttpResponse.badRequest();
         var data = body.get("data") instanceof java.util.Map<?, ?> value ? value : java.util.Map.of();
         var object = data.get("object") instanceof java.util.Map<?, ?> value ? value : java.util.Map.of();
         var metadata = object.get("metadata") instanceof java.util.Map<?, ?> value ? value : java.util.Map.of();
