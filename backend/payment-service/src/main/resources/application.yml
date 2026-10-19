@@ -41,6 +41,9 @@ internal:
   api-key: ${INTERNAL_API_KEY:local-internal-secret-change-me}
 
 stripe:
+  test-only: true
+  demo-enabled: false
+  sandbox-payouts: true
   secret-key: ${STRIPE_SECRET_KEY:}
   webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
   # STRIPE_SUCCESS_URL can override this property through Micronaut environment binding.

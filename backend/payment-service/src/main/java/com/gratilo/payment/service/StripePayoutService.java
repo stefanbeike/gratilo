@@ -18,7 +18,7 @@ public class StripePayoutService {
     private final TransactionRepository transactions;
     private final ConnectedAccountRepository accounts;
     private final String secret; private final boolean sandboxPayouts;
-    public StripePayoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, @Value("${stripe.secret-key:}") String secret, @Value("${stripe.sandbox-payouts:true}") boolean sandboxPayouts) { this.transactions = transactions; this.accounts = accounts; this.secret = secret; this.sandboxPayouts = sandboxPayouts; }
+    public StripePayoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, @Value("${stripe.secret-key:}") String secret, @Value("${stripe.sandbox-payouts:true}") boolean sandboxPayouts) { this.transactions = transactions; this.accounts = accounts; StripeConnectService.requireTestKey(secret); this.secret = secret; this.sandboxPayouts = sandboxPayouts; }
 
     @Transactional
     public TransactionEntity create(UUID userId, Long requestedAmountMinor) throws Exception {
@@ -42,7 +42,7 @@ public class StripePayoutService {
     private TransactionEntity createSandboxPayout(UUID userId, String accountId, Long requestedAmountMinor) throws Exception {
         var all = transactions.findByAccountUserIdOrderByCreatedAtDesc(userId);
         long balance = all.stream()
-                .filter(t -> t.getAmountMinor() > 0 && t.getStatus() != TransactionStatus.FAILED && t.getStatus() != TransactionStatus.CANCELLED && t.getStatus() != TransactionStatus.REFUNDED)
+                .filter(t -> t.getAmountMinor() > 0 && t.getStatus() == TransactionStatus.BOOKED)
                 .mapToLong(TransactionEntity::getAmountMinor).sum();
         balance += all.stream()
                 .filter(t -> t.getAmountMinor() < 0 && t.getType() == TransactionType.PAYOUT && t.getStatus() != TransactionStatus.FAILED && t.getStatus() != TransactionStatus.CANCELLED)

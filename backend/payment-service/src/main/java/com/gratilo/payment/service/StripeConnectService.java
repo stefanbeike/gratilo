@@ -1,5 +1,4 @@
 package com.gratilo.payment.service;
-import com.gratilo.payment.domain.ConnectedAccountEntity;
 import io.micronaut.context.annotation.Value;
 import jakarta.inject.Singleton;
 import java.net.URI;
@@ -10,12 +9,16 @@ import java.util.regex.Pattern;
 @Singleton
 public class StripeConnectService {
     private final String secret, frontendBaseUrl;
-    public StripeConnectService(@Value("${stripe.secret-key:}") String secret, @Value("${frontend.base-url:http://localhost:3000}") String frontendBaseUrl) { this.secret = secret; this.frontendBaseUrl = frontendBaseUrl; }
+    public StripeConnectService(@Value("${stripe.secret-key:}") String secret, @Value("${frontend.base-url:http://localhost:3000}") String frontendBaseUrl) { requireTestKey(secret); this.secret = secret; this.frontendBaseUrl = frontendBaseUrl; }
+    public static void requireTestKey(String key) {
+        if (!key.isBlank() && (!key.startsWith("sk_test_") || key.length() <= 8))
+            throw new IllegalStateException("Only Stripe test keys are permitted");
+    }
     public boolean isConfigured() { return !secret.isBlank(); }
     public String createAccount(String email, String paymentUrl) throws Exception {
         String safeEmail = email == null ? "" : email.replace("\\", "\\\\").replace("\"", "\\\"");
         String profile = businessUrlJson(paymentUrl);
-        String json = "{\"contact_email\":\"" + safeEmail + "\",\"display_name\":\"Gratilo-Kellner\",\"dashboard\":\"express\",\"identity\":{\"country\":\"DE\"},\"configuration\":{\"merchant\":{\"capabilities\":{\"card_payments\":{\"requested\":true}}},\"recipient\":{\"capabilities\":{\"stripe_balance\":{\"stripe_transfers\":{\"requested\":true}}}}},\"defaults\":{\"currency\":\"eur\"," + (profile.isEmpty() ? "" : profile + ",") + "\"responsibilities\":{\"fees_collector\":\"application\",\"losses_collector\":\"application\"}},\"include\":[\"configuration.merchant\",\"configuration.recipient\",\"defaults\",\"identity\",\"requirements\"]}";
+        String json = "{\"contact_email\":\"" + safeEmail + "\",\"display_name\":\"Gratilo-Kellner\",\"dashboard\":\"express\",\"identity\":{\"country\":\"DE\"},\"configuration\":{\"merchant\":{\"capabilities\":{\"card_payments\":{\"requested\":true}}},\"recipient\":{\"capabilities\":{\"stripe_balance\":{\"stripe_transfers\":{\"requested\":true}}}}},\"defaults\":{\"currency\":\"eur\"," + (profile.isEmpty() ? "" : "\"profile\":{" + profile + "},") + "\"responsibilities\":{\"fees_collector\":\"application\",\"losses_collector\":\"application\"}},\"include\":[\"configuration.merchant\",\"configuration.recipient\",\"defaults\",\"identity\",\"requirements\"]}";
         return jsonCall("https://api.stripe.com/v2/core/accounts", json);
     }
     public String paymentUrl(String userId) { return frontendBaseUrl.replaceAll("/$", "") + "/pay/" + userId; }
@@ -54,10 +57,10 @@ public class StripeConnectService {
         jsonCall("https://api.stripe.com/v2/core/accounts/" + enc(accountId), json);
     }
     public String retrieveAccount(String accountId) throws Exception { return get("https://api.stripe.com/v1/accounts/" + enc(accountId)); }
-    private String call(String url, String form) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).header("Authorization", "Bearer "+secret).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form)).build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned "+response.statusCode()); return response.body(); }
-    private String jsonCall(String url, String json) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).header("Authorization", "Bearer " + secret).header("Stripe-Version", "2026-08-26.preview").header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json)).build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned " + response.statusCode() ); return response.body(); }
+    private String call(String url, String form) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30)).header("Authorization", "Bearer "+secret).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form)).build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned "+response.statusCode()); return response.body(); }
+    protected String jsonCall(String url, String json) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30)).header("Authorization", "Bearer " + secret).header("Stripe-Version", "2026-09-30.endive").header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json)).build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned " + response.statusCode() ); return response.body(); }
     public static String field(String json, String name) { var m=Pattern.compile("\\\""+name+"\\\"\\s*:\\s*\\\"([^\\\"]+)").matcher(json == null ? "" : json); return m.find()?m.group(1):null; }
     private static String enc(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }
-    private String get(String url) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).header("Authorization", "Bearer "+secret).GET().build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned "+response.statusCode()); return response.body(); }
+    private String get(String url) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30)).header("Authorization", "Bearer "+secret).GET().build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned "+response.statusCode()); return response.body(); }
     public static boolean booleanField(String json, String name) { var m=Pattern.compile("\\\""+name+"\\\"\\s*:\\s*(true|false)").matcher(json == null ? "" : json); return m.find() && Boolean.parseBoolean(m.group(1)); }
 }

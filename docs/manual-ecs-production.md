@@ -44,7 +44,7 @@ Umgebungsvariablen; die Anwendungen lesen Secrets Manager nicht selbst.
 | `STRIPE_SUCCESS_URL` | P | nein | `https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}` |
 | `STRIPE_CANCEL_URL` | P | nein | `https://gratilo.eu/pay/cancelled` |
 | `STRIPE_TEST_ONLY` | P | nein | `true`, im ECS-Profil zwingend |
-| `STRIPE_SANDBOX_PAYOUTS` | P | nein | `false`, keine simulierten Auszahlungen |
+| `STRIPE_SANDBOX_PAYOUTS` | P | nein | bei genehmigtem Testbetrieb zwingend `true`; nur simulierte Auszahlungen |
 | `STRIPE_DEMO_ENABLED` | P | nein | `false`, kein anonymer Demo-Parameter zum Verbuchen fingierter Tipps |
 | `STRIPE_FEE_PERCENT` | P | nein | optional, Default `1.5` |
 | `STRIPE_FEE_FIXED_MINOR` | P | nein | optional, Default `25` |
@@ -241,7 +241,7 @@ HIGH-/CRITICAL-Konfigurationsprüfungen im geprüften Source und den Images.
 Nicht gegen AWS/Stripe/SES geprüft: tatsächliche Rollenrechte und Netzpfade,
 RDS-TLS mit dem echten Endpunkt, Secret-Injektion, ALB/ACM, Stripe-Testkonto und
 Preview-API-Zugriff für Connect-Onboarding. Der Code verwendet hierfür
-`2026-08-26.preview`; Verfügbarkeit und Berechtigungen im Testkonto vor Nutzung
+`2026-09-30.endive`; Verfügbarkeit und Berechtigungen im Testkonto vor Nutzung
 manuell bestätigen. Webhook-Verarbeitung ist lokal signiert getestet, ein
 vollständiger Stripe-Test-Zahlungsfluss bleibt ein separat freizugebender Test.
 Öffentliche Registrierungen/Passwort-Resets können nach einem späteren Start
@@ -254,3 +254,10 @@ Eingaben, prüft STARTTLS/AUTH ohne Mailversand und gibt keine Zugangsdaten aus.
 Das ältere `aws/ses_smtp_password.py` gibt ein Passwort auf stdout aus und
 soll dafür nicht verwendet werden. Es wurde nicht ausgeführt und bleibt durch
 `.dockerignore` vom Image-Build ausgeschlossen.
+
+Aktueller Integrationsstand und Anleitung für einen separat genehmigten
+Stripe-Testbetrieb: [README: Stripe Connect](../README.md#stripe-connect-stand-und-manuelle-einrichtung).
+Die dort beschriebenen Startprüfungen gelten für alle Umgebungen. Pooling darf
+nicht aktiviert werden. Bestehende ECS-Vorlagen und Release-Builds bleiben auf
+deaktivierten Zahlungen; zum genehmigten Aktivieren sind die dort genannten
+Werte ausdrücklich anzupassen.

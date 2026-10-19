@@ -1,0 +1,54 @@
+package com.gratilo.payment.service;
+
+import com.gratilo.payment.controller.ConnectedAccountController;
+import com.gratilo.payment.domain.ConnectedAccountEntity;
+import com.gratilo.payment.repository.ConnectedAccountRepository;
+import io.micronaut.http.HttpStatus;
+import io.micronaut.json.JsonMapper;
+import io.micronaut.security.authentication.Authentication;
+import org.junit.jupiter.api.Test;
+import java.lang.reflect.Proxy;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
+import static org.junit.jupiter.api.Assertions.*;
+
+class ConnectOnboardingTest {
+    @Test void putsBusinessUrlInDefaultsProfile() throws Exception {
+        var captured = new AtomicReference<String>();
+        var stripe = new StripeConnectService("sk_test_fixture", "https://test.example.com") {
+            @Override protected String jsonCall(String url, String json) { captured.set(json); return "{}"; }
+        };
+        stripe.createAccount("test@example.com", "https://test.example.com/pay/test");
+        var body = JsonMapper.createDefault().readValue(captured.get(), Map.class);
+        var defaults = (Map<?, ?>) body.get("defaults");
+        assertEquals("https://test.example.com/pay/test", ((Map<?, ?>) defaults.get("profile")).get("business_url"));
+        assertEquals("express", body.get("dashboard"));
+    }
+
+    @Test void reusesPersistedAccountAfterOnboardingSessionFailure() {
+        var stored = new AtomicReference<ConnectedAccountEntity>();
+        var repository = (ConnectedAccountRepository) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class[]{ConnectedAccountRepository.class}, (p, m, args) -> switch (m.getName()) {
+                    case "findByUserId" -> Optional.ofNullable(stored.get());
+                    case "save", "update" -> { stored.set((ConnectedAccountEntity) args[0]); yield args[0]; }
+                    default -> throw new AssertionError(m.getName());
+                });
+        var created = new java.util.concurrent.atomic.AtomicInteger();
+        var sessions = new java.util.concurrent.atomic.AtomicInteger();
+        var stripe = new StripeConnectService("sk_test_fixture", "http://localhost:3000") {
+            @Override public String createAccount(String email, String url) { created.incrementAndGet(); return "{\"id\":\"acct_fixture\"}"; }
+            @Override public void ensureBusinessWebsite(String id, String url) { }
+            @Override public String createOnboardingSession(String id) {
+                if (sessions.incrementAndGet() == 1) throw new IllegalStateException("session unavailable");
+                return "{\"client_secret\":\"test_session_fixture\"}";
+            }
+        };
+        var controller = new ConnectedAccountController(repository, stripe);
+        var auth = Authentication.build(UUID.randomUUID().toString(), Map.of("email", "test@example.com"));
+        assertEquals(HttpStatus.BAD_GATEWAY, controller.start(auth).getStatus());
+        assertEquals("acct_fixture", stored.get().getStripeAccountId());
+        assertEquals(HttpStatus.OK, controller.start(auth).getStatus());
+        assertEquals(1, created.get());
+        assertEquals(HttpStatus.NOT_FOUND, controller.demoComplete(auth).getStatus());
+    }
+}

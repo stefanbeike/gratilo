@@ -52,6 +52,55 @@ class SandboxSecurityTest {
         assertNull(seen.get());
     }
 
+    @Test void unpaidDuplicateAndOutOfOrderEventsCannotInventOrUndoTips() throws Exception {
+        var tx = new com.gratilo.payment.domain.TransactionEntity();
+        tx.setId(java.util.UUID.randomUUID()); tx.setProvider("STRIPE");
+        tx.setProviderReference("cs_test_fixture"); tx.setType(com.gratilo.payment.domain.TransactionType.TIP);
+        tx.setStatus(com.gratilo.payment.domain.TransactionStatus.PENDING);
+        var updates = new java.util.concurrent.atomic.AtomicInteger();
+        var repository = (com.gratilo.payment.repository.TransactionRepository) java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class[]{com.gratilo.payment.repository.TransactionRepository.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("findById")) return java.util.Optional.of(tx);
+                    if (method.getName().equals("update")) { updates.incrementAndGet(); return tx; }
+                    throw new AssertionError(method.getName());
+                });
+        // Even an attempted test-only override cannot admit live events.
+        var controller = new StripeWebhookController(repository, WEBHOOK, false, JsonMapper.createDefault());
+        java.util.function.BiConsumer<String, String> send = (event, fields) -> {
+            String payload = "{\"livemode\":false,\"type\":\"" + event + "\",\"data\":{\"object\":{\"id\":\"cs_test_fixture\",\"metadata\":{\"transaction_id\":\"" + tx.getId() + "\"}," + fields + "}}}";
+            try {
+                String signed = signature(payload, System.currentTimeMillis()/1000);
+                assertEquals(HttpStatus.OK, controller.receive(payload, signed + ",v1=invalid-rotated-signature").getStatus());
+            } catch (Exception e) { throw new AssertionError(e); }
+        };
+        send.accept("checkout.session.completed", "\"payment_status\":\"unpaid\"");
+        assertEquals(0, updates.get());
+        send.accept("checkout.session.async_payment_succeeded", "\"payment_status\":\"paid\"");
+        assertEquals(com.gratilo.payment.domain.TransactionStatus.BOOKED, tx.getStatus());
+        assertNotNull(tx.getBookedAt());
+        send.accept("checkout.session.completed", "\"payment_status\":\"paid\"");
+        send.accept("payment_intent.payment_failed", "\"status\":\"requires_payment_method\"");
+        assertEquals(1, updates.get());
+        send.accept("charge.refunded", "\"refunded\":false");
+        assertEquals(1, updates.get());
+        send.accept("charge.refunded", "\"refunded\":true");
+        send.accept("payment_intent.succeeded", "\"status\":\"succeeded\"");
+        assertEquals(com.gratilo.payment.domain.TransactionStatus.REFUNDED, tx.getStatus());
+        assertEquals(2, updates.get());
+    }
+
+    @Test void blocksLiveKeysAndPoolActivationInEveryEnvironment() {
+        assertThrows(IllegalStateException.class, () -> new com.gratilo.payment.service.StripeConnectService("sk_live_fixture", "http://localhost"));
+        assertThrows(IllegalStateException.class, () -> new com.gratilo.payment.config.PoolDisabledConfiguration(true));
+        assertDoesNotThrow(() -> new com.gratilo.payment.config.PoolDisabledConfiguration(false));
+        var controller = new com.gratilo.payment.controller.ConnectedAccountController(null, null);
+        assertEquals(HttpStatus.NOT_FOUND, controller.demoComplete(null).getStatus());
+        var filter = new com.gratilo.payment.config.PaymentsFilter(true);
+        assertEquals(HttpStatus.METHOD_NOT_ALLOWED, filter.filter(io.micronaut.http.HttpRequest.POST("/payment-service/transactions", "{}")).getStatus());
+        assertEquals(HttpStatus.METHOD_NOT_ALLOWED, filter.filter(io.micronaut.http.HttpRequest.POST("/payment-service/transactions/id/refund", "{}")).getStatus());
+    }
+
     private String signature(String payload, long timestamp) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(WEBHOOK.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));

@@ -84,8 +84,15 @@ Lege im Repository-Stamm eine lokale Datei `.env` an (die Datei ist per
 Verwende ausschließlich Testschlüssel aus dem Stripe-Dashboard. Der
 `STRIPE_SECRET_KEY` wird nur an den Payment-Service gegeben; der
 `STRIPE_PUBLISHABLE_KEY` wird beim Frontend-Build eingebettet. Ein
-`STRIPE_WEBHOOK_SECRET` wird später für die Signaturprüfung des Webhook-Endpunkts
-benötigt.
+`STRIPE_WEBHOOK_SECRET` ist bei aktivierten Zahlungen für die Signaturprüfung erforderlich.
+Zahlungen bleiben zunächst ausgeschaltet. Für einen lokalen Testlauf explizit
+`PAYMENTS_ENABLED=true` und `VITE_PAYMENTS_ENABLED=true` setzen; Testschlüssel
+`sk_test_…`, `pk_test_…` und das passende `whsec_…` verwenden.
+`STRIPE_TEST_ONLY=true`, `STRIPE_SANDBOX_PAYOUTS=true` und
+`FEATURE_TIP_POOLS_ENABLED=false` müssen erhalten bleiben. Die Anwendung bricht
+bei Live-Schlüsseln oder aktivierten Pools den Start ab.
+Vite direkt benötigt `VITE_STRIPE_PUBLISHABLE_KEY` in der Frontend-Umgebung;
+Compose übersetzt dafür `STRIPE_PUBLISHABLE_KEY` aus der Root-`.env`.
 
 Danach den Stack mit `--build` neu bauen, damit der Publishable Key in die
 Frontend-Dateien gelangt:
@@ -153,26 +160,79 @@ enthält ausschließlich nicht geheime Werte und Platzhalter für Secret-ARNs.
 
 ## Feature-Toggle: Trinkgeld-Pools
 
-Die Gruppenaufteilung ist standardmäßig deaktiviert. Setze
-`FEATURE_TIP_POOLS_ENABLED=true` in **beiden** Backend-Services, um sie wieder
-zu aktivieren. In Docker Compose genügt derselbe Eintrag in der lokalen `.env`;
-anschließend die Services neu erstellen. Bei einem IDE-Start die Variable in
-beiden Run-Konfigurationen setzen. Ohne Variable gilt `false`.
+Die Gruppenaufteilung bleibt vollständig deaktiviert. Beide Backends verweigern
+bei `FEATURE_TIP_POOLS_ENABLED=true` den Start. Poolverwaltung, Mitgliedschaften
+und Einladungen bleiben ausgeblendet; öffentliche und interne Pool-APIs sind nicht
+registriert. Der Checkout enthält keine Verteilungslogik mehr. Bestehende Pooldaten
+und historische Buchungen bleiben erhalten. Die Bereinigung von Mitgliedschaften
+beim Löschen eines Kontos bleibt aktiv.
 
-Der User-Service veröffentlicht den Status über `GET /user-service/features`.
-Das Frontend liest ihn beim Laden; ein neuer Frontend-Build ist für das
-Umschalten nicht erforderlich. Nach einer Konfigurationsänderung beide Backends
-neu starten und die Browserseite neu laden. Wenn die Statusabfrage fehlschlägt,
-bleibt die Funktion im Frontend deaktiviert.
+## Stripe Connect: Stand und manuelle Einrichtung
 
-Bei deaktiviertem Toggle werden Poolverwaltung, Mitgliedschaften und
-Einladungsaktionen ausgeblendet. Die Pool-APIs und die interne Verteilungs-API
-sind nicht registriert. Öffentliche Zahlungsprofile zeigen keinen Poolnamen,
-und der Payment-Service führt keine Pool-Aufteilung aus; Trinkgelder werden
-wie Einzelzahlungen für den Empfänger verarbeitet. Bestehende Pooldaten und
-historische Buchungen bleiben erhalten und sind nach Reaktivierung wieder
-nutzbar. Die Bereinigung von Mitgliedschaften beim Löschen eines Kontos bleibt
-aktiv, damit keine verwaisten Mitgliedschaften entstehen.
+Einzeltrinkgelder werden über Stripe-hosted Checkout als Destination Charge an
+genau ein Connected Account verarbeitet. Vor jedem Checkout prüft der Server die
+aktive Zahlungsseite, Stripe-Testmodus, Charges, Payouts und Transfers-Capability.
+Identitäts- und Bankdaten werden im eingebetteten Stripe-Onboarding erfasst.
+Accounts-v2-Aufrufe verwenden die feste Version `2026-09-30.endive`.
+
+Checkout-Wiederholungen verwenden dieselbe Transaktion und einen davon abgeleiteten
+Stripe-Idempotenzschlüssel; geänderte Beträge/Nachrichten/Gebühren dürfen denselben
+Anfrageschlüssel nicht wiederverwenden. Ein Trinkgeld kann zwischen 1 und 10.000 EUR
+liegen. Bei übernommener Servicegebühr wird nur der Trinkgeldbetrag an den Mitarbeiter
+übertragen; der Aufschlag verbleibt bei der Plattform. Dies ist eine konfigurierte
+Servicegebühr, keine Zusage über Stripes tatsächliche Kosten. Stripe berechnet seine
+Gebühren der Plattform. Ohne Aufschlag trägt die Plattform diese Kosten.
+
+Buchungen erfolgen erst nach bestätigtem `paid`-Status oder signiertem
+`payment_intent.succeeded`. Doppelte/verspätete Fehler überschreiben keine gebuchten
+Trinkgelder; vollständige Rückerstattungen bleiben endgültig. Demo-Onboarding,
+Demo-Trinkgelder und manuelle Ledger-/Refund-/Cancel-HTTP-Schreibwege sind gesperrt.
+Auszahlungen über Gratilo bleiben ausdrücklich simuliert und lösen keinen Banktransfer
+aus. Für echte Bankauszahlungen ist eine gesonderte Freigabe und Implementierungsprüfung
+nötig. Teilrückerstattungen und Disputes werden noch nicht im Ledger abgebildet;
+Erstattungen im Stripe-Dashboard müssen bei Destination Charges auch den Transfer
+berücksichtigen. Kein Refund wird durch Gratilo ausgelöst.
+
+Manuell in Stripe für eine Sandbox bzw. ein Testkonto einrichten:
+
+1. Connect und Accounts v2 verfügbar machen; Plattformprofil, Verantwortlichkeiten,
+   DE/EUR und Express-Onboarding prüfen. Schlüssel müssen aus derselben Sandbox stammen.
+2. `sk_test_…` ausschließlich im Backend, `pk_test_…` nur im Frontend-Build hinterlegen.
+3. Einen Test-Webhook für Plattformereignisse auf
+   `https://<TEST-HOST>/payment-service/webhooks/stripe` anlegen. Lokal kann Stripe CLI
+   auf Port 8082 weiterleiten; dessen Signatur-Secret ist ein eigenes `whsec_…`.
+4. Ereignisse: `checkout.session.completed`, `checkout.session.expired`,
+   `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`,
+   `payment_intent.succeeded`, `payment_intent.payment_failed`,
+   `payment_intent.canceled`, `charge.refunded`. Das Webhook-Secret im Backend setzen.
+5. Einen Mitarbeiter per Stripe-Test-Onboarding einrichten und den Status in Gratilo
+   synchronisieren. Danach mit Stripe-Testkarte Erfolg, Ablehnung, erneute Zustellung
+   eines Webhooks und vollständige Rückerstattung prüfen. Dieser externe Testlauf
+   wurde hier nicht ausgeführt. Apple Pay/Google Pay separat auf unterstützten Geräten
+   und der Testdomain prüfen.
+
+Manuell in AWS **erst nach Freigabe**, bevorzugt in einer getrennten Testumgebung:
+
+- Secrets Manager: Stripe-Testschlüssel und Test-Webhook-Secret hinterlegen; in der
+  ECS-Task als `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` injizieren. Execution Role
+  auf die konkreten Secret-ARNs begrenzen; bei eigenem KMS-Key passendes Decrypt-Recht.
+- Frontend mit `VITE_PAYMENTS_ENABLED=true` und `VITE_STRIPE_PUBLISHABLE_KEY=pk_test_…`
+  bauen; dies sind Buildwerte. Die bestehenden Release-Workflows bleiben auf `false`.
+- Payment-Service: `PAYMENTS_ENABLED=true`, `STRIPE_TEST_ONLY=true`,
+  `STRIPE_SANDBOX_PAYOUTS=true`, `STRIPE_DEMO_ENABLED=false`; beide Backends:
+  `FEATURE_TIP_POOLS_ENABLED=false`. Die bisherige Task-Vorlage bleibt deaktiviert
+  und muss für einen genehmigten Testbetrieb ausdrücklich angepasst werden.
+- HTTPS-Testdomain/ALB/Nginx zum Frontend und zum Webhook routen; Backend-Ports privat
+  lassen. Egress auf `api.stripe.com:443`, DB-Zugriff, Healthchecks und interne
+  Erreichbarkeit des User-Service (`USER_SERVICE_URL`) prüfen.
+- `FRONTEND_BASE_URL`, `STRIPE_SUCCESS_URL` mit `{CHECKOUT_SESSION_ID}` und
+  `STRIPE_CANCEL_URL` auf dieselbe Testdomain setzen. Keine Secrets in Logs/Images.
+
+Keine AWS-Ressourcen, Secrets oder Deployments wurden hierfür verändert.
+
+Quellen: [Destination Charges](https://docs.stripe.com/connect/destination-charges),
+[Accounts v2](https://docs.stripe.com/api/v2/core/accounts/create),
+[Checkout-Status](https://docs.stripe.com/api/checkout/sessions/object).
 
 ## User-Service API
 

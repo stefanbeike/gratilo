@@ -4,15 +4,14 @@ import io.micronaut.context.annotation.Context;
 import io.micronaut.context.annotation.Requires;
 import io.micronaut.context.annotation.Value;
 
-/** Fail before serving requests if the ECS sandbox is configured for live Stripe. */
+/** Fail before serving requests if any environment is configured for live Stripe. */
 @Context
-@Requires(env = "prd")
 @Requires(property = "payments.enabled", value = "true")
 public class SandboxConfiguration {
     public SandboxConfiguration(@Value("${stripe.secret-key}") String key,
                                 @Value("${stripe.webhook-secret}") String webhook,
-                                @Value("${stripe.sandbox-payouts}") boolean sandboxPayouts,
-                                @Value("${stripe.test-only}") boolean testOnly,
+                                @Value("${stripe.sandbox-payouts:true}") boolean sandboxPayouts,
+                                @Value("${stripe.test-only:true}") boolean testOnly,
                                 @Value("${internal.api-key}") String internalKey) {
         if (!key.startsWith("sk_test_") || key.length() <= 8)
             throw new IllegalStateException("STRIPE_SECRET_KEY must be a Stripe test key");

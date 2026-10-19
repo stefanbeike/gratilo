@@ -13,6 +13,7 @@ import java.util.UUID;
 
 @Controller("/payment-service/payouts")
 @Secured(SecurityRule.IS_AUTHENTICATED)
+@io.micronaut.scheduling.annotation.ExecuteOn(io.micronaut.scheduling.TaskExecutors.BLOCKING)
 public class PayoutController {
     private final StripePayoutService payouts;
     public PayoutController(StripePayoutService payouts) { this.payouts = payouts; }

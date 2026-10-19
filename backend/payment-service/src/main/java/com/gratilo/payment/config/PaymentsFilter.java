@@ -27,6 +27,9 @@ public class PaymentsFilter {
                 && (path.equals("/payment-service/transactions")
                     || path.startsWith("/payment-service/transactions/")
                     || path.equals("/payment-service/connect-account"));
+        if (enabled && request.getMethod() != HttpMethod.GET && path.startsWith("/payment-service/transactions"))
+            return HttpResponse.status(HttpStatus.METHOD_NOT_ALLOWED)
+                    .body(Map.of("message", "Transaktionen werden ausschließlich durch Stripe verarbeitet."));
         if (enabled || readOnly) return null;
         return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(Map.of("message", "Zahlungen sind derzeit deaktiviert.", "code", "PAYMENTS_DISABLED"));
