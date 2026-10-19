@@ -17,21 +17,22 @@ import java.util.*;
 @Requires(env = "prd")
 @Requires(property = "payments.enabled", value = "true")
 public class StripeTestAccessRule implements SecurityRule<HttpRequest<?>> {
-    private final Set<String> users;
+    private final com.gratilo.payment.service.StripeTestAccess access;
+    private final java.util.concurrent.ExecutorService executor;
 
-    public StripeTestAccessRule(@Value("${payments.test-user-ids:}") String configuredUsers) {
-        var ids = new HashSet<String>();
-        for (String value : configuredUsers.split(",")) {
-            if (!value.isBlank()) ids.add(UUID.fromString(value.trim()).toString());
-        }
-        if (ids.isEmpty()) throw new IllegalStateException("PAYMENTS_TEST_USER_IDS is required for authorized Stripe tests");
-        users = Set.copyOf(ids);
+    public StripeTestAccessRule(com.gratilo.payment.service.StripeTestAccess access,
+            @jakarta.inject.Named(io.micronaut.scheduling.TaskExecutors.BLOCKING) java.util.concurrent.ExecutorService executor) {
+        this.access = access; this.executor = executor;
     }
 
     @Override public int getOrder() { return Integer.MIN_VALUE + 100; }
 
     @Override public Publisher<SecurityRuleResult> check(HttpRequest<?> request, Authentication authentication) {
-        return Publishers.just(evaluate(request, authentication));
+        // Repository-backed authorization must not block Netty's event loop.
+        return Publishers.fromCompletableFuture(java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            try { return evaluate(request, authentication); }
+            catch (Exception unavailable) { return SecurityRuleResult.REJECTED; }
+        }, executor));
     }
 
     public SecurityRuleResult evaluate(HttpRequest<?> request, Authentication authentication) {
@@ -43,12 +44,20 @@ public class StripeTestAccessRule implements SecurityRule<HttpRequest<?>> {
                 (path.equals("/payment-service/connect-account") || path.equals("/payment-service/transactions")
                         || path.startsWith("/payment-service/transactions/"));
         if (storedRead) return SecurityRuleResult.UNKNOWN;
-        if (authentication == null || !users.contains(authentication.getName())) return SecurityRuleResult.REJECTED;
+        // Enrollment remains reachable after ordinary registration/login.
+        if (path.equals("/payment-service/test-access"))
+            return authentication == null ? SecurityRuleResult.REJECTED : SecurityRuleResult.UNKNOWN;
+        // This endpoint only confirms an unguessable Stripe test session, never creates a payment.
+        if (path.equals("/payment-service/tips/checkout/confirm") && request.getMethod() == HttpMethod.GET)
+            return SecurityRuleResult.UNKNOWN;
         String prefix = "/payment-service/tips/";
-        if (path.startsWith(prefix) && !path.equals(prefix + "checkout/confirm")) {
-            String recipient = path.substring(prefix.length()).split("/", 2)[0];
-            if (!users.contains(recipient)) return SecurityRuleResult.REJECTED;
+        if (path.startsWith(prefix)) {
+            String[] parts = path.substring(prefix.length()).split("/", -1);
+            if (parts.length != 2 || !Set.of("quote", "eligibility", "checkout").contains(parts[1])) return SecurityRuleResult.REJECTED;
+            try { return access.enabled(UUID.fromString(parts[0])) ? SecurityRuleResult.UNKNOWN : SecurityRuleResult.REJECTED; }
+            catch (IllegalArgumentException invalid) { return SecurityRuleResult.REJECTED; }
         }
-        return SecurityRuleResult.UNKNOWN;
+        if (authentication == null) return SecurityRuleResult.REJECTED;
+        return access.enabled(UUID.fromString(authentication.getName())) ? SecurityRuleResult.UNKNOWN : SecurityRuleResult.REJECTED;
     }
 }

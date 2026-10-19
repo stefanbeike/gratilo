@@ -246,8 +246,7 @@ Prüfwerkzeug erstellt lokale Review-Dateien, ohne AWS-Schreiboperationen auszuf
 
 ```shell
 aws sso login --profile gratilo
-python3 deployment/scripts/prepare_stripe_test.py --check-stripe \
-  --test-user-id <GRATILO-TESTER-UUID> --test-user-id <EMPFÄNGER-UUID>
+python3 deployment/scripts/prepare_stripe_test.py --check-stripe
 ```
 
 Es prüft die AWS-Identität gegen Konto `070351676632` und verwendet ausschließlich
@@ -262,23 +261,63 @@ Eine bereits erlaubte Berechtigung erfordert keine zusätzliche Allow-Policy.
 
 Die Review-Artefakte liegen mit Dateimodus 0600 unter `.local/stripe-test-plan/`
 (ignoriert von Git): `audit.json`, `execution-policy.proposed.json` und, sobald
-Benutzer-UUIDs angegeben wurden, `task-definition.proposed.json`. Die Task enthält
-die beiden exakten JSON-Key-Referenzen `<secret-arn>:secret_key::` und
-`<secret-arn>:webhook_secret::` nur beim Payment-Service. Ihre Images stammen zunächst
+der private Freigabecode im Secret vorhanden ist, `task-definition.proposed.json`.
+Die Task enthält die exakten JSON-Key-Referenzen `<secret-arn>:secret_key::`,
+`<secret-arn>:webhook_secret::` und `<secret-arn>:activation_code::` nur beim
+Payment-Service. Letztere wird als `PAYMENTS_TEST_ACTIVATION_CODE` injiziert. Ihre Images stammen zunächst
 unverändert aus der laufenden Task. **Vor einer Registrierung müssen alle drei
 Images durch geprüfte Digests des neuen Builds ersetzt und der finale Diff freigegeben
 werden.** Das Prüfwerkzeug registriert nichts und aktualisiert keinen Service.
 
-Im Profil `prd` verlangt `PAYMENTS_ENABLED=true` zwingend eine nicht leere
-`PAYMENTS_TEST_USER_IDS`-Liste. Nur angemeldete Benutzer mit gültigem Gratilo-JWT und
-einer dort aufgeführten Benutzer-UUID können Checkout, Quote, Bestätigung,
-Onboarding/Sync oder simulierte Auszahlungen ausführen. Auch der Trinkgeldempfänger
-muss auf der Liste stehen. Öffentliche Registrierung verleiht keine Testrechte.
-Gespeicherte Konto-/Transaktionslesezugriffe behalten ihre bisherige Authentifizierung;
-der Webhook bleibt für Stripe erreichbar und prüft seine eigene Signatur. Stripe
-Checkout selbst ist nach Session-Erstellung eine von Stripe gehostete URL und sollte
-nicht weitergegeben werden. Testdaten bleiben in der gemeinsamen Produktionsdatenbank
-sichtbar, wenn dieselbe ECS-Task verwendet wird.
+Im Profil `prd` verlangt `PAYMENTS_ENABLED=true` entweder einen privaten
+`PAYMENTS_TEST_ACTIVATION_CODE` oder die bisherige UUID-Liste. Empfohlen ist der
+Freigabecode: 32 bis 256 zufällige Zeichen, nur im Backend, im bestehenden Secret
+`gratilo/prd/stripe-test` unter dem zusätzlichen JSON-Feld `activation_code`.
+Weder der Freigabecode noch Stripe-Secrets gehören in GitHub-Buildvariablen,
+Frontend-Dateien, Logs oder QR-Links. Der Code wird bei der Profileingabe verdeckt
+angezeigt, nach dem Absenden gelöscht und nicht im Browser gespeichert.
+
+Der vollständige Selbsttest benötigt keine manuelle UUID-Abfrage:
+
+1. Normal registrieren, E-Mail bestätigen und anmelden.
+2. Im Profil den privaten Test-Freigabecode eingeben und „Mein Konto für den Test
+   freigeben“ wählen. Der Server nimmt die Benutzerkennung ausschließlich aus dem
+   gültigen JWT; im Request wird kein Zielkonto akzeptiert. Eine neue, noch leere
+   Connected-Account-Zeile wird bei Bedarf angelegt.
+3. Das Stripe-Test-Onboarding im Profil starten und abschließen. Der Freigabecode
+   allein erlaubt noch keine Trinkgeldannahme. Der offene Profilbereich prüft den
+   Stripe-Status während des Onboardings alle 5 Sekunden, sonst alle 30 Sekunden
+   sowie bei erneutem Fensterfokus. Erst nach der positiven Accounts-v2-Prüfung
+   wird der eigene QR-Code angezeigt und der Zahlungslink kopierbar.
+4. Den unveränderten QR-Link im privaten Browserfenster öffnen. Gäste benötigen
+   weder Gratilo-Login, Freigabecode noch Stripe-Registrierung. Die serverseitige
+   Testzugangssperre prüft den freigegebenen Empfänger; die separate Prüfung des
+   tatsächlichen Stripe-Status bleibt vor jedem Checkout verbindlich.
+5. Mit einer Stripe-Testkarte zahlen. Die Transaktion wird über serverseitige
+   Empfängerbindung und signierte Stripe-Metadaten dem eigenen Konto zugeordnet.
+   Die Transaktionsliste aktualisiert sich alle 15 Sekunden und beim Fensterfokus.
+6. Bei Bedarf im Profil „Testfreigabe widerrufen“ wählen. Danach können keine neuen
+   Gast-Checkouts an dieses Konto erzeugt werden. Historische Buchungen bleiben
+   erhalten. Bereits erzeugte Stripe-Checkout-URLs werden nicht automatisch gelöscht.
+
+Die Freigabe wird mit Migration `005_test_access.sql` als
+`payment_mgmt.connected_accounts.test_access_enabled` gespeichert, standardmäßig
+`false`. Die App verwendet UUIDs weiter intern als stabile Kontokennungen; niemand
+muss sie für diesen Ablauf aus der Datenbank lesen oder in eine Liste eintragen.
+Die optionale `PAYMENTS_TEST_USER_IDS`-Liste bleibt nur für bestehende Konfigurationen
+kompatibel; darin aufgeführte Freigaben müssen auf Konfigurationsebene widerrufen
+werden. Eine Rotation des Freigabecodes entzieht bereits erteilte Freigaben nicht.
+Der private Code darf nur autorisierten Testern bekannt sein; wer ihn kennt, kann
+seinen eigenen angemeldeten Account freigeben. Öffentliche Registrierung allein
+verleiht keine Testrechte.
+
+Onboarding, Synchronisation und simulierte Auszahlungen bleiben authentifizierten,
+freigegebenen Kontoinhabern vorbehalten. Die anonyme Bestätigung akzeptiert nur einen
+bei Stripe als bezahlt gelesenen Test-Session-Identifier, dessen ID und Metadaten zur
+lokalen Transaktion passen; sie erstellt keine neue Zahlung. Der Webhook prüft weiter
+seine eigene Signatur. Testdaten liegen bei Nutzung derselben ECS-Task weiterhin in
+der gemeinsamen Produktionsdatenbank. Der Code ist lokal vorbereitet; Secret-Ergänzung,
+Migration und Rollout auf AWS werden erst nach ausdrücklicher Freigabe ausgeführt.
 
 Der neue manuelle Workflow `.github/workflows/stripe-test-build.yml` baut und scannt
 nur Images und lädt Artefakte hoch; er kann weder ECR veröffentlichen noch Tags
@@ -304,14 +343,6 @@ gespeicherte Status wird bei diesen frischen Abfragen aktualisiert. Zwischen
 Abfragen kann die Darstellung bis zu 30 Sekunden alt sein, die Checkout-Prüfung
 bleibt davon unabhängig. Bereits bei Stripe erzeugte Sessions werden durch diese
 Änderung nicht nachträglich storniert; ihre spätere Verarbeitung unterliegt Stripe.
-
-Gäste benötigen für den normalen Checkout weder eine Gratilo-Anmeldung noch ein
-Stripe-Benutzerkonto. Der autorisierte AWS-Testbetrieb im Profil `prd` behält jedoch
-seine zusätzliche JWT-/Benutzerfreigabeliste. Anonyme Tests auf der öffentlichen
-Domain werden dadurch weiterhin abgewiesen. Diese Betriebssperre wird nicht für
-den Gastfluss entfernt; dessen anonyme HTTP-/Frontend-Tests laufen isoliert ohne
-AWS-Testgate und mit simuliertem Stripe. Vor einem offenen Gastbetrieb ist eine
-separate Freigabe und Prüfung der Zugangsbeschränkung erforderlich.
 
 Ein einzelner Snapshot-Testwebhook für **Plattformereignisse** genügt für die oben
 aufgeführten Checkout-/PaymentIntent-/Refund-Ereignisse. Keine zusätzlichen

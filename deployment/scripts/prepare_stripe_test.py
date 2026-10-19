@@ -72,6 +72,8 @@ def validate_secret(payload):
         value = values.get(name)
         if not isinstance(value, str) or not value.startswith(prefix) or len(value) <= len(prefix) or value != value.strip():
             raise AuditError(f"Stripe secret field {name} is missing or has an invalid test format")
+    if "activation_code" in values and (not isinstance(values["activation_code"], str) or not 32 <= len(values["activation_code"]) <= 256):
+        raise AuditError("Optional test activation_code must contain 32 to 256 characters")
     return values
 
 
@@ -85,7 +87,7 @@ def execution_policy(secret_arn, kms=None):
     return policy
 
 
-def task_candidate(task, secret_arn, test_users):
+def task_candidate(task, secret_arn, test_users, self_activation=False):
     candidate = copy.deepcopy(task)
     for key in ("taskDefinitionArn", "revision", "status", "requiresAttributes", "compatibilities",
                 "registeredAt", "registeredBy", "deregisteredAt"):
@@ -94,7 +96,7 @@ def task_candidate(task, secret_arn, test_users):
         name = container["name"]
         env = {e["name"]: e["value"] for e in container.get("environment", [])}
         # Refuse to persist an existing task that contains plaintext credentials.
-        if any(re.search(r"SECRET|PASSWORD|TOKEN|PRIVATE_KEY|ACCESS_KEY", key) for key in env):
+        if any(re.search(r"SECRET|PASSWORD|TOKEN|PRIVATE_KEY|ACCESS_KEY|ACTIVATION_CODE", key) for key in env):
             raise AuditError("Task contains plaintext credential variables; draft refused")
         if name in ("user-service", "payment-service"):
             env["FEATURE_TIP_POOLS_ENABLED"] = "false"
@@ -107,6 +109,8 @@ def task_candidate(task, secret_arn, test_users):
             secrets = {s["name"]: s["valueFrom"] for s in container.get("secrets", [])}
             secrets.update(STRIPE_SECRET_KEY=secret_arn + ":secret_key::",
                            STRIPE_WEBHOOK_SECRET=secret_arn + ":webhook_secret::")
+            if self_activation:
+                secrets["PAYMENTS_TEST_ACTIVATION_CODE"] = secret_arn + ":activation_code::"
             container["secrets"] = [{"name": k, "valueFrom": v} for k, v in secrets.items()]
         container["environment"] = [{"name": k, "value": v} for k, v in env.items()]
     return candidate
@@ -185,6 +189,8 @@ def prepare(output, test_users, check_stripe=False):
     report["executionRoleTrustedServices"] = sorted({service for statement in role_meta.get("AssumeRolePolicyDocument", {}).get("Statement", [])
         for service in ([statement.get("Principal", {}).get("Service")] if isinstance(statement.get("Principal", {}).get("Service"), str)
                         else statement.get("Principal", {}).get("Service", []))})
+    self_activation = bool(values.get("activation_code"))
+    report["secretFields"]["activation_code"] = "present/valid-format" if self_activation else "absent; self-activation unavailable"
     report["inlinePolicyNames"] = aws("iam", "list-role-policies", "--role-name", role_name)["PolicyNames"]
     report["attachedPolicyArns"] = [p["PolicyArn"] for p in aws("iam", "list-attached-role-policies", "--role-name", role_name)["AttachedPolicies"]]
     report["network"] = network_audit(service)
@@ -224,12 +230,12 @@ def prepare(output, test_users, check_stripe=False):
             stream.write(json.dumps(content, indent=2) + "\n")
     write("audit.json", report)
     write("execution-policy.proposed.json", execution_policy(arn, kms))
-    if users:
-        write("task-definition.proposed.json", task_candidate(task, arn, users))
+    if users or self_activation:
+        write("task-definition.proposed.json", task_candidate(task, arn, users, self_activation))
     # No full response, environment, secret value or exception detail reaches stdout.
     print("Read-only audit complete. Review local audit/policy artifacts; no AWS writes performed.")
-    if not users:
-        print("Task draft pending: supply authorized test-user UUIDs with --test-user-id.")
+    if not users and not self_activation:
+        print("Task draft pending: configure the private activation_code field (recommended) or legacy test-user IDs.")
 
 
 def main():

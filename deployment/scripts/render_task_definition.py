@@ -11,7 +11,7 @@ CONTAINERS = ("frontend", "user-service", "payment-service")
 READ_ONLY = {"taskDefinitionArn", "revision", "status", "requiresAttributes",
              "compatibilities", "registeredAt", "registeredBy", "deregisteredAt"}
 SENSITIVE = {"DATASOURCES_DEFAULT_PASSWORD", "JWT_SECRET", "INTERNAL_API_KEY",
-             "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
+             "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "PAYMENTS_TEST_ACTIVATION_CODE",
              "JAVAMAIL_AUTHENTICATION_USERNAME", "JAVAMAIL_AUTHENTICATION_PASSWORD"}
 
 

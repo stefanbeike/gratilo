@@ -65,6 +65,25 @@ class StripeTestSetupTest(unittest.TestCase):
             for entry in before["secrets"]:
                 self.assertEqual(entry["valueFrom"], refs[entry["name"]])
 
+    def test_self_activation_secret_reference_avoids_manual_uuid_configuration(self):
+        task = json.loads((ROOT / "deployment/ecs/gratilo-prd-app.task-definition.json").read_text())
+        arn = "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/stripe-test-Ab1234"
+        result = setup.task_candidate(task, arn, [], self_activation=True)
+        payment = next(c for c in result["containerDefinitions"] if c["name"] == "payment-service")
+        refs = {s["name"]: s["valueFrom"] for s in payment["secrets"]}
+        env = {e["name"]: e["value"] for e in payment["environment"]}
+        self.assertEqual(arn + ":activation_code::", refs["PAYMENTS_TEST_ACTIVATION_CODE"])
+        self.assertNotIn("PAYMENTS_TEST_ACTIVATION_CODE", env)
+        self.assertEqual("", env["PAYMENTS_TEST_USER_IDS"])
+        for value in ("short", 123, "x" * 257):
+            payload = {"secret_key": "sk_test_fixture", "webhook_secret": "whsec_fixture", "activation_code": value}
+            with self.assertRaises(setup.AuditError):
+                setup.validate_secret({"SecretString": json.dumps(payload)})
+        task["containerDefinitions"][2]["environment"].append({"name": "PAYMENTS_TEST_ACTIVATION_CODE", "value": "private-marker"})
+        with self.assertRaises(setup.AuditError) as error:
+            setup.task_candidate(task, arn, [], self_activation=True)
+        self.assertNotIn("private-marker", str(error.exception))
+
     def test_cloud_wrapper_suppresses_raw_responses_on_errors(self):
         output = type("Result", (), {"returncode": 254, "stdout": "sensitive-marker", "stderr": "sensitive-marker"})()
         with patch.object(setup.subprocess, "run", return_value=output), self.assertRaises(setup.AuditError) as error:

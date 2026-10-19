@@ -14,6 +14,7 @@ public class ConnectedAccountEntity {
     @Id @GeneratedValue private UUID id;
     @Column(name="user_id", nullable=false, unique=true) private UUID userId;
     @Column(name="stripe_account_id", unique=true) private String stripeAccountId;
+    @Column(name="test_access_enabled", nullable=false) private boolean testAccessEnabled;
     @Column(name="onboarding_status", nullable=false) private String onboardingStatus = "NOT_STARTED";
     @Column(nullable=false) private boolean chargesEnabled;
     @Column(nullable=false) private boolean payoutsEnabled;
