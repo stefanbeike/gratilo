@@ -22,6 +22,12 @@ class StripeCheckoutTest {
     private int reads;
     private final String session = "cs_test_fixture";
 
+    @Test void stripeApiDiagnosticContainsOnlyHttpStatus() {
+        var failure = new StripeCheckoutService.StripeApiException(400);
+        assertEquals(400, failure.statusCode());
+        assertEquals("Stripe API returned HTTP 400", failure.getMessage());
+    }
+
     @SuppressWarnings("unchecked")
     private <T> T proxy(Class<T> type, java.lang.reflect.InvocationHandler handler) {
         return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class[]{type}, handler);

@@ -10,6 +10,7 @@ import io.micronaut.context.annotation.Value;
 @Controller("/payment-service/tips")
 @io.micronaut.scheduling.annotation.ExecuteOn(io.micronaut.scheduling.TaskExecutors.BLOCKING)
 public class TipController {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(TipController.class);
     private final StripeCheckoutService checkoutService;
     private final double feePercent;
     private final long fixedFeeMinor;
@@ -38,6 +39,13 @@ public class TipController {
             return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("message", "Stripe Checkout ist noch nicht verfügbar."));
         } catch (StripeCheckoutService.RecipientNotReadyException unavailable) {
             return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code", "RECIPIENT_NOT_READY", "message", "Dieser Empfänger kann derzeit keine Trinkgelder empfangen."));
-        } catch (Exception exception) { return HttpResponse.status(HttpStatus.BAD_GATEWAY).body(java.util.Map.of("message", "Stripe Checkout konnte nicht erstellt werden.")); }
+        } catch (Exception exception) {
+            // Never log request bodies, Stripe keys, account IDs, or Stripe error bodies.
+            if (exception instanceof StripeCheckoutService.StripeApiException stripeError)
+                LOG.error("Stripe Checkout failed: upstream Stripe HTTP status {}", stripeError.statusCode());
+            else
+                LOG.error("Stripe Checkout failed: internal error type {}", exception.getClass().getName());
+            return HttpResponse.status(HttpStatus.BAD_GATEWAY).body(java.util.Map.of("message", "Stripe Checkout konnte nicht erstellt werden."));
+        }
     }
 }

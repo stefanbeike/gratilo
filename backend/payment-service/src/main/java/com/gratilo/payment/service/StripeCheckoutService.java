@@ -111,8 +111,17 @@ public class StripeCheckoutService {
         var response = HttpClient.newHttpClient().send(form == null ? builder.GET().build()
                 : builder.header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form)).build(),
                 HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() >= 300) throw new IllegalStateException("Stripe Checkout API returned " + response.statusCode());
+        if (response.statusCode() >= 300) throw new StripeApiException(response.statusCode());
         return response.body();
+    }
+    /** Safe diagnostic for operators; deliberately excludes Stripe's response body and request data. */
+    public static final class StripeApiException extends IllegalStateException {
+        private final int statusCode;
+        public StripeApiException(int statusCode) {
+            super("Stripe API returned HTTP " + statusCode);
+            this.statusCode = statusCode;
+        }
+        public int statusCode() { return statusCode; }
     }
     private static Map<?, ?> json(String value) throws java.io.IOException {
         return io.micronaut.json.JsonMapper.createDefault().readValue(value, Map.class);
