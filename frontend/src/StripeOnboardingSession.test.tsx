@@ -6,15 +6,29 @@ import { StripeOnboarding } from './StripeOnboarding'
 
 const session = { accessToken: 'signed-test-jwt', userId: '11111111-1111-1111-1111-111111111111', email: 'tester@example.invalid' }
 const redirect = vi.fn()
-beforeEach(() => { vi.mocked(api).mockReset(); redirect.mockReset() })
-afterEach(() => cleanup())
+beforeEach(() => {
+  vi.mocked(api).mockReset()
+  redirect.mockReset()
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ type: 'opaque' }))
+})
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 it('requests an authenticated one-use Stripe hosted onboarding link and redirects to Stripe', async () => {
   vi.mocked(api).mockResolvedValue({ onboardingUrl: 'https://connect.stripe.com/setup/test-link' })
   render(<StripeOnboarding session={session} onRedirect={redirect} />)
   expect(screen.getByRole('status')).toHaveTextContent('weitergeleitet')
   await waitFor(() => expect(redirect).toHaveBeenCalledWith('https://connect.stripe.com/setup/test-link'))
+  expect(fetch).toHaveBeenCalledWith('https://api.stripe.com/', expect.objectContaining({ mode: 'no-cors', cache: 'no-store' }))
   expect(api).toHaveBeenCalledWith('/payment-service/connect-account/onboarding/start', {}, 'signed-test-jwt')
+})
+
+it('reports Stripe network or DNS failures before requesting a single-use link', async () => {
+  vi.mocked(fetch).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  render(<StripeOnboarding session={session} onRedirect={redirect} />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('Stripe ist aus diesem Netzwerk nicht erreichbar')
+  expect(screen.getByRole('alert')).toHaveTextContent('DNS- oder Werbefilter')
+  expect(api).not.toHaveBeenCalled()
+  expect(redirect).not.toHaveBeenCalled()
 })
 
 it.each([
