@@ -19,6 +19,7 @@ class StripeCheckoutTest {
     private boolean accountPresent = true;
     private String accountId = "acct_fixture";
     private String stripeResponse;
+    private String stripeSessionStatus = "complete", stripePaymentStatus = "paid";
     private int reads;
     private final String session = "cs_test_fixture";
 
@@ -74,7 +75,7 @@ class StripeCheckoutTest {
                     creates++; form = URLDecoder.decode(body, StandardCharsets.UTF_8); stripeKey = key;
                     if (failOnce) { failOnce = false; throw new IllegalStateException("transport failed"); }
                 }
-                return "{\"id\":\"" + session + "\",\"url\":\"https://checkout.stripe.com/test\",\"livemode\":false,\"payment_status\":\"paid\",\"metadata\":{\"transaction_id\":\"" + stored.getId() + "\"}}";
+                return "{\"id\":\"" + session + "\",\"url\":\"https://checkout.stripe.com/test\",\"livemode\":false,\"status\":\"" + stripeSessionStatus + "\",\"payment_status\":\"" + stripePaymentStatus + "\",\"amount_total\":533,\"metadata\":{\"transaction_id\":\"" + stored.getId() + "\"}}";
             }
         };
     }
@@ -86,6 +87,9 @@ class StripeCheckoutTest {
         assertTrue(form.contains("unit_amount]=533&"));
         assertTrue(form.contains("transfer_data][amount]=500&"));
         assertTrue(form.contains("transfer_data][destination]=acct_fixture&"));
+        assertTrue(form.contains("metadata][fee_covered]=true&"));
+        assertTrue(form.contains("metadata][fee_surcharge_minor]=33&"));
+        assertTrue(form.contains("metadata][amount_charged_minor]=533&"));
         assertFalse(form.contains("payment_method_types"));
         assertFalse(form.contains("customer"));
         assertEquals("checkout-" + stored.getId(), stripeKey);
@@ -169,5 +173,18 @@ class StripeCheckoutTest {
         assertFalse(service.confirmSession(session));
         assertEquals(TransactionStatus.REFUNDED, stored.getStatus());
         assertFalse(service.confirmSession("cs_live_rejected"));
+    }
+
+    @Test void openOrUnclearCheckoutCannotBeRetriedUntilStripeConfirmsItExpired() throws Exception {
+        var service = service(); service.create(recipient, new TipPaymentRequest(500L, null, "key"));
+        stored.setStatus(TransactionStatus.FAILED);
+        stripeSessionStatus = "open"; stripePaymentStatus = "unpaid";
+        var pending = service.checkoutStatus(session);
+        assertEquals("PENDING", pending.status());
+        assertNotNull(pending.checkoutUrl());
+        stripeSessionStatus = "expired";
+        var failed = service.checkoutStatus(session);
+        assertEquals("FAILED", failed.status());
+        assertNull(failed.checkoutUrl());
     }
 }

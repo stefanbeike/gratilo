@@ -1,11 +1,12 @@
 import { useTipPoolsEnabled } from './features'
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { api, type Session } from './api'
 import { prepareProfileImage } from './profileImage'
 import { paymentsEnabled } from './stripe'
 import { StripeTestEnrollment } from './StripeTestEnrollment'
 import { StripeOnboarding } from './StripeOnboarding'
+import { PublicTipCheckout } from './PublicTipCheckout'
 import './dashboard.css'
 
 export interface Profile { paymentUrl?: string | null; paymentEnabled?: boolean; stripeOnboardingCompleted?: boolean; profileImage?: string | null; email: string; firstName?: string; lastName?: string; organisation?: string; street?: string; city?: string; phone?: string; country?: string; newsletter?: boolean }
@@ -232,71 +233,9 @@ export function Dashboard({ session, profile, onProfile, onLogout }: { session: 
     </main></div>
 }
 export function DemoPayment({ session }: { session?: Session | null }) {
-  if (paymentsEnabled && location.pathname.endsWith('/cancelled')) {
-    const recipient = sessionStorage.getItem('gratilo:last-recipient')
-    return <main className="tip-page"><section className="tip-card"><h1>Zahlung abgebrochen.</h1><p>Du kannst zur Zahlungsseite zurückkehren und es erneut versuchen.</p><button className="outline-button" onClick={() => { if (recipient) location.href = `/pay/${recipient}`; else history.back() }}>Zurück zur Zahlungsseite</button></section></main>
-  }
-  return paymentsEnabled ? <StripePayment session={session} /> : <main className="tip-page"><section className="tip-card"><h1>Zahlungen sind derzeit deaktiviert.</h1><p>Aktuell sind keine Zahlungen oder Auszahlungen möglich.</p></section></main>
-}
-
-function StripePayment({ session }: { session?: Session | null }) {
-  const paymentHeaders = (): HeadersInit => session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}
-  const recipientPath = location.pathname.split('/').pop() || ''
-  const [confirmation, setConfirmation] = useState<'pending' | 'paid' | 'unconfirmed'>('pending')
-  const checkoutAttempt = useRef<{ fingerprint: string; key: string } | null>(null)
-  const [recipient, setRecipient] = useState('')
-  const [eligibility, setEligibility] = useState<{ recipient: string; allowed: boolean } | null>(null)
-  const recipientEligible = eligibility?.recipient === recipient && eligibility.allowed === true
-  const [recipientProfile, setRecipientProfile] = useState<{ userId?: string; firstName?: string; lastName?: string; organisation?: string; profileImage?: string | null; paymentEnabled?: boolean; poolName?: string | null } | null>(null)
-  const [amount, setAmount] = useState(500); const [amountInput, setAmountInput] = useState('5,00'); const [message, setMessage] = useState(''); const [feeCovered, setFeeCovered] = useState(false); const [quote, setQuote] = useState<TipQuote>({ tipAmountMinor: 500, serviceFeeMinor: 0, totalAmountMinor: 500, currency: 'EUR', serviceFeePercent: 0, fixedFeeMinor: 0 }); const [busy, setBusy] = useState(false); const [error, setError] = useState('')
-  type TipQuote = { tipAmountMinor: number; serviceFeeMinor: number; totalAmountMinor: number; currency: string; serviceFeePercent: number; fixedFeeMinor: number }
-  useEffect(() => {
-    const profileRecipient = location.pathname.endsWith('/success') ? sessionStorage.getItem('gratilo:last-recipient') : recipientPath
-    if (!profileRecipient) return
-    const profileEndpoint = location.pathname.endsWith('/success') || /^[0-9a-f-]{36}$/i.test(profileRecipient) ? profileRecipient : `payment/${profileRecipient}`
-    fetch(`/user-service/users/public/${profileEndpoint}`).then(r => r.ok ? r.json() : Promise.reject()).then(profile => { setRecipientProfile(profile); if (profile.userId) setRecipient(profile.userId) }).catch(() => setRecipientProfile(null))
-  }, [recipient])
-  useEffect(() => {
-    if (!recipient || location.pathname.endsWith('/success')) return
-    let cancelled = false
-    let latest = 0
-    const refresh = async () => {
-      const generation = ++latest
-      setEligibility(null)
-      try {
-        const response = await fetch(`/payment-service/tips/${recipient}/eligibility`, { headers: paymentHeaders(), cache: 'no-store' })
-        const status = response.ok ? await response.json() : null
-        if (!cancelled && generation === latest) setEligibility({ recipient, allowed: status?.canReceiveTips === true })
-      } catch {
-        if (!cancelled && generation === latest) setEligibility({ recipient, allowed: false })
-      }
-    }
-    void refresh()
-    const timer = window.setInterval(refresh, 30000)
-    window.addEventListener('focus', refresh)
-    return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener('focus', refresh) }
-  }, [recipient, session?.accessToken])
-  useEffect(() => {
-    if (location.pathname.endsWith('/success')) return
-    const refreshTimer = window.setInterval(() => window.location.reload(), 120000)
-    return () => window.clearInterval(refreshTimer)
-  }, [])
-  useEffect(() => {
-    if (location.pathname.endsWith('/success')) return
-    if (!recipient) return
-    fetch(`/payment-service/tips/${recipient}/quote?amountMinor=${amount}&feeCovered=${feeCovered}`, { headers: paymentHeaders() }).then(r => r.ok ? r.json() : Promise.reject()).then(result => { setQuote(result); setError('') }).catch(() => setError('Der Betrag konnte nicht berechnet werden.'))
-  }, [amount, recipient, feeCovered])
-  useEffect(() => {
-    if (!location.pathname.endsWith('/success')) return
-    const sessionId = new URLSearchParams(location.search).get('session_id')
-    if (!sessionId) { setConfirmation('unconfirmed'); return }
-    fetch(`/payment-service/tips/checkout/confirm?sessionId=${encodeURIComponent(sessionId)}`, { headers: paymentHeaders() }).then(r => r.ok ? r.json() : Promise.reject()).then(result => setConfirmation(result.confirmed === true ? 'paid' : 'unconfirmed')).catch(() => setConfirmation('unconfirmed'))
-  }, [])
-  async function pay() { setBusy(true); setError(''); try { const demo = new URLSearchParams(location.search).get('demo') === '1'; if (!recipientEligible) throw new Error('Dieser Empfänger kann derzeit keine Trinkgelder empfangen.'); sessionStorage.setItem('gratilo:last-recipient', recipient); const fingerprint = JSON.stringify([recipient, amount, message, feeCovered]); if (checkoutAttempt.current?.fingerprint !== fingerprint) checkoutAttempt.current = { fingerprint, key: crypto.randomUUID() }; const response = await fetch(`/payment-service/tips/${recipient}/checkout${demo ? '?demo=1' : ''}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...paymentHeaders() }, body: JSON.stringify({ tipAmountMinor: amount, message: message || null, idempotencyKey: checkoutAttempt.current.key, feeCovered }) }); const result = await response.json(); if (!response.ok) { if (result.code === 'RECIPIENT_NOT_READY' || response.status === 401 || response.status === 403) setEligibility({ recipient, allowed: false }); throw new Error(result.message || 'Zahlung konnte nicht gestartet werden.') }; if (result.checkoutUrl) location.href = result.checkoutUrl } catch (cause) { setError(cause instanceof Error ? cause.message : 'Zahlung konnte nicht gestartet werden.') } finally { setBusy(false) } }
-  if (location.pathname.endsWith('/success')) { const recipientId = sessionStorage.getItem('gratilo:last-recipient'); return <main className="demo-payment account-card">{recipientProfile?.profileImage && <img className="tip-profile-image" src={recipientProfile.profileImage} alt="Profilbild" />}<span className="brand">gratilo.</span><h1>{confirmation === 'paid' ? 'Danke! ❤️' : 'Zahlungsstatus'}</h1><p role="status">{confirmation === 'paid' ? 'Dein Trinkgeld wurde erfolgreich übermittelt.' : confirmation === 'pending' ? 'Deine Zahlung wird bei Stripe geprüft …' : 'Deine Zahlung ist noch nicht bestätigt. Bitte prüfe den Status bei Stripe.'}</p><button className="outline-button" onClick={() => { if (recipientId) location.href = `/pay/${recipientId}`; else history.back() }}>Zurück zur Zahlungsseite&nbsp; ←</button></main> }
-  const recipientName = recipientProfile?.poolName || [recipientProfile?.firstName, recipientProfile?.lastName].filter(Boolean).join(" ") || recipientProfile?.organisation || "deinen Service"
-  if (recipientProfile && recipientProfile.paymentEnabled === false) return <main className="tip-page"><div className="tip-brand"><span className="brand-mark">g</span>gratilo<span className="brand-dot">.</span></div><section className="tip-card"><span className="step-label">ZAHLUNGSSEITE</span><h1>Momentan nicht verfügbar.</h1><p className="tip-intro">Diese Zahlungsseite ist derzeit deaktiviert. Bitte versuche es später erneut.</p><div className="message success" role="status">Der Danke-Code wurde vom Anbieter vorübergehend pausiert.</div></section></main>
-  return <main className="tip-page"><div className="tip-brand"><span className="brand-mark">g</span>gratilo<span className="brand-dot">.</span></div><section className="tip-card">{recipientProfile?.profileImage && <img className="tip-profile-image" src={recipientProfile.profileImage} alt={`Profilbild von ${recipientName}`} />}<span className="step-label">DIGITALES TRINKGELD</span><h1>Trinkgeld für {recipientName}.</h1><p className="tip-intro">Unterstütze den Service direkt und unkompliziert.</p>{!recipientEligible && <p role="status">{eligibility === null ? 'Zahlungsberechtigung wird geprüft …' : 'Dieser Empfänger kann derzeit keine Trinkgelder empfangen oder der Stripe-Status konnte nicht geprüft werden.'}</p>}{error && <div className="message error" role="alert">{error}</div>}<div className="tip-amounts">{[100, 200, 500, 1000].map(value => <button key={value} className={amount === value ? 'selected' : ''} onClick={() => { setAmount(value); setAmountInput((value / 100).toFixed(2).replace('.', ',')) }}>{money(value / 100)}</button>)}</div><label className="other-amount">Anderer Betrag (mindestens 1,00 €)<div className="euro-input"><input inputMode="decimal" min="1" step="0.01" value={amountInput} onChange={event => { const raw = event.target.value; setAmountInput(raw); const parsed = Number(raw.replace(',', '.')); if (Number.isFinite(parsed) && parsed >= 1) setAmount(Math.round(parsed * 100)) }} onBlur={() => { const parsed = Number(amountInput.replace(',', '.')); if (!Number.isFinite(parsed) || parsed < 1) { setAmount(100); setAmountInput('1,00') } else setAmountInput(parsed.toFixed(2).replace('.', ',')) }} /><span>€</span></div></label><label className="fee-toggle"><input type="checkbox" checked={feeCovered} onChange={event => setFeeCovered(event.target.checked)} /><span>Gebühren übernehmen</span></label><label>Nachricht <span>(optional)</span><textarea maxLength={500} value={message} onChange={event => setMessage(event.target.value)} placeholder="Sag noch ein paar nette Worte …" /></label><div className="tip-breakdown"><div><span>Trinkgeld</span><strong>{money(quote.tipAmountMinor / 100)}</strong></div>{quote.serviceFeeMinor > 0 && <div><span>Servicegebühr</span><strong>{money(quote.serviceFeeMinor / 100)}</strong></div>}<div className="tip-total"><span>Gesamt</span><strong>{money(quote.totalAmountMinor / 100)}</strong></div></div><button className="tip-pay" disabled={busy || !recipientEligible || !recipientProfile || recipientProfile.paymentEnabled !== true || amount < 100 || amount > 1000000} onClick={pay}>{busy ? 'Wird vorbereitet …' : `Mit Apple Pay, Google Pay oder Karte zahlen`}<span>→</span></button><p className="tip-note">Stripe-Testmodus: Gastzahlung an einen freigegebenen Testempfänger. Keine echten Zahlungen.</p></section></main>
+  return paymentsEnabled
+    ? <PublicTipCheckout session={session} />
+    : <main className="tip-page"><section className="tip-card"><h1>Zahlungen sind derzeit deaktiviert.</h1><p>Aktuell sind keine Zahlungen oder Auszahlungen möglich.</p></section></main>
 }
 
 export function PoolInvitation({ session, onSwitchUser }: { session: Session; onSwitchUser: () => void }) {

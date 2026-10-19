@@ -23,11 +23,12 @@ public class TipController {
                 .header("Cache-Control", "no-store");
     }
     @Get("/{recipientUserId}/quote") public TipQuote quote(UUID recipientUserId, @QueryValue @jakarta.validation.constraints.Min(100) @jakarta.validation.constraints.Max(1000000) long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) {
-        long fee = feeCovered ? TipPricing.serviceFeeMinor(amountMinor, feePercent, fixedFeeMinor) : 0; return new TipQuote(amountMinor, fee, amountMinor + fee, "EUR", (int) Math.round(feePercent), fixedFeeMinor);
+        long fee = feeCovered ? TipPricing.voluntaryIncreaseMinor(amountMinor, feePercent, fixedFeeMinor) : 0;
+        return new TipQuote(amountMinor, fee, Math.addExact(amountMinor, fee), "EUR", feePercent, fixedFeeMinor, amountMinor);
     }
     @Get("/checkout/confirm") public HttpResponse<?> confirm(@QueryValue String sessionId) {
-        try { return HttpResponse.ok(java.util.Map.of("confirmed", checkoutService.confirmSession(sessionId))); }
-        catch (Exception e) { return HttpResponse.status(HttpStatus.BAD_GATEWAY).body(java.util.Map.of("confirmed", false)); }
+        try { return HttpResponse.ok(checkoutService.checkoutStatus(sessionId)).header("Cache-Control", "no-store"); }
+        catch (Exception e) { return HttpResponse.ok(java.util.Map.of("status", "PENDING", "confirmed", false)).header("Cache-Control", "no-store"); }
     }
     @Post("/{recipientUserId}/checkout") public HttpResponse<?> checkout(UUID recipientUserId, @QueryValue(value = "demo", defaultValue = "false") String demo, @Body @Valid TipPaymentRequest request) {
         if (request.tipAmountMinor() < 100) return HttpResponse.badRequest(new com.gratilo.payment.api.TransactionResponse(null, recipientUserId, 0, "EUR", null, null, null, "Mindesttrinkgeld: 1,00 EUR", "DEMO", null, "card", null, null, null, null, null, "{}"));

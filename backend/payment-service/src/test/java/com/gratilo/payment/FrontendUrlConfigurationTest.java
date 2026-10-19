@@ -22,7 +22,7 @@ class FrontendUrlConfigurationTest {
             assertEquals(base, context.getEnvironment().getRequiredProperty("frontend.base-url", String.class));
             assertEquals(base + "/pay/success?session_id={CHECKOUT_SESSION_ID}",
                     context.getEnvironment().getRequiredProperty("stripe.success-url", String.class));
-            assertEquals(base + "/pay/cancelled",
+            assertEquals(base + "/pay/cancelled" + (environment.equals("prd") ? "?session_id={CHECKOUT_SESSION_ID}" : ""),
                     context.getEnvironment().getRequiredProperty("stripe.cancel-url", String.class));
         }
     }

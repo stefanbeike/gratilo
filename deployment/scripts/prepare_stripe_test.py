@@ -105,7 +105,7 @@ def task_candidate(task, secret_arn, test_users, self_activation=False):
                        STRIPE_SANDBOX_PAYOUTS="true", PAYMENTS_TEST_USER_IDS=",".join(test_users),
                        FRONTEND_BASE_URL="https://gratilo.eu", USER_SERVICE_URL="http://localhost:8081",
                        STRIPE_SUCCESS_URL="https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}",
-                       STRIPE_CANCEL_URL="https://gratilo.eu/pay/cancelled")
+                       STRIPE_CANCEL_URL="https://gratilo.eu/pay/cancelled?session_id={CHECKOUT_SESSION_ID}")
             secrets = {s["name"]: s["valueFrom"] for s in container.get("secrets", [])}
             secrets.update(STRIPE_SECRET_KEY=secret_arn + ":secret_key::",
                            STRIPE_WEBHOOK_SECRET=secret_arn + ":webhook_secret::")

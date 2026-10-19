@@ -252,7 +252,7 @@
         },
         {
           "name": "STRIPE_CANCEL_URL",
-          "value": "https://gratilo.eu/pay/cancelled"
+          "value": "https://gratilo.eu/pay/cancelled?session_id={CHECKOUT_SESSION_ID}"
         },
         {
           "name": "STRIPE_DEMO_ENABLED",

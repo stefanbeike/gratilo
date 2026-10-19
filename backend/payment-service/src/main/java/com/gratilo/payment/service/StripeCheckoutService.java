@@ -20,19 +20,38 @@ public class StripeCheckoutService {
 
     @Transactional
     public boolean confirmSession(String sessionId) throws Exception {
-        if (secret.isBlank() || sessionId == null || !sessionId.matches("cs_test_[A-Za-z0-9_]+")) return false;
+        return "PAID".equals(checkoutStatus(sessionId).status());
+    }
+
+    @Transactional
+    public CheckoutStatus checkoutStatus(String sessionId) throws Exception {
+        if (secret.isBlank() || sessionId == null || !sessionId.matches("cs_test_[A-Za-z0-9_]+"))
+            return new CheckoutStatus("PENDING", false, null, 0, 0, null, null);
         var session = json(stripeRequest("/v1/checkout/sessions/" + enc(sessionId), null, null));
-        if (!Boolean.FALSE.equals(session.get("livemode")) || !"paid".equals(session.get("payment_status"))) return false;
+        if (!Boolean.FALSE.equals(session.get("livemode"))) return new CheckoutStatus("PENDING", false, null, 0, 0, null, null);
         var metadata = session.get("metadata") instanceof Map<?, ?> map ? map : Map.of();
-        if (!(metadata.get("transaction_id") instanceof String txId)) return false;
+        if (!(metadata.get("transaction_id") instanceof String txId)) return new CheckoutStatus("PENDING", false, null, 0, 0, null, null);
         var tx = transactions.findById(UUID.fromString(txId)).orElse(null);
-        if (tx == null || !"STRIPE".equals(tx.getProvider()) || !sessionId.equals(tx.getProviderReference())) return false;
-        if (tx.getStatus() == TransactionStatus.PENDING || tx.getStatus() == TransactionStatus.AUTHORIZED || tx.getStatus() == TransactionStatus.FAILED) {
+        if (tx == null || !"STRIPE".equals(tx.getProvider()) || !sessionId.equals(tx.getProviderReference()))
+            return new CheckoutStatus("PENDING", false, null, 0, 0, null, null);
+        boolean paid = "paid".equals(session.get("payment_status"));
+        boolean expired = "expired".equals(session.get("status"));
+        if (paid && (tx.getStatus() == TransactionStatus.PENDING || tx.getStatus() == TransactionStatus.AUTHORIZED || tx.getStatus() == TransactionStatus.FAILED)) {
             tx.setStatus(TransactionStatus.BOOKED);
             tx.setBookedAt(OffsetDateTime.now()); tx.setCompletedAt(OffsetDateTime.now());
             transactions.update(tx);
         }
-        return tx.getStatus() == TransactionStatus.BOOKED;
+        if (expired && (tx.getStatus() == TransactionStatus.PENDING || tx.getStatus() == TransactionStatus.AUTHORIZED)) {
+            tx.setStatus(TransactionStatus.FAILED);
+            transactions.update(tx);
+        }
+        boolean definitiveFailure = tx.getStatus() != TransactionStatus.REFUNDED &&
+                (expired || ("complete".equals(session.get("status")) && tx.getStatus() == TransactionStatus.FAILED));
+        String status = tx.getStatus() == TransactionStatus.BOOKED ? "PAID" : definitiveFailure ? "FAILED" : "PENDING";
+        long amountPaid = session.get("amount_total") instanceof Number amount ? amount.longValue() : tx.getAmountMinor();
+        String checkoutUrl = "PENDING".equals(status) && "open".equals(session.get("status")) && session.get("url") instanceof String url ? url : null;
+        return new CheckoutStatus(status, "PAID".equals(status), tx.getId().toString(), tx.getAmountMinor(), amountPaid,
+                tx.getAccountUserId().toString(), checkoutUrl);
     }
     public Optional<CheckoutResponse> create(UUID recipient, TipPaymentRequest request) throws Exception {
         if (request.tipAmountMinor() == null || request.tipAmountMinor() < 100 || request.tipAmountMinor() > 1000000
@@ -41,7 +60,8 @@ public class StripeCheckoutService {
         if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
         var account = eligibleAccount(recipient);
         String accountId = account.getStripeAccountId();
-        long fee = request.feeCovered() ? TipPricing.serviceFeeMinor(request.tipAmountMinor(), feePercent, fixedFeeMinor) : 0, total = request.tipAmountMinor() + fee;
+        long fee = request.feeCovered() ? TipPricing.voluntaryIncreaseMinor(request.tipAmountMinor(), feePercent, fixedFeeMinor) : 0;
+        long total = Math.addExact(request.tipAmountMinor(), fee);
         String key = request.idempotencyKey();
         if (key == null || key.isBlank()) throw new IllegalArgumentException("An idempotency key is required");
         var existing = transactions.findByAccountUserIdAndIdempotencyKey(recipient, key);
@@ -65,7 +85,23 @@ public class StripeCheckoutService {
             tx = transactions.save(tx);
         }
         // Let Stripe Dashboard dynamic payment-method settings determine Checkout methods.
-        String form = param("mode", "payment") + param("line_items[0][price_data][currency]", "eur") + param("line_items[0][price_data][unit_amount]", Long.toString(total)) + param("line_items[0][price_data][product_data][name]", "Trinkgeld") + param("line_items[0][quantity]", "1") + param("metadata[transaction_id]", tx.getId().toString())  + param("payment_intent_data[transfer_data][destination]", accountId) + param("payment_intent_data[metadata][transaction_id]", tx.getId().toString()) + param("payment_intent_data[metadata][tip_amount_minor]", Long.toString(request.tipAmountMinor())) + param("payment_intent_data[transfer_data][amount]", Long.toString(request.tipAmountMinor())) + param("success_url", successUrl) + param("cancel_url", cancelUrl);
+        String form = param("mode", "payment")
+                + param("line_items[0][price_data][currency]", "eur")
+                + param("line_items[0][price_data][unit_amount]", Long.toString(total))
+                + param("line_items[0][price_data][product_data][name]", "Trinkgeld")
+                + param("line_items[0][quantity]", "1")
+                + param("metadata[transaction_id]", tx.getId().toString())
+                + param("metadata[tip_amount_minor]", Long.toString(request.tipAmountMinor()))
+                + param("metadata[fee_covered]", Boolean.toString(request.feeCovered()))
+                + param("metadata[fee_surcharge_minor]", Long.toString(fee))
+                + param("payment_intent_data[transfer_data][destination]", accountId)
+                + param("payment_intent_data[metadata][transaction_id]", tx.getId().toString())
+                + param("payment_intent_data[metadata][tip_amount_minor]", Long.toString(request.tipAmountMinor()))
+                + param("payment_intent_data[metadata][fee_covered]", Boolean.toString(request.feeCovered()))
+                + param("payment_intent_data[metadata][fee_surcharge_minor]", Long.toString(fee))
+                + param("payment_intent_data[metadata][amount_charged_minor]", Long.toString(total))
+                + param("payment_intent_data[transfer_data][amount]", Long.toString(request.tipAmountMinor()))
+                + param("success_url", successUrl) + param("cancel_url", cancelUrl);
         // Scope Stripe's key to our immutable transaction UUID, never the public caller key.
         var session = json(stripeRequest("/v1/checkout/sessions", form, "checkout-" + tx.getId()));
         String id = (String) session.get("id"), url = (String) session.get("url");
