@@ -33,7 +33,7 @@ public class ConnectedAccountController {
             // loaded above is detached by the time this transaction runs and
             // must therefore be updated instead.
             repository.update(account);
-            return HttpResponse.ok(session == null ? ConnectedAccountResponse.from(account) : ConnectedAccountResponse.withSecret(account, StripeConnectService.field(session, "client_secret")));
+            return HttpResponse.ok(session == null ? ConnectedAccountResponse.from(account) : ConnectedAccountResponse.withSecret(account, StripeConnectService.field(session, "client_secret"))).header("Cache-Control", "no-store");
         } catch (Exception e) {
             String detail = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             return HttpResponse.<java.util.Map<String, String>>status(HttpStatus.BAD_GATEWAY)

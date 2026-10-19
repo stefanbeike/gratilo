@@ -67,14 +67,19 @@ class ConnectOnboardingTest {
             @Override public void ensureBusinessWebsite(String id, String url) { }
             @Override public String createOnboardingSession(String id) {
                 if (sessions.incrementAndGet() == 1) throw new IllegalStateException("session unavailable");
-                return "{\"client_secret\":\"test_session_fixture\"}";
+                return "{\"client_secret\":\"test_session_fixture_" + sessions.get() + "\"}";
             }
         };
         var controller = new ConnectedAccountController(repository, stripe);
         var auth = Authentication.build(UUID.randomUUID().toString(), Map.of("email", "test@example.com"));
         assertEquals(HttpStatus.BAD_GATEWAY, controller.start(auth).getStatus());
         assertEquals("acct_fixture", stored.get().getStripeAccountId());
-        assertEquals(HttpStatus.OK, controller.start(auth).getStatus());
+        var second = controller.start(auth);
+        var third = controller.start(auth);
+        assertEquals(HttpStatus.OK, second.getStatus());
+        assertEquals("no-store", second.header("Cache-Control"));
+        assertEquals("test_session_fixture_2", ((com.gratilo.payment.api.ConnectedAccountResponse) second.body()).onboardingClientSecret());
+        assertEquals("test_session_fixture_3", ((com.gratilo.payment.api.ConnectedAccountResponse) third.body()).onboardingClientSecret());
         assertEquals(1, created.get());
         assertEquals(HttpStatus.NOT_FOUND, controller.demoComplete(auth).getStatus());
     }

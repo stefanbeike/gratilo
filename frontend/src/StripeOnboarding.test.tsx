@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 vi.mock('./stripe', () => ({ paymentsEnabled: true, stripePublishableKey: 'pk_test_fixture' }))
-vi.mock('@stripe/connect-js', () => ({ loadConnectAndInitialize: () => ({ create: () => document.createElement('div') }) }))
+vi.mock('@stripe/connect-js', () => ({ loadConnectAndInitialize: () => ({ create: () => Object.assign(document.createElement('div'), { setOnLoadError: vi.fn(), setOnLoaderStart: vi.fn() }) }) }))
 import { Dashboard } from './Dashboard'
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
