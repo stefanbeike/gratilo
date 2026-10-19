@@ -45,7 +45,7 @@ class SelfActivationFlowHttpTest {
         var connect = new StripeConnectService("sk_test_fixture", "http://localhost") {
             @Override public String createAccount(String email, String url) { return "{\"id\":\"acct_fixture\"}"; }
             @Override public void ensureBusinessWebsite(String id, String url) { }
-            @Override public String createOnboardingSession(String id) { return "{\"client_secret\":\"onboarding_fixture\"}"; }
+            @Override public String createOnboardingLink(String id) { return "{\"url\":\"https://connect.stripe.com/setup/onboarding_fixture\"}"; }
             @Override public String retrieveAccount(String id) { return stripeReady.get() ? StripeAccountFixtures.readyJson() : StripeAccountFixtures.readyJson().replace("active", "pending"); }
         };
         var recipient = new RecipientAvailability("http://localhost") { @Override public void requireEnabled(UUID user) { assertEquals(owner, user); } };
@@ -83,7 +83,9 @@ class SelfActivationFlowHttpTest {
             assertEquals(200, enrollment.statusCode()); assertFalse(enrollment.body().contains(CODE));
             assertEquals(Set.of(owner), accounts.keySet()); assertTrue(accounts.get(owner).isTestAccessEnabled());
             assertFalse(accounts.get(owner).isChargesEnabled());
-            assertEquals(200, request(base, "/payment-service/connect-account/onboarding/start", "POST", token, "{}").statusCode());
+            var onboarding = request(base, "/payment-service/connect-account/onboarding/start", "POST", token, "{}");
+            assertEquals(200, onboarding.statusCode()); assertTrue(onboarding.body().contains("https://connect.stripe.com/setup/onboarding_fixture"));
+            assertTrue(onboarding.headers().firstValue("Cache-Control").orElse("").contains("no-store"));
             assertTrue(request(base, tip + "/eligibility", "GET", null, null).body().contains("false"));
             stripeReady.set(true);
             assertEquals(200, request(base, "/payment-service/connect-account/sync", "POST", token, "{}").statusCode());

@@ -24,16 +24,19 @@ public class ConnectedAccountController {
         try {
             if (account.getStripeAccountId() == null || (account.getStripeAccountId().startsWith("acct_demo_") && stripe.isConfigured())) { String email = String.valueOf(authentication.getAttributes().getOrDefault("email", "")); String body = stripe.createAccount(email, stripe.paymentUrl(userId.toString())); String accountId = StripeConnectService.field(body, "id"); if (accountId == null) throw new IllegalStateException("Stripe-Antwort enthält keine Account-ID"); account.setStripeAccountId(accountId); }
             // Persist the Stripe ID before creating the short-lived onboarding session.
-            // A failed session request must not cause another connected account on retry.
+            // A failed hosted-link request must not cause another connected account on retry.
             if (isNew) repository.save(account); else repository.update(account);
             stripe.ensureBusinessWebsite(account.getStripeAccountId(), stripe.paymentUrl(userId.toString()));
-            String session = stripe.createOnboardingSession(account.getStripeAccountId());
+            String link = stripe.createOnboardingLink(account.getStripeAccountId());
             account.setOnboardingStatus("IN_PROGRESS");
             // Micronaut Data's save() uses persist for a new entity. An account
             // loaded above is detached by the time this transaction runs and
             // must therefore be updated instead.
             repository.update(account);
-            return HttpResponse.ok(session == null ? ConnectedAccountResponse.from(account) : ConnectedAccountResponse.withSecret(account, StripeConnectService.field(session, "client_secret"))).header("Cache-Control", "no-store");
+            String onboardingUrl = StripeConnectService.field(link, "url");
+            if (onboardingUrl == null || !onboardingUrl.matches("https://connect\\.stripe\\.com/[^\\s]+"))
+                throw new IllegalStateException("Stripe-Antwort enthält keinen gültigen Onboarding-Link");
+            return HttpResponse.ok(java.util.Map.of("onboardingUrl", onboardingUrl)).header("Cache-Control", "no-store");
         } catch (Exception e) {
             String detail = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             return HttpResponse.<java.util.Map<String, String>>status(HttpStatus.BAD_GATEWAY)

@@ -37,6 +37,7 @@ const transactionDate = (value: string) => {
 const transactionDay = (value: string) => new Date(value.includes('T') ? value : value + 'T12:00:00').toISOString().slice(0, 10)
 const paymentMethodLabel = (method?: string | null) => method === 'paypal' ? 'PayPal' : method === 'apple_pay' ? 'Apple Pay' : method === 'google_pay' ? 'Google Pay' : method === 'card' ? 'Karte' : method ? method : 'Zahlungsart unbekannt'
 const paymentMethodIcon = (method?: string | null) => method === 'paypal' ? 'P' : method === 'apple_pay' ? '' : method === 'google_pay' ? 'G' : '▣'
+const redirectToStripe = (url: string) => window.location.assign(url)
 export function csvContent(rows: Transaction[]) {
   return '\uFEFF' + [['Referenz', 'Datum', 'Name', 'Typ', 'Status', 'Betrag EUR'], ...rows.map(t => [t.id, t.date, t.name, t.type, t.status, t.amount.toFixed(2).replace('.', ',')])].map(row => row.map(cell => `"${cell.replaceAll('"', '""')}"`).join(';')).join('\r\n')
 }
@@ -93,6 +94,18 @@ export function Dashboard({ session, profile, onProfile, onLogout }: { session: 
     window.addEventListener('focus', refresh)
     return () => { cancelled = true; window.clearInterval(timer); window.removeEventListener('focus', refresh) }
   }, [session.accessToken, testAccessReady, onboardingOpen])
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const stripeState = params.get('stripe_onboarding')
+    if (stripeState !== 'refresh' && stripeState !== 'return') return
+    window.history.replaceState({}, '', '/account')
+    if (stripeState === 'refresh') {
+      setNotice('Der Stripe-Link war abgelaufen. Wir starten das Onboarding erneut.')
+      setOnboardingOpen(true)
+    } else {
+      setNotice('Du bist von Stripe zurück. Der Kontostatus wird aktualisiert.')
+    }
+  }, [])
   useEffect(() => {
     let cancelled = false
     const loadTransactions = () => {
@@ -205,7 +218,7 @@ export function Dashboard({ session, profile, onProfile, onLogout }: { session: 
     finally { setSaving(false) }
   }
   return <div className="account-app">
-    {onboardingOpen && <div className="onboarding-page"><section className="onboarding-page-content" role="main" aria-labelledby="onboarding-title"><button className="onboarding-close" onClick={() => setOnboardingOpen(false)} aria-label="Onboarding schließen">×</button><span className="session-dialog-icon">✓</span><span className="step-label">STRIPE CONNECT</span><h2 id="onboarding-title">Auszahlungen einrichten</h2><StripeOnboarding session={session} /><button className="solid-button" onClick={syncOnboarding}>Status bei Stripe prüfen</button><button className="text-button" onClick={() => setOnboardingOpen(false)}>Später fortsetzen</button></section></div>}
+    {onboardingOpen && <div className="onboarding-page"><section className="onboarding-page-content" role="main" aria-labelledby="onboarding-title"><button className="onboarding-close" onClick={() => setOnboardingOpen(false)} aria-label="Onboarding schließen">×</button><span className="session-dialog-icon">✓</span><span className="step-label">STRIPE CONNECT</span><h2 id="onboarding-title">Auszahlungen einrichten</h2><StripeOnboarding session={session} onRedirect={redirectToStripe} /><button className="solid-button" onClick={syncOnboarding}>Status bei Stripe prüfen</button><button className="text-button" onClick={() => setOnboardingOpen(false)}>Später fortsetzen</button></section></div>}
     <header className="account-header"><a href="/account" className="brand account-brand" aria-label="Gratilo Kontoübersicht" onClick={e => { e.preventDefault(); setEditing(false) }}><img src="/gratilo-logo-light.svg" alt="Gratilo – Good people deserve more" width="340" height="152" /></a><nav aria-label="Kontonavigation"><a href="#overview" onClick={() => setEditing(false)} className={!editing ? 'selected' : ''}>Übersicht</a><a href="#profile" onClick={() => { setEditing(true); setError('') }}>Profil bearbeiten</a></nav><div className="account-user"><button className="logout" onClick={onLogout}>Abmelden <span aria-hidden="true">↗</span></button></div></header>
     <main className="account-main" id="overview"><div className="account-heading"><div className="account-welcome"><img className="account-smile" src="/gratilo-smile.svg" alt="" aria-hidden="true" width="80" height="80" /><div><span className="step-label">DEIN PERSÖNLICHES TRINKGELDKONTO</span><h1>Hallo{profile.firstName ? `, ${profile.firstName}` : ''}<span className="hello-dot">.</span></h1><p>Viele kleine Danke. Alles an einem Ort.</p></div></div><div className="heading-actions"><span className="demo-badge">✧ Live-Konto</span><div className="session-status"><div className="session-status-line"><span>Sitzung aktiv</span><strong>{Math.floor(sessionRemaining / 60000)}:{String(Math.floor(sessionRemaining / 1000) % 60).padStart(2, '0')}</strong></div><div className="session-track"><span style={{ width: `${Math.min(100, sessionRemaining / 3600000 * 100)}%` }} /></div><small>Automatische Abmeldung bei Ablauf</small></div></div></div>
       {notice && <div className="message success" role="status">{notice}</div>}{error && <div className="message error" role="alert">{error}</div>}{poolInfoDialog && <div className="account-dialog-backdrop"><section className="account-dialog" role="dialog" aria-modal="true" aria-labelledby="pool-email-info-title"><h2 id="pool-email-info-title">Nutzer nicht gefunden</h2><p>Zu dieser E-Mail-Adresse gibt es noch kein Gratilo-Konto. Nur bereits registrierte Nutzer können in deinen Pool eingeladen werden.</p><div className="profile-actions"><button className="solid-button" type="button" onClick={() => setPoolInfoDialog(false)}>Verstanden</button></div></section></div>}

@@ -69,7 +69,6 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_PAYMENTS_ENABLED: ${VITE_PAYMENTS_ENABLED:-false}
-        VITE_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
     depends_on:
       user-service:
         condition: service_healthy

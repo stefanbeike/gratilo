@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-vi.mock('./stripe', () => ({ paymentsEnabled: true, stripePublishableKey: 'pk_test_fixture' }))
+vi.mock('./stripe', () => ({ paymentsEnabled: true }))
 import { DemoPayment } from './Dashboard'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); history.replaceState({}, '', '/'); sessionStorage.clear() })

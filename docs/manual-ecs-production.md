@@ -24,7 +24,6 @@ Umgebungsvariablen; die Anwendungen lesen Secrets Manager nicht selbst.
 | `JAVAMAIL_AUTHENTICATION_PASSWORD` | U | ja | `gratilo/prd/smtp`, JSON `password` |
 | `STRIPE_SECRET_KEY` | P | ja, nur bei aktivierten Zahlungen | noch unbestätigtes Stripe-Test-Secret, vorgeschlagener JSON-Key `secret_key`; ausschließlich `sk_test_…` |
 | `STRIPE_WEBHOOK_SECRET` | P | ja, nur bei aktivierten Zahlungen | noch unbestätigtes Stripe-Test-Secret, vorgeschlagener JSON-Key `webhook_secret`; `whsec_…` vom Test-Webhook |
-| `VITE_STRIPE_PUBLISHABLE_KEY` | F, nur Build | nein, aktuell nicht benötigt | öffentlicher `pk_test_…`-Key desselben Stripe-Testkontos |
 | `VITE_PAYMENTS_ENABLED` | F, nur Build | nein | `false`, kein Stripe-Key nötig |
 | `PAYMENTS_ENABLED` | P | nein | `false`, alle Zahlungen und Stripe-Aufrufe gesperrt |
 | `USER_SERVICE_HOST` | F | nein | `localhost` in ECS, `user-service` in Compose |

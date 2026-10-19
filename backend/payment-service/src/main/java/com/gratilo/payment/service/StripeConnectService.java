@@ -43,11 +43,16 @@ public class StripeConnectService {
             return "\"business_url\":\"" + safe + "\"";
         } catch (IllegalArgumentException ignored) { return ""; }
     }
-    public String createOnboardingSession(String accountId) throws Exception {
+    public String createOnboardingLink(String accountId) throws Exception {
         // Existing Accounts-v2 accounts may have been created before transfer
         // capability was requested. Repeating this update is idempotent.
         requestTransferCapability(accountId);
-        return call("https://api.stripe.com/v1/account_sessions", "account=" + enc(accountId) + "&components[account_onboarding][enabled]=true");
+        String base = frontendBaseUrl.replaceAll("/$", "");
+        String form = "account=" + enc(accountId)
+                + "&type=account_onboarding"
+                + "&return_url=" + enc(base + "/account?stripe_onboarding=return")
+                + "&refresh_url=" + enc(base + "/account?stripe_onboarding=refresh");
+        return call("https://api.stripe.com/v1/account_links", form);
     }
     public void ensureTransferCapability(String accountId) throws Exception {
         requestTransferCapability(accountId);
@@ -58,7 +63,7 @@ public class StripeConnectService {
     }
     public String retrieveAccount(String accountId) throws Exception { return get("https://api.stripe.com/v2/core/accounts/" + enc(accountId)
             + "?include%5B0%5D=configuration.merchant&include%5B1%5D=configuration.recipient&include%5B2%5D=requirements"); }
-    private String call(String url, String form) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30)).header("Authorization", "Bearer "+secret).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form)).build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned "+response.statusCode()); return response.body(); }
+    protected String call(String url, String form) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30)).header("Authorization", "Bearer "+secret).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form)).build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned "+response.statusCode()); return response.body(); }
     protected String jsonCall(String url, String json) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30)).header("Authorization", "Bearer " + secret).header("Stripe-Version", "2026-09-30.endive").header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json)).build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned " + response.statusCode() ); return response.body(); }
     public static String field(String json, String name) { var m=Pattern.compile("\\\""+name+"\\\"\\s*:\\s*\\\"([^\\\"]+)").matcher(json == null ? "" : json); return m.find()?m.group(1):null; }
     private static String enc(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }

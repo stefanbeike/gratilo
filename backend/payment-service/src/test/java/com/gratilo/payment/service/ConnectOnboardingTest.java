@@ -25,6 +25,21 @@ class ConnectOnboardingTest {
         assertEquals("express", body.get("dashboard"));
     }
 
+    @Test void createsStripeHostedOnboardingLinkWithSafeReturnRoutes() throws Exception {
+        var target = new AtomicReference<String>(); var form = new AtomicReference<String>();
+        var stripe = new StripeConnectService("sk_test_fixture", "https://gratilo.eu/") {
+            @Override protected String jsonCall(String url, String json) { return "{}"; }
+            @Override protected String call(String url, String body) { target.set(url); form.set(body); return "{\"url\":\"https://connect.stripe.com/setup/test\"}"; }
+        };
+        assertEquals("https://connect.stripe.com/setup/test", StripeConnectService.field(stripe.createOnboardingLink("acct_fixture"), "url"));
+        assertEquals("https://api.stripe.com/v1/account_links", target.get());
+        var decoded = java.net.URLDecoder.decode(form.get(), java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(decoded.contains("account=acct_fixture"));
+        assertTrue(decoded.contains("type=account_onboarding"));
+        assertTrue(decoded.contains("return_url=https://gratilo.eu/account?stripe_onboarding=return"));
+        assertTrue(decoded.contains("refresh_url=https://gratilo.eu/account?stripe_onboarding=refresh"));
+    }
+
     @Test void syncProjectsFreshV2EligibilityAndRevokesStaleLocalFlags() {
         var account = new ConnectedAccountEntity(); account.setStripeAccountId("acct_fixture");
         var body = new AtomicReference<>(StripeAccountFixtures.readyJson());
@@ -65,9 +80,9 @@ class ConnectOnboardingTest {
         var stripe = new StripeConnectService("sk_test_fixture", "http://localhost:3000") {
             @Override public String createAccount(String email, String url) { created.incrementAndGet(); return "{\"id\":\"acct_fixture\"}"; }
             @Override public void ensureBusinessWebsite(String id, String url) { }
-            @Override public String createOnboardingSession(String id) {
+            @Override public String createOnboardingLink(String id) {
                 if (sessions.incrementAndGet() == 1) throw new IllegalStateException("session unavailable");
-                return "{\"client_secret\":\"test_session_fixture_" + sessions.get() + "\"}";
+                return "{\"url\":\"https://connect.stripe.com/setup/test_" + sessions.get() + "\"}";
             }
         };
         var controller = new ConnectedAccountController(repository, stripe);
@@ -78,9 +93,29 @@ class ConnectOnboardingTest {
         var third = controller.start(auth);
         assertEquals(HttpStatus.OK, second.getStatus());
         assertEquals("no-store", second.header("Cache-Control"));
-        assertEquals("test_session_fixture_2", ((com.gratilo.payment.api.ConnectedAccountResponse) second.body()).onboardingClientSecret());
-        assertEquals("test_session_fixture_3", ((com.gratilo.payment.api.ConnectedAccountResponse) third.body()).onboardingClientSecret());
+        assertEquals("https://connect.stripe.com/setup/test_2", ((Map<?, ?>) second.body()).get("onboardingUrl"));
+        assertEquals("https://connect.stripe.com/setup/test_3", ((Map<?, ?>) third.body()).get("onboardingUrl"));
+        assertFalse(((Map<?, ?>) second.body()).containsKey("onboardingClientSecret"));
         assertEquals(1, created.get());
         assertEquals(HttpStatus.NOT_FOUND, controller.demoComplete(auth).getStatus());
+    }
+
+    @Test void refusesOnboardingLinksOutsideStripeHostedDomain() {
+        var account = new AtomicReference<ConnectedAccountEntity>();
+        var repository = (ConnectedAccountRepository) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class[]{ConnectedAccountRepository.class}, (p, m, args) -> switch (m.getName()) {
+                    case "findByUserId" -> Optional.ofNullable(account.get());
+                    case "save", "update" -> { account.set((ConnectedAccountEntity) args[0]); yield args[0]; }
+                    default -> throw new AssertionError(m.getName());
+                });
+        var stripe = new StripeConnectService("sk_test_fixture", "https://gratilo.eu") {
+            @Override public String createAccount(String email, String url) { return "{\"id\":\"acct_fixture\"}"; }
+            @Override public void ensureBusinessWebsite(String id, String url) { }
+            @Override public String createOnboardingLink(String id) { return "{\"url\":\"https://attacker.example/steal\"}"; }
+        };
+        var controller = new ConnectedAccountController(repository, stripe);
+        var response = controller.start(Authentication.build(UUID.randomUUID().toString()));
+        assertEquals(HttpStatus.BAD_GATEWAY, response.getStatus());
+        assertFalse(response.body().toString().contains("attacker.example"));
     }
 }

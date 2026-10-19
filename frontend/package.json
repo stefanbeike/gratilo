@@ -9,7 +9,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@stripe/connect-js": "^3.4.6",
     "jspdf": "^4.2.1",
     "qrcode.react": "^4.2.0",
     "react": "19.1.1",

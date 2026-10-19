@@ -2,8 +2,6 @@ FROM node:22-alpine AS build
 WORKDIR /app
 ARG VITE_PAYMENTS_ENABLED=false
 ENV VITE_PAYMENTS_ENABLED=$VITE_PAYMENTS_ENABLED
-ARG VITE_STRIPE_PUBLISHABLE_KEY=
-ENV VITE_STRIPE_PUBLISHABLE_KEY=$VITE_STRIPE_PUBLISHABLE_KEY
 
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund \
@@ -13,9 +11,7 @@ RUN npm ci --no-audit --no-fund \
     --fetch-retry-maxtimeout=120000
 
 COPY . .
-RUN case "$VITE_STRIPE_PUBLISHABLE_KEY" in ""|pk_test_*) ;; *) echo "Only Stripe test publishable keys are allowed" >&2; exit 1;; esac \
-    && if [ "$VITE_PAYMENTS_ENABLED" = true ]; then case "$VITE_STRIPE_PUBLISHABLE_KEY" in pk_test_*) ;; *) echo "Sandbox build requires a Stripe test publishable key" >&2; exit 1;; esac; fi \
-    && npm run build
+RUN case "$VITE_PAYMENTS_ENABLED" in true|false) npm run build ;; *) echo "VITE_PAYMENTS_ENABLED must be true or false" >&2; exit 1 ;; esac
 
 FROM nginx:1.30.6-alpine3.24 AS runtime
 

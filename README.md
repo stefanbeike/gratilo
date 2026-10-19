@@ -82,20 +82,16 @@ Alternativ starten die Gradle-Tasks `:backend:user-service:run` und
 Lege im Repository-Stamm eine lokale Datei `.env` an (die Datei ist per
 `.gitignore` ausgeschlossen) und übernimm die Variablen aus `.env.example`.
 Verwende ausschließlich Testschlüssel aus dem Stripe-Dashboard. Der
-`STRIPE_SECRET_KEY` wird nur an den Payment-Service gegeben; der
-`STRIPE_PUBLISHABLE_KEY` wird beim Frontend-Build eingebettet. Ein
+`STRIPE_SECRET_KEY` wird nur an den Payment-Service gegeben. Stripe-hosted Connect-Onboarding
+und Stripe Checkout benötigen keinen Publishable Key im Frontend. Ein
 `STRIPE_WEBHOOK_SECRET` ist bei aktivierten Zahlungen für die Signaturprüfung erforderlich.
 Zahlungen bleiben zunächst ausgeschaltet. Für einen lokalen Testlauf explizit
-`PAYMENTS_ENABLED=true` und `VITE_PAYMENTS_ENABLED=true` setzen; Testschlüssel
-`sk_test_…`, `pk_test_…` und das passende `whsec_…` verwenden.
+`PAYMENTS_ENABLED=true` und `VITE_PAYMENTS_ENABLED=true` setzen; das passende
+`sk_test_…` und `whsec_…` verwenden.
 `STRIPE_TEST_ONLY=true`, `STRIPE_SANDBOX_PAYOUTS=true` und
 `FEATURE_TIP_POOLS_ENABLED=false` müssen erhalten bleiben. Die Anwendung bricht
 bei Live-Schlüsseln oder aktivierten Pools den Start ab.
-Vite direkt benötigt `VITE_STRIPE_PUBLISHABLE_KEY` in der Frontend-Umgebung;
-Compose übersetzt dafür `STRIPE_PUBLISHABLE_KEY` aus der Root-`.env`.
-
-Danach den Stack mit `--build` neu bauen, damit der Publishable Key in die
-Frontend-Dateien gelangt:
+Danach den Stack mit `--build` neu bauen:
 
 ```shell
 ./docker-compose/start_gratilo.sh --build
@@ -228,8 +224,9 @@ Manuell in AWS **erst nach Freigabe**, bevorzugt in einer getrennten Testumgebun
 - Secrets Manager: Stripe-Testschlüssel und Test-Webhook-Secret hinterlegen; in der
   ECS-Task als `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` injizieren. Execution Role
   auf die konkreten Secret-ARNs begrenzen; bei eigenem KMS-Key passendes Decrypt-Recht.
-- Frontend mit `VITE_PAYMENTS_ENABLED=true` und `VITE_STRIPE_PUBLISHABLE_KEY=pk_test_…`
-  bauen; dies sind Buildwerte. Die bestehenden Release-Workflows bleiben auf `false`.
+- Frontend mit `VITE_PAYMENTS_ENABLED=true` bauen; ein Stripe-Publishable-Key ist
+  wegen des Stripe-hosted Onboardings und Stripe Checkout nicht erforderlich. Die
+  bestehenden Release-Workflows bleiben auf `false`.
 - Payment-Service: `PAYMENTS_ENABLED=true`, `STRIPE_TEST_ONLY=true`,
   `STRIPE_SANDBOX_PAYOUTS=true`, `STRIPE_DEMO_ENABLED=false`; beide Backends:
   `FEATURE_TIP_POOLS_ENABLED=false`. Die bisherige Task-Vorlage bleibt deaktiviert
@@ -322,14 +319,12 @@ Migration und Rollout auf AWS werden erst nach ausdrücklicher Freigabe ausgefü
 Der neue manuelle Workflow `.github/workflows/stripe-test-build.yml` baut und scannt
 nur Images und lädt Artefakte hoch; er kann weder ECR veröffentlichen noch Tags
 anlegen oder ECS deployen. Er verlangt `main` und die Bestätigung `BUILD STRIPE TEST`.
-Der öffentliche Testschlüssel kommt aus der Repository-Variable
-`STRIPE_TEST_PUBLISHABLE_KEY` und wird als `VITE_STRIPE_PUBLISHABLE_KEY` übergeben;
 `VITE_PAYMENTS_ENABLED=true` gilt ausschließlich für diesen ausdrücklich gewählten
-Testbuild. Es werden keine Backend-Secrets an GitHub oder Docker übergeben. Normale
+Testbuild. Es werden keine Stripe-Schlüssel an GitHub oder Docker übergeben. Normale
 Release-/PR-Builds behalten deaktivierte Zahlungen. Der bisherige Produktionsrenderer
 verweigert aktivierte Zahlungen weiterhin absichtlich; den Release-Workflow nicht für
 diese Testaktivierung verwenden. Neue lokale Dateien müssen erst nach Review in den
-gewählten Commit gelangen, bevor GitHub sie bauen kann; bisher wurde nichts gepusht.
+gewählten Commit gelangen, bevor GitHub sie bauen kann.
 
 Die öffentliche QR-Seite fragt `GET /payment-service/tips/{userId}/eligibility`
 beim Öffnen, alle 30 Sekunden und bei erneutem Fensterfokus ab. Bis zu einer

@@ -90,23 +90,19 @@ class StripeTestSetupTest(unittest.TestCase):
             setup.aws("secretsmanager", "get-secret-value", "--secret-id", "fixture")
         self.assertNotIn("sensitive-marker", str(error.exception))
 
-    def test_build_requires_manual_main_run_and_only_public_test_key(self):
+    def test_build_requires_manual_main_run_and_does_not_need_a_browser_key(self):
         build.validate({})
-        good = {"STRIPE_TEST_MODE": "true", "STRIPE_TEST_PUBLISHABLE_KEY": "pk_test_fixture",
-                "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main"}
+        good = {"STRIPE_TEST_MODE": "true", "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main"}
         build.validate(good)
-        for key, value in [("GITHUB_EVENT_NAME", "pull_request"), ("GITHUB_REF", "refs/heads/other"),
-                           ("STRIPE_TEST_PUBLISHABLE_KEY", "sk_test_private"), ("STRIPE_TEST_PUBLISHABLE_KEY", "pk_live_fixture")]:
+        for key, value in [("GITHUB_EVENT_NAME", "pull_request"), ("GITHUB_REF", "refs/heads/other")]:
             with self.assertRaises(ValueError):
                 build.validate({**good, key: value})
-        with self.assertRaises(ValueError):
-            build.validate({"STRIPE_TEST_MODE": "false", "STRIPE_TEST_PUBLISHABLE_KEY": "pk_test_fixture"})
 
     def test_build_entrypoint_cannot_publish_deploy_or_tag(self):
         text = (ROOT / ".github/workflows/stripe-test-build.yml").read_text()
         for forbidden in ("id-token: write", "contents: write", "deploy_ecs.sh", "007_deploy_ecs", "release-publish"):
             self.assertNotIn(forbidden, text)
-        self.assertIn("vars.STRIPE_TEST_PUBLISHABLE_KEY", text)
+        self.assertNotIn("STRIPE_TEST_PUBLISHABLE_KEY", text)
         self.assertNotIn("pk_test_", text)
 
 if __name__ == "__main__":

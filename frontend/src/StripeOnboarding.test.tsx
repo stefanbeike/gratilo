@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-vi.mock('./stripe', () => ({ paymentsEnabled: true, stripePublishableKey: 'pk_test_fixture' }))
-vi.mock('@stripe/connect-js', () => ({ loadConnectAndInitialize: () => ({ create: () => Object.assign(document.createElement('div'), { setOnLoadError: vi.fn(), setOnLoaderStart: vi.fn() }) }) }))
+vi.mock('./stripe', () => ({ paymentsEnabled: true }))
+vi.mock('./StripeOnboarding', () => ({ StripeOnboarding: () => null }))
 import { Dashboard } from './Dashboard'
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
@@ -10,7 +10,7 @@ it('automatically detects completed onboarding and only then exposes the QR code
   const account = () => ({ stripeAccountId: 'acct_fixture', chargesEnabled: ready, payoutsEnabled: ready, onboardingStatus: ready ? 'COMPLETE' : 'IN_PROGRESS' })
   const fetch = vi.fn(async (url: string) => ({ ok: true, json: async () => {
     if (url.endsWith('/test-access')) return { restricted: true, enabled: true, canActivate: true }
-    if (url.endsWith('/onboarding/start')) return { ...account(), onboardingClientSecret: 'local-onboarding-fixture' }
+    if (url.endsWith('/onboarding/start')) return { onboardingUrl: 'https://connect.stripe.com/setup/local-fixture' }
     if (url.includes('/connect-account')) return account()
     if (url.endsWith('/profile')) return { email: 'tester@example.invalid' }
     return []

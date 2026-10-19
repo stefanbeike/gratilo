@@ -29,4 +29,3 @@ jobs:
     with:
       upload_artifacts: true
       stripe_test_mode: true
-      stripe_test_publishable_key: ${{ vars.STRIPE_TEST_PUBLISHABLE_KEY }}

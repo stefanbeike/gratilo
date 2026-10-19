@@ -1,50 +1,35 @@
-import { useEffect, useRef, useState } from 'react'
-import { loadConnectAndInitialize } from '@stripe/connect-js'
+import { useEffect, useState } from 'react'
 import { api, type Session } from './api'
-import { stripePublishableKey } from './stripe'
 
-const loadError = 'Stripe-Onboarding konnte nicht geladen werden. Bitte versuche es erneut. Wenn der Fehler bestehen bleibt, müssen die Stripe-Testschlüssel des Betreibers geprüft werden.'
+const loadError = 'Stripe-Onboarding konnte nicht gestartet werden. Bitte versuche es erneut.'
 
-export function StripeOnboarding({ session }: { session: Session }) {
-  const container = useRef<HTMLDivElement>(null)
+export function StripeOnboarding({ session, onRedirect }: { session: Session; onRedirect: (url: string) => void }) {
   const [attempt, setAttempt] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
     let cancelled = false
-    let element: HTMLElement | undefined
     setLoading(true); setError('')
-    const fail = () => { if (!cancelled) { setLoading(false); setError(loadError) } }
-    const fetchClientSecret = async () => {
+    const start = async () => {
       try {
-        if (cancelled) throw new Error(loadError)
-        // Connect.js also calls this when a session expires. Never reuse a secret.
-        const account = await api<{ onboardingClientSecret?: string }>(
+        const response = await api<{ onboardingUrl?: string }>(
           '/payment-service/connect-account/onboarding/start', {}, session.accessToken)
-        if (cancelled || !account?.onboardingClientSecret?.trim()) throw new Error(loadError)
-        return account.onboardingClientSecret
+        const target = response?.onboardingUrl
+        if (cancelled || !target) throw new Error(loadError)
+        const url = new URL(target)
+        if (url.protocol !== 'https:' || url.hostname !== 'connect.stripe.com') throw new Error(loadError)
+        onRedirect(url.toString())
       } catch {
-        fail()
-        // SDK/API errors can contain credentials. Expose only our own message.
-        throw new Error(loadError)
+        if (!cancelled) { setLoading(false); setError(loadError) }
       }
     }
-    try {
-      if (!container.current) return
-      const connect = loadConnectAndInitialize({ publishableKey: stripePublishableKey, fetchClientSecret })
-      const onboarding = connect.create('account-onboarding')
-      onboarding.setOnLoadError(fail)
-      onboarding.setOnLoaderStart(() => { if (!cancelled) setLoading(false) })
-      element = onboarding
-      container.current.appendChild(onboarding)
-    } catch { fail() }
-    return () => { cancelled = true; element?.remove() }
-  }, [session.accessToken, attempt])
+    void start()
+    return () => { cancelled = true }
+  }, [session.accessToken, attempt, onRedirect])
 
   return <>
-    {loading && <p role="status">Stripe-Onboarding wird geladen …</p>}
+    {loading && <p role="status">Du wirst sicher zu Stripe weitergeleitet …</p>}
     {error && <div role="alert" className="message error"><p>{error}</p><button className="outline-button" onClick={() => setAttempt(value => value + 1)}>Erneut versuchen</button></div>}
-    <div ref={container} className="stripe-onboarding-container" />
   </>
 }
