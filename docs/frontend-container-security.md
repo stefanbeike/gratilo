@@ -1,4 +1,4 @@
-# Frontend-Container: libexpat-Sicherheitskorrektur
+# Frontend-Container: libexpat- und libx11-Sicherheitskorrekturen
 
 ## Ursache und Korrektur
 
@@ -8,8 +8,9 @@ Stable-Image `nginx:1.30.6-alpine3.24` enthielt noch dieses Paket. Ein neuer
 Image-Tag oder `--pull` allein behebt den Befund daher nicht.
 
 Das Frontend verwendet nun ausdrücklich `nginx:1.30.6-alpine3.24`. Im
-Runtime-Stage installiert `apk add --no-cache --upgrade 'libexpat>=2.9.0-r0'`
-die korrigierte Version aus den vorhandenen offiziellen Alpine-3.24-Repositories.
+Runtime-Stage installiert `apk add --no-cache --upgrade` mit den Mindestversionen
+`libexpat>=2.9.0-r0` und `libx11>=1.8.14-r0` aus den vorhandenen offiziellen
+Alpine-3.24-Repositories.
 Der Build schlägt fehl, falls diese Mindestversion nicht verfügbar ist.
 Es werden weder Edge-Repositories noch fremde Paketquellen hinzugefügt.
 
@@ -106,3 +107,31 @@ keine Alpine-Pakete in Ubuntu installieren.
 
 Es wurden keine AWS-Ressourcen, Release-Tags oder veröffentlichten Images
 verändert.
+
+## Ergänzung am 19.10.2026: CVE-2026-88806
+
+Der bereitgestellte GitHub-Actions-Scan für Image
+`sha-df27a34d0c356b3707955a51f3f900f9db1a0818-39228340633-1`
+meldet einen HIGH-Befund in `libx11 1.8.13-r0`, korrigiert ab `1.8.14-r0`.
+Das Paket ist bereits Bestandteil des nginx-Runtime-Images und wird unter anderem
+von `libxpm`, `libxext` und `libxt` benötigt. Das Dockerfile verlangt jetzt
+`libx11>=1.8.14-r0` zusätzlich zur bisherigen libexpat-Mindestversion.
+Ein erneuter Build aktualisiert dieses Paket; ein erneuter Scan desselben alten
+Images allein ändert dessen Paketstand nicht. Die CI-Einstellung
+`no-cache-filters: runtime` bleibt bestehen. Keine CVE-Ausnahme und keine
+Änderung an Severity-, Secret- oder Exit-Code-Gates.
+
+Lokaler vollständiger Docker-Build mit `--pull` erfolgreich. Die Runtime enthält
+`libx11 1.8.14-r0`, `libexpat 2.9.0-r0` und nginx 1.30.6 und läuft als UID/GID 101.
+Das Frontend wurde mit deaktivierten Zahlungen und ohne Stripe-Schlüssel gebaut.
+
+Validierung dieser Ergänzung: isolierter nginx-Laufzeittest mit `nginx -t`,
+Healthcheck-Kommando, Startseite, `/login`, `/register` und Favicon erfolgreich.
+Trivy 0.76.0 mit `vuln,secret`, `HIGH,CRITICAL`, `--ignore-unfixed=false` und
+`--exit-code 1`: **0 HIGH, 0 CRITICAL, 0 Secret-Funde**, Exit 0.
+Die hierfür frisch heruntergeladene Datenbank wurde am 19.10.2026 um
+07:19:54 UTC aktualisiert und am selben Tag um 09:22:27 UTC geladen. Der
+anschließende lokale Scan verwendete `--skip-db-update`, um exakt diese frisch
+geladene Datenbank zu nutzen; CI lädt weiterhin automatisch aktuelle Daten.
+Image-Tag für die lokale Prüfung: `gratilo-security/frontend:libx11-fix-local`.
+Kein Push, Release-Tag, AWS-Schreibzugriff oder Deployment wurde ausgeführt.

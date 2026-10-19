@@ -19,9 +19,11 @@ RUN case "$VITE_STRIPE_PUBLISHABLE_KEY" in ""|pk_test_*) ;; *) echo "Only Stripe
 
 FROM nginx:1.30.6-alpine3.24 AS runtime
 
-# CVE-2026-77214: use the fixed package from the official stable Alpine repositories.
+# CVE-2026-77214 (libexpat) and CVE-2026-88806 (libx11): require fixed stable packages.
 # Fail the build if the security fix is not available; allow later patched versions.
-RUN apk add --no-cache --upgrade 'libexpat>=2.9.0-r0'
+RUN apk add --no-cache --upgrade \
+    'libexpat>=2.9.0-r0' \
+    'libx11>=1.8.14-r0'
 
 ENV USER_SERVICE_HOST=user-service \
     PAYMENT_SERVICE_HOST=payment-service
