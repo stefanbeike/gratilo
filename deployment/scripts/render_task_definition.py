@@ -59,6 +59,7 @@ def render(response, images, config):
         require(len({s["name"] for s in secrets}) == len(secrets), "Duplicate secret: " + name)
         env = {e["name"]: e["value"] for e in environment}
         secret = {s["name"]: s["valueFrom"] for s in secrets}
+        prefix = f'arn:aws:secretsmanager:{config["AWS_REGION"]}:{config["AWS_ACCOUNT_ID"]}:secret:'
         require(not SENSITIVE.intersection(env), "Credentials must use ECS secrets: " + name)
         require(not set(env).intersection(secret), "Environment/secret name collision: " + name)
         if name == "frontend":
@@ -84,12 +85,34 @@ def render(response, images, config):
                 require(not any(k.startswith("JAVAMAIL_PROPERTIES_") or k in {"MAIL_SMTP_AUTH", "MAIL_SMTP_STARTTLS_ENABLE", "MAIL_SMTP_STARTTLS_REQUIRED"} for k in env), "Remove legacy SMTP overrides from production task")
             else:
                 require(env.get("USER_SERVICE_URL", "http://localhost:8081") in ("http://127.0.0.1:8081", "http://localhost:8081"), "Wrong shared-task user service URL")
-                require(env.get("STRIPE_SANDBOX_PAYOUTS", "false") == "false" and env.get("STRIPE_DEMO_ENABLED", "false") == "false", "Payments and simulated payouts must remain disabled")
-                require(env.get("PAYMENTS_ENABLED", "false") == "false", "Payments must remain disabled")
+                test_mode = config.get("STRIPE_TEST_MODE", "false")
+                require(test_mode in ("true", "false"), "STRIPE_TEST_MODE must be explicitly true or false")
+                demo_enabled = env.get("STRIPE_DEMO_ENABLED", "false").lower() == "true"
+                sandbox_payouts = env.get("STRIPE_SANDBOX_PAYOUTS", "false").lower() == "true"
+                payments_enabled = env.get("PAYMENTS_ENABLED", "false").lower() == "true"
+                if test_mode == "true":
+                    require(payments_enabled, "Stripe test mode requires PAYMENTS_ENABLED=true")
+                    require(env.get("STRIPE_TEST_ONLY", "false").lower() == "true", "Stripe test mode requires STRIPE_TEST_ONLY=true")
+                    require(not demo_enabled, "Demo payment mode must remain disabled")
+                    # true means the payout endpoint only writes a local sandbox ledger entry;
+                    # false calls Stripe's /v1/payouts API. Keep external payouts unreachable.
+                    require(sandbox_payouts, "Stripe test mode requires simulated payouts; Stripe payout API must remain disabled")
+                    require(env.get("PAYMENTS_TEST_USER_IDS", "") == "", "Use the account-bound activation code instead of a UUID allowlist")
+                    stripe_secret = secret.get("STRIPE_SECRET_KEY", "")
+                    webhook_secret = secret.get("STRIPE_WEBHOOK_SECRET", "")
+                    activation_secret = secret.get("PAYMENTS_TEST_ACTIVATION_CODE", "")
+                    test_secret_prefix = prefix + "gratilo/prd/stripe-test-"
+                    require(stripe_secret.startswith(test_secret_prefix) and stripe_secret.endswith(":secret_key::"), "Stripe test key must come from the dedicated test secret JSON field")
+                    require(webhook_secret.startswith(test_secret_prefix) and webhook_secret.endswith(":webhook_secret::"), "Stripe webhook signature secret must come from the dedicated test secret JSON field")
+                    require(activation_secret.startswith(test_secret_prefix) and activation_secret.endswith(":activation_code::"), "Stripe test access requires the private activation-code secret JSON field")
+                    stripe_arns = {value.rsplit(":", 3)[0] for value in (stripe_secret, webhook_secret, activation_secret)}
+                    require(len(stripe_arns) == 1, "Stripe key, webhook, and activation code must use the same test secret")
+                else:
+                    require(not sandbox_payouts and not demo_enabled, "Payments and simulated payouts must remain disabled")
+                    require(not payments_enabled, "Payments must remain disabled")
                 for key, expected in [("STRIPE_SUCCESS_URL", "https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}"), ("STRIPE_CANCEL_URL", "https://gratilo.eu/pay/cancelled")]:
                     require(env.get(key, expected) == expected, "Wrong Stripe redirect: " + key)
             require(required.issubset(secret), "Required Secrets Manager references missing: " + name)
-            prefix = f'arn:aws:secretsmanager:{config["AWS_REGION"]}:{config["AWS_ACCOUNT_ID"]}:secret:'
             require(all(secret[key].startswith(prefix) for key in required), "Secrets must reference Secrets Manager in deployment account/region")
         container["image"] = images[name]
     backends = [next(c for c in definitions if c["name"] == name) for name in CONTAINERS[1:]]

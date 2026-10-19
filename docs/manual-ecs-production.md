@@ -50,6 +50,24 @@ Umgebungsvariablen; die Anwendungen lesen Secrets Manager nicht selbst.
 
 Keine `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, S3- oder MinIO-Zugangsdaten in
 ECS nötig. Keine weiteren externen API-Anbieter wurden im Anwendungscode gefunden.
+
+### Expliziter Stripe-Test-Rollout
+
+Der Release-Workflow bleibt standardmäßig zahlungsfrei. Ein freigegebener Test-Rollout
+erfordert `stripe_test_mode=true`, zusätzlich die Bestätigung
+`ENABLE STRIPE TEST PAYMENTS`, die normale Release-Bestätigung sowie weiterhin die
+Freigabe der GitHub-Umgebung `production`. Der Build erhält `pk_test_…` aus der
+GitHub-Variable `STRIPE_TEST_PUBLISHABLE_KEY`; Backend-Schlüssel und Webhook-Secret
+bleiben ECS-Secrets-Manager-Referenzen. Die Deployment-Prüfung akzeptiert Zahlungen
+nur mit `sk_test_…` (wird beim Payment-Service-Start erzwungen), aktivierter
+Webhook-Signaturprüfung, privatem Activation-Code, leerer UUID-Allowlist,
+`STRIPE_SANDBOX_PAYOUTS=true`, `STRIPE_DEMO_ENABLED=false` und deaktiviertem Pooling.
+
+`STRIPE_SANDBOX_PAYOUTS=true` ist der sichere Pfad: Auszahlungsaktionen werden als
+simulierte Gratilo-Test-Ledger-Einträge erfasst und lösen keinen Stripe-`/v1/payouts`
+Aufruf aus. Der Wert `false` würde den externen Stripe-Payout-Pfad aktivieren und ist
+für Test-Rollouts daher verboten. Der normale Release-Modus verlangt weiterhin
+`PAYMENTS_ENABLED=false` und `STRIPE_SANDBOX_PAYOUTS=false`.
 Stripe-Onboarding-Client-Secrets werden pro Anfrage von Stripe erzeugt und gezielt
 an den angemeldeten Benutzer gegeben; sie sind keine ECS-Konfigurationswerte.
 Benutzerpasswörter werden gehasht in PostgreSQL gespeichert. E-Mail-Verifikations-,

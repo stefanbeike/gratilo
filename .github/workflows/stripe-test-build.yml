@@ -29,3 +29,4 @@ jobs:
     with:
       upload_artifacts: true
       stripe_test_mode: true
+      stripe_test_confirmation: BUILD STRIPE TEST

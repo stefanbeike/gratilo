@@ -17,6 +17,12 @@ on:
       payment_service_image:
         required: true
         type: string
+      stripe_test_mode:
+        type: boolean
+        default: false
+      stripe_test_confirmation:
+        type: string
+        default: ''
 permissions:
   contents: read
   actions: read
@@ -44,6 +50,8 @@ jobs:
       EXPECTED_FRONTEND_IMAGE: ${{ inputs.frontend_image }}
       EXPECTED_USER_SERVICE_IMAGE: ${{ inputs.user_service_image }}
       EXPECTED_PAYMENT_SERVICE_IMAGE: ${{ inputs.payment_service_image }}
+      STRIPE_TEST_MODE: ${{ inputs.stripe_test_mode }}
+      STRIPE_TEST_CONFIRMATION: ${{ inputs.stripe_test_confirmation }}
       AWS_RETRY_MODE: standard
       AWS_MAX_ATTEMPTS: '5'
     steps:

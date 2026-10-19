@@ -10,6 +10,11 @@ def validate(env):
     if mode == "true":
         if env.get("GITHUB_EVENT_NAME") != "workflow_dispatch" or env.get("GITHUB_REF") != "refs/heads/main":
             raise ValueError("Enabled Stripe builds require a manual main-branch run")
+        if env.get("STRIPE_TEST_CONFIRMATION") not in ("BUILD STRIPE TEST", "ENABLE STRIPE TEST PAYMENTS"):
+            raise ValueError("Stripe test mode requires its dedicated confirmation")
+        key = env.get("STRIPE_TEST_PUBLISHABLE_KEY", "")
+        if not key.startswith("pk_test_") or len(key) <= len("pk_test_") or key != key.strip():
+            raise ValueError("A valid test-mode publishable key is required for the frontend build")
 
 
 if __name__ == "__main__":

@@ -28,6 +28,7 @@ class EcsDeploymentTest(unittest.TestCase):
                        "ECS_TASK_FAMILY": self.task["family"], "ECS_TASK_EXECUTION_ROLE_ARN": self.task["executionRoleArn"],
                        "ECS_TASK_ROLE_ARN": self.task["taskRoleArn"], "ECS_CLUSTER": "test-cluster",
                        "ECS_SERVICE": "test-service", "ECS_DESIRED_COUNT": "1",
+                       "STRIPE_TEST_MODE": "false",
                        "IMAGE_TAG": "sha-" + "a" * 40 + "-123-1"}
         self.images = {name: f'123456789012.dkr.ecr.eu-central-1.amazonaws.com/gratilo/{name}@sha256:' + str(i) * 64
                        for i, name in enumerate(renderer.CONTAINERS, 1)}
@@ -91,14 +92,74 @@ class EcsDeploymentTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "same secret reference"):
                 renderer.render(response, self.images, self.config)
 
-    def test_rejects_real_payouts_and_disabled_test_mode(self):
-        for key, value in [("STRIPE_SANDBOX_PAYOUTS", "true"), ("PAYMENTS_ENABLED", "true")]:
-            response = copy.deepcopy(self.response)
-            env = response["taskDefinition"]["containerDefinitions"][2]["environment"]
+    def test_allows_only_explicit_restricted_stripe_test_configuration(self):
+        response = copy.deepcopy(self.response)
+        payment = response["taskDefinition"]["containerDefinitions"][2]
+        values = {"PAYMENTS_ENABLED": "true", "STRIPE_TEST_ONLY": "true", "STRIPE_SANDBOX_PAYOUTS": "true",
+                  "STRIPE_DEMO_ENABLED": "false", "PAYMENTS_TEST_USER_IDS": "", "FEATURE_TIP_POOLS_ENABLED": "false"}
+        env = payment["environment"]
+        for key, value in values.items():
             env[:] = [entry for entry in env if entry["name"] != key]
             env.append({"name": key, "value": value})
+        root = "arn:aws:secretsmanager:eu-central-1:123456789012:secret:gratilo/prd/stripe-test-fixture"
+        payment["secrets"].extend([
+            {"name": "STRIPE_SECRET_KEY", "valueFrom": root + ":secret_key::"},
+            {"name": "STRIPE_WEBHOOK_SECRET", "valueFrom": root + ":webhook_secret::"},
+            {"name": "PAYMENTS_TEST_ACTIVATION_CODE", "valueFrom": root + ":activation_code::"},
+        ])
+        self.config["STRIPE_TEST_MODE"] = "true"
+        rendered = renderer.render(response, self.images, self.config)
+        rendered_payment = next(c for c in rendered["containerDefinitions"] if c["name"] == "payment-service")
+        rendered_env = {entry["name"]: entry["value"] for entry in rendered_payment["environment"]}
+        self.assertEqual("true", rendered_env["PAYMENTS_ENABLED"])
+        self.assertEqual("true", rendered_env["STRIPE_SANDBOX_PAYOUTS"])
+        self.assertEqual("false", rendered_env["FEATURE_TIP_POOLS_ENABLED"])
+
+    def test_rejects_live_or_unrestricted_payment_configurations(self):
+        base = copy.deepcopy(self.response)
+        payment = base["taskDefinition"]["containerDefinitions"][2]
+        env = payment["environment"]
+        values = {"PAYMENTS_ENABLED": "true", "STRIPE_TEST_ONLY": "true", "STRIPE_SANDBOX_PAYOUTS": "true",
+                  "STRIPE_DEMO_ENABLED": "false", "PAYMENTS_TEST_USER_IDS": "", "FEATURE_TIP_POOLS_ENABLED": "false"}
+        for key, value in values.items():
+            env[:] = [entry for entry in env if entry["name"] != key]
+            env.append({"name": key, "value": value})
+        root = "arn:aws:secretsmanager:eu-central-1:123456789012:secret:gratilo/prd/stripe-test-fixture"
+        payment["secrets"].extend([
+            {"name": "STRIPE_SECRET_KEY", "valueFrom": root + ":secret_key::"},
+            {"name": "STRIPE_WEBHOOK_SECRET", "valueFrom": root + ":webhook_secret::"},
+            {"name": "PAYMENTS_TEST_ACTIVATION_CODE", "valueFrom": root + ":activation_code::"},
+        ])
+        mutations = [
+            ("STRIPE_TEST_ONLY", "false", None),
+            ("STRIPE_SANDBOX_PAYOUTS", "false", None),
+            ("STRIPE_DEMO_ENABLED", "true", None),
+            ("PAYMENTS_TEST_USER_IDS", "11111111-1111-1111-1111-111111111111", None),
+            ("FEATURE_TIP_POOLS_ENABLED", "true", None),
+            (None, None, "STRIPE_SECRET_KEY"),
+            (None, None, "STRIPE_WEBHOOK_SECRET"),
+            (None, None, "PAYMENTS_TEST_ACTIVATION_CODE"),
+        ]
+        for env_name, value, secret_name in mutations:
+            with self.subTest(env=env_name, secret=secret_name):
+                response = copy.deepcopy(base)
+                payment = response["taskDefinition"]["containerDefinitions"][2]
+                if env_name:
+                    item = next(entry for entry in payment["environment"] if entry["name"] == env_name)
+                    item["value"] = value
+                else:
+                    payment["secrets"] = [entry for entry in payment["secrets"] if entry["name"] != secret_name]
+                with self.assertRaises(ValueError):
+                    renderer.render(response, self.images, {**self.config, "STRIPE_TEST_MODE": "true"})
+        for bad_ref in (root.replace("stripe-test", "stripe-live") + ":secret_key::",
+                        root + ":live_secret_key::"):
+            response = copy.deepcopy(base)
+            payment = response["taskDefinition"]["containerDefinitions"][2]
+            next(entry for entry in payment["secrets"] if entry["name"] == "STRIPE_SECRET_KEY")["valueFrom"] = bad_ref
             with self.assertRaises(ValueError):
-                renderer.render(response, self.images, self.config)
+                renderer.render(response, self.images, {**self.config, "STRIPE_TEST_MODE": "true"})
+        with self.assertRaisesRegex(ValueError, "Payments.*remain disabled"):
+            renderer.render(base, self.images, self.config)
 
     def test_service_requires_circuit_breaker_and_frontend_target(self):
         self.assertEqual(self.old, renderer.validate_service(self.service, self.config))
@@ -108,10 +169,24 @@ class EcsDeploymentTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 renderer.validate_service(service, self.config)
 
-    def run_mock_deployment(self, mode):
+    def run_mock_deployment(self, mode, stripe_test=False, test_confirmation="ENABLE STRIPE TEST PAYMENTS"):
         with tempfile.TemporaryDirectory(prefix="gratilo-deploy-test-") as folder:
             root = Path(folder)
-            (root / "task.json").write_text(json.dumps(self.response))
+            response = copy.deepcopy(self.response)
+            if stripe_test:
+                payment = response["taskDefinition"]["containerDefinitions"][2]
+                values = {"PAYMENTS_ENABLED": "true", "STRIPE_TEST_ONLY": "true", "STRIPE_SANDBOX_PAYOUTS": "true",
+                          "STRIPE_DEMO_ENABLED": "false", "PAYMENTS_TEST_USER_IDS": "", "FEATURE_TIP_POOLS_ENABLED": "false"}
+                for key, value in values.items():
+                    payment["environment"][:] = [entry for entry in payment["environment"] if entry["name"] != key]
+                    payment["environment"].append({"name": key, "value": value})
+                root_arn = "arn:aws:secretsmanager:eu-central-1:123456789012:secret:gratilo/prd/stripe-test-fixture"
+                payment["secrets"].extend([
+                    {"name": "STRIPE_SECRET_KEY", "valueFrom": root_arn + ":secret_key::"},
+                    {"name": "STRIPE_WEBHOOK_SECRET", "valueFrom": root_arn + ":webhook_secret::"},
+                    {"name": "PAYMENTS_TEST_ACTIVATION_CODE", "valueFrom": root_arn + ":activation_code::"},
+                ])
+            (root / "task.json").write_text(json.dumps(response))
             (root / "service.json").write_text(json.dumps(self.service))
             mock = root / "aws"
             mock.write_text('''#!/usr/bin/env python3
@@ -166,18 +241,35 @@ url = sys.argv[-1]
 print('false-body\\n401' if url.endswith('/transactions') else '{"tipPoolsEnabled":false}\\n200' if url.endswith('/features') else '<html>Gratilo</html>\\n200', end='')
 ''')
             curl.chmod(0o755)
-            environment = {**self.config, "PATH": folder + os.pathsep + "/usr/bin:/bin", "MOCK_DIR": folder,
+            environment = {**self.config, "STRIPE_TEST_MODE": "true" if stripe_test else "false",
+                           "GITHUB_EVENT_NAME": "workflow_dispatch" if stripe_test else "push",
+                           "GITHUB_REF": "refs/heads/main" if stripe_test else "refs/heads/feature",
+                           "STRIPE_TEST_CONFIRMATION": test_confirmation,
+                           "PATH": folder + os.pathsep + "/usr/bin:/bin", "MOCK_DIR": folder,
                            "NEW_TASK": self.new, "MOCK_MODE": mode, "GITHUB_STEP_SUMMARY": str(root / "summary")}
             environment.update({name.upper().replace("-", "_") + "_IMAGE": value for name, value in self.images.items()})
             result = subprocess.run(["bash", "deployment/scripts/deploy_ecs.sh"], cwd=ROOT, env=environment,
                                     text=True, capture_output=True, timeout=20)
-            return result, (root / "calls").read_text()
+            calls = (root / "calls").read_text() if (root / "calls").exists() else ""
+            return result, calls
 
     def test_full_deployment_with_mocked_aws(self):
         result, calls = self.run_mock_deployment("success")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(1, calls.splitlines().count("register-task-definition"))
         self.assertEqual(1, calls.splitlines().count("update-service"))
+
+    def test_stripe_test_deployment_dry_run_with_mocked_aws(self):
+        result, calls = self.run_mock_deployment("success", stripe_test=True)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(1, calls.splitlines().count("register-task-definition"))
+        self.assertEqual(1, calls.splitlines().count("update-service"))
+
+    def test_stripe_test_deployment_requires_its_dedicated_confirmation_before_aws(self):
+        result, calls = self.run_mock_deployment("success", stripe_test=True, test_confirmation="RELEASE DEPLOY gratilo-production")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("dedicated confirmation", result.stderr)
+        self.assertEqual("", calls)
 
     def test_stable_rollback_is_a_failure(self):
         result, calls = self.run_mock_deployment("rollback")

@@ -115,6 +115,19 @@ class ReleaseWorkflowWiringTest(unittest.TestCase):
         for filename in ("007_deploy_ecs.yml", "deploy-production.yml"):
             self.assertNotIn("workflow_dispatch:", (ROOT / ".github/workflows" / filename).read_text())
 
+    def test_stripe_test_mode_is_explicit_and_publishable_key_reaches_frontend_only_as_build_arg(self):
+        caller = (ROOT / ".github/workflows/release.yml").read_text()
+        build = (ROOT / ".github/workflows/005_docker_build.yml").read_text()
+        deploy = (ROOT / ".github/workflows/deploy-production.yml").read_text()
+        self.assertRegex(caller, r"stripe_test_mode:[\s\S]{0,180}type: boolean[\s\S]{0,50}default: false")
+        self.assertIn("inputs.stripe_test_mode", caller)
+        self.assertIn("inputs.stripe_test_confirmation", caller)
+        self.assertIn("VITE_PAYMENTS_ENABLED=${{ inputs.stripe_test_mode", build)
+        self.assertIn("VITE_STRIPE_PUBLISHABLE_KEY=${{ inputs.stripe_test_mode && vars.STRIPE_TEST_PUBLISHABLE_KEY", build)
+        self.assertIn("STRIPE_TEST_MODE: ${{ inputs.stripe_test_mode }}", deploy)
+        self.assertIn("STRIPE_TEST_CONFIRMATION: ${{ inputs.stripe_test_confirmation }}", deploy)
+        self.assertIn("ENABLE STRIPE TEST PAYMENTS", caller)
+
 
 if __name__ == "__main__":
     unittest.main()

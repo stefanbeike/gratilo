@@ -8,6 +8,15 @@ on:
         type: choice
         default: patch
         options: [patch, minor, major]
+      stripe_test_mode:
+        description: 'Enable Stripe test payments only (requires a second confirmation; live keys and Stripe payouts remain blocked)'
+        required: true
+        type: boolean
+        default: false
+      stripe_test_confirmation:
+        description: 'When Stripe test mode is enabled, type ENABLE STRIPE TEST PAYMENTS'
+        required: false
+        type: string
       confirmation:
         description: 'Type RELEASE DEPLOY gratilo-production'
         required: true
@@ -38,6 +47,8 @@ jobs:
     uses: ./.github/workflows/005_docker_build.yml
     with:
       upload_artifacts: true
+      stripe_test_mode: ${{ inputs.stripe_test_mode }}
+      stripe_test_confirmation: ${{ inputs.stripe_test_confirmation }}
   publish:
     name: Publish ECR
     needs: [version, images]
@@ -66,3 +77,5 @@ jobs:
       frontend_image: ${{ needs.publish.outputs.frontend_image }}
       user_service_image: ${{ needs.publish.outputs.user_service_image }}
       payment_service_image: ${{ needs.publish.outputs.payment_service_image }}
+      stripe_test_mode: ${{ inputs.stripe_test_mode }}
+      stripe_test_confirmation: ${{ inputs.stripe_test_confirmation }}

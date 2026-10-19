@@ -205,7 +205,9 @@ Manuell in Stripe für eine Sandbox bzw. ein Testkonto einrichten:
 
 1. Connect und Accounts v2 verfügbar machen; Plattformprofil, Verantwortlichkeiten,
    DE/EUR und Express-Onboarding prüfen. Schlüssel müssen aus derselben Sandbox stammen.
-2. `sk_test_…` ausschließlich im Backend, `pk_test_…` nur im Frontend-Build hinterlegen.
+2. `sk_test_…` ausschließlich im Backend-Secret hinterlegen. Beim ausdrücklich
+   aktivierten Test-Build kommt `pk_test_…` aus der GitHub-Variable
+   `STRIPE_TEST_PUBLISHABLE_KEY`; Live-Schlüssel werden abgewiesen.
 3. Einen Test-Webhook für Plattformereignisse auf
    `https://<TEST-HOST>/payment-service/webhooks/stripe` anlegen. Lokal kann Stripe CLI
    auf Port 8082 weiterleiten; dessen Signatur-Secret ist ein eigenes `whsec_…`.
@@ -225,12 +227,19 @@ Manuell in AWS **erst nach Freigabe**, bevorzugt in einer getrennten Testumgebun
   ECS-Task als `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` injizieren. Execution Role
   auf die konkreten Secret-ARNs begrenzen; bei eigenem KMS-Key passendes Decrypt-Recht.
 - Frontend mit `VITE_PAYMENTS_ENABLED=true` bauen; ein Stripe-Publishable-Key ist
-  wegen des Stripe-hosted Onboardings und Stripe Checkout nicht erforderlich. Die
-  bestehenden Release-Workflows bleiben auf `false`.
+  wegen des Stripe-hosted Onboardings und Stripe Checkout nicht für die Laufzeit
+  erforderlich. Der freigegebene Actions-Build erhält den vorhandenen
+  `STRIPE_TEST_PUBLISHABLE_KEY` ausschließlich als `VITE_STRIPE_PUBLISHABLE_KEY`.
+- Für einen Test-Rollout im manuellen Workflow `Gratilo Release & Deploy Production`
+  `stripe_test_mode=true` und zusätzlich `ENABLE STRIPE TEST PAYMENTS` angeben;
+  die bestehende Release-Bestätigung und Production-Umgebungsfreigabe gelten weiter.
+  Ohne dieses Opt-in bleiben Zahlungen deaktiviert.
 - Payment-Service: `PAYMENTS_ENABLED=true`, `STRIPE_TEST_ONLY=true`,
   `STRIPE_SANDBOX_PAYOUTS=true`, `STRIPE_DEMO_ENABLED=false`; beide Backends:
-  `FEATURE_TIP_POOLS_ENABLED=false`. Die bisherige Task-Vorlage bleibt deaktiviert
-  und muss für einen genehmigten Testbetrieb ausdrücklich angepasst werden.
+  `FEATURE_TIP_POOLS_ENABLED=false`. `STRIPE_SANDBOX_PAYOUTS=true` schreibt nur
+  simulierte Buchungen ins Gratilo-Test-Ledger und ruft nie Stripes `/v1/payouts`
+  auf. Ohne den sicheren Sandbox-Modus verweigert die Test-Deployment-Prüfung den
+  Rollout.
 - HTTPS-Testdomain/ALB/Nginx zum Frontend und zum Webhook routen; Backend-Ports privat
   lassen. Egress auf `api.stripe.com:443`, DB-Zugriff, Healthchecks und interne
   Erreichbarkeit des User-Service (`USER_SERVICE_URL`) prüfen.

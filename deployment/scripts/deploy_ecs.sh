@@ -2,10 +2,16 @@
 set -euo pipefail
 umask 077
 
-for name in AWS_REGION AWS_ACCOUNT_ID ECS_CLUSTER ECS_SERVICE ECS_TASK_FAMILY ECS_TASK_EXECUTION_ROLE_ARN ECS_TASK_ROLE_ARN FRONTEND_IMAGE USER_SERVICE_IMAGE PAYMENT_SERVICE_IMAGE IMAGE_TAG; do
+for name in AWS_REGION AWS_ACCOUNT_ID ECS_CLUSTER ECS_SERVICE ECS_TASK_FAMILY ECS_TASK_EXECUTION_ROLE_ARN ECS_TASK_ROLE_ARN FRONTEND_IMAGE USER_SERVICE_IMAGE PAYMENT_SERVICE_IMAGE IMAGE_TAG STRIPE_TEST_MODE; do
   [[ -n "${!name:-}" ]] || { echo "Missing deployment variable: $name" >&2; exit 1; }
 done
 [[ "$AWS_REGION" == eu-central-1 && "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]]
+[[ "$STRIPE_TEST_MODE" == true || "$STRIPE_TEST_MODE" == false ]] || { echo 'STRIPE_TEST_MODE must be explicitly true or false.' >&2; exit 1; }
+if [[ "$STRIPE_TEST_MODE" == true ]]; then
+  [[ "${GITHUB_EVENT_NAME:-}" == workflow_dispatch && "${GITHUB_REF:-}" == refs/heads/main && "${STRIPE_TEST_CONFIRMATION:-}" == 'ENABLE STRIPE TEST PAYMENTS' ]] || {
+    echo 'Stripe test deployment requires manual main-branch approval and its dedicated confirmation.' >&2; exit 1;
+  }
+fi
 [[ "${ECS_DESIRED_COUNT:-1}" =~ ^[1-9][0-9]*$ ]]
 [[ "$IMAGE_TAG" =~ ^sha-[0-9a-f]{40}-[0-9]+-[0-9]+$ || "$IMAGE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
 export AWS_PAGER=''
