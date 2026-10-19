@@ -23,9 +23,19 @@ class StripeCheckoutTest {
     private final String session = "cs_test_fixture";
 
     @Test void stripeApiDiagnosticContainsOnlyHttpStatus() {
-        var failure = new StripeCheckoutService.StripeApiException(400);
+        var failure = StripeCheckoutService.StripeApiException.from(400,
+                "{\"error\":{\"type\":\"invalid_request_error\",\"code\":\"parameter_unknown\",\"param\":\"payment_intent_data[test]\",\"message\":\"contains secret and account data\"}}",
+                "req_test123");
         assertEquals(400, failure.statusCode());
         assertEquals("Stripe API returned HTTP 400", failure.getMessage());
+        assertEquals("invalid_request_error", failure.errorType());
+        assertEquals("parameter_unknown", failure.errorCode());
+        assertEquals("payment_intent_data[test]", failure.parameter());
+        assertEquals("req_test123", failure.requestId());
+        assertFalse(failure.toString().contains("contains secret"));
+        var malformed = StripeCheckoutService.StripeApiException.from(400, "not json", "untrusted request id");
+        assertEquals("unknown", malformed.errorType());
+        assertEquals("unknown", malformed.requestId());
     }
 
     @SuppressWarnings("unchecked")
@@ -76,7 +86,7 @@ class StripeCheckoutTest {
         assertTrue(form.contains("unit_amount]=533&"));
         assertTrue(form.contains("transfer_data][amount]=500&"));
         assertTrue(form.contains("transfer_data][destination]=acct_fixture&"));
-        assertTrue(form.contains("payment_method_types[0]=card&"));
+        assertFalse(form.contains("payment_method_types"));
         assertFalse(form.contains("customer"));
         assertEquals("checkout-" + stored.getId(), stripeKey);
         assertEquals(TransactionStatus.PENDING, stored.getStatus());

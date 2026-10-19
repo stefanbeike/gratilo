@@ -42,7 +42,9 @@ public class TipController {
         } catch (Exception exception) {
             // Never log request bodies, Stripe keys, account IDs, or Stripe error bodies.
             if (exception instanceof StripeCheckoutService.StripeApiException stripeError)
-                LOG.error("Stripe Checkout failed: upstream Stripe HTTP status {}", stripeError.statusCode());
+                LOG.error("Stripe Checkout failed: upstream Stripe status={} type={} code={} param={} requestId={}",
+                        stripeError.statusCode(), stripeError.errorType(), stripeError.errorCode(),
+                        stripeError.parameter(), stripeError.requestId());
             else
                 LOG.error("Stripe Checkout failed: internal error type {}", exception.getClass().getName());
             return HttpResponse.status(HttpStatus.BAD_GATEWAY).body(java.util.Map.of("message", "Stripe Checkout konnte nicht erstellt werden."));

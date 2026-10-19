@@ -64,7 +64,8 @@ public class StripeCheckoutService {
             tx.setIdempotencyKey(key); tx.setProvider("STRIPE"); tx.setMetadata(pricing);
             tx = transactions.save(tx);
         }
-        String form = param("mode", "payment") + param("payment_method_types[0]", "card") + param("line_items[0][price_data][currency]", "eur") + param("line_items[0][price_data][unit_amount]", Long.toString(total)) + param("line_items[0][price_data][product_data][name]", "Trinkgeld") + param("line_items[0][quantity]", "1") + param("metadata[transaction_id]", tx.getId().toString())  + param("payment_intent_data[transfer_data][destination]", accountId) + param("payment_intent_data[metadata][transaction_id]", tx.getId().toString()) + param("payment_intent_data[metadata][tip_amount_minor]", Long.toString(request.tipAmountMinor())) + param("payment_intent_data[transfer_data][amount]", Long.toString(request.tipAmountMinor())) + param("success_url", successUrl) + param("cancel_url", cancelUrl);
+        // Let Stripe Dashboard dynamic payment-method settings determine Checkout methods.
+        String form = param("mode", "payment") + param("line_items[0][price_data][currency]", "eur") + param("line_items[0][price_data][unit_amount]", Long.toString(total)) + param("line_items[0][price_data][product_data][name]", "Trinkgeld") + param("line_items[0][quantity]", "1") + param("metadata[transaction_id]", tx.getId().toString())  + param("payment_intent_data[transfer_data][destination]", accountId) + param("payment_intent_data[metadata][transaction_id]", tx.getId().toString()) + param("payment_intent_data[metadata][tip_amount_minor]", Long.toString(request.tipAmountMinor())) + param("payment_intent_data[transfer_data][amount]", Long.toString(request.tipAmountMinor())) + param("success_url", successUrl) + param("cancel_url", cancelUrl);
         // Scope Stripe's key to our immutable transaction UUID, never the public caller key.
         var session = json(stripeRequest("/v1/checkout/sessions", form, "checkout-" + tx.getId()));
         String id = (String) session.get("id"), url = (String) session.get("url");
@@ -111,17 +112,42 @@ public class StripeCheckoutService {
         var response = HttpClient.newHttpClient().send(form == null ? builder.GET().build()
                 : builder.header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form)).build(),
                 HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() >= 300) throw new StripeApiException(response.statusCode());
+        if (response.statusCode() >= 300)
+            throw StripeApiException.from(response.statusCode(), response.body(), response.headers().firstValue("Request-Id").orElse(""));
         return response.body();
     }
     /** Safe diagnostic for operators; deliberately excludes Stripe's response body and request data. */
     public static final class StripeApiException extends IllegalStateException {
         private final int statusCode;
-        public StripeApiException(int statusCode) {
+        private final String errorType, errorCode, parameter, requestId;
+        private StripeApiException(int statusCode, String errorType, String errorCode, String parameter, String requestId) {
             super("Stripe API returned HTTP " + statusCode);
             this.statusCode = statusCode;
+            this.errorType = safe(errorType);
+            this.errorCode = safe(errorCode);
+            this.parameter = safe(parameter);
+            this.requestId = requestId != null && requestId.matches("req_[A-Za-z0-9]+") ? requestId : "unknown";
         }
         public int statusCode() { return statusCode; }
+        public String errorType() { return errorType; }
+        public String errorCode() { return errorCode; }
+        public String parameter() { return parameter; }
+        public String requestId() { return requestId; }
+        public static StripeApiException from(int statusCode, String body, String requestId) {
+            String type = "unknown", code = "unknown", parameter = "unknown";
+            try {
+                Object rawError = json(body).get("error");
+                if (rawError instanceof Map<?, ?> error) {
+                    type = error.get("type") instanceof String value ? value : type;
+                    code = error.get("code") instanceof String value ? value : code;
+                    parameter = error.get("param") instanceof String value ? value : parameter;
+                }
+            } catch (Exception ignored) { /* Keep safe unknown placeholders; never expose Stripe's raw body. */ }
+            return new StripeApiException(statusCode, type, code, parameter, requestId);
+        }
+        private static String safe(String value) {
+            return value != null && value.matches("[A-Za-z0-9_.\\[\\]-]{1,100}") ? value : "unknown";
+        }
     }
     private static Map<?, ?> json(String value) throws java.io.IOException {
         return io.micronaut.json.JsonMapper.createDefault().readValue(value, Map.class);
