@@ -44,6 +44,10 @@ public class TipController {
             var checkout = checkoutService.create(recipientUserId, request);
             if (checkout.isPresent()) return HttpResponse.ok(checkout.get());
             return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("message", "Stripe Checkout ist noch nicht verfügbar."));
+        } catch (StripeCheckoutService.InvalidCheckoutRequestException invalid) {
+            return HttpResponse.badRequest(java.util.Map.of("code","INVALID_CHECKOUT_REQUEST","message",invalid.getMessage()));
+        } catch (StripeCheckoutService.CheckoutConflictException conflict) {
+            return HttpResponse.status(HttpStatus.CONFLICT).body(conflict.response());
         } catch (StripeCheckoutService.QuoteChangedException changed) {
             return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code","QUOTE_CHANGED","message",changed.getMessage()));
         } catch (StripeCheckoutService.RecipientNotReadyException unavailable) {
@@ -66,6 +70,10 @@ public class TipController {
             var checkout = checkoutService.createPool(ownerUserId, request);
             if (checkout.isPresent()) return HttpResponse.ok(checkout.get());
             return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("message", "Stripe Checkout ist noch nicht verfügbar."));
+        } catch (StripeCheckoutService.InvalidCheckoutRequestException invalid) {
+            return HttpResponse.badRequest(java.util.Map.of("code","INVALID_CHECKOUT_REQUEST","message",invalid.getMessage()));
+        } catch (StripeCheckoutService.CheckoutConflictException conflict) {
+            return HttpResponse.status(HttpStatus.CONFLICT).body(conflict.response());
         } catch (StripeCheckoutService.QuoteChangedException changed) {
             return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code","QUOTE_CHANGED","message",changed.getMessage()));
         } catch (StripeCheckoutService.PoolNotReadyException unavailable) {
@@ -73,8 +81,15 @@ public class TipController {
         } catch (Exception exception) {
             if (exception instanceof StripeCheckoutService.StripeApiException stripeError)
                 LOG.error("Pool Stripe Checkout failed: upstream status={} type={} code={} param={} requestId={}", stripeError.statusCode(), stripeError.errorType(), stripeError.errorCode(), stripeError.parameter(), stripeError.requestId());
-            else LOG.error("Pool Stripe Checkout failed: internal error type {}", exception.getClass().getName());
+            else LOG.error("Pool Stripe Checkout failed: internal error type {} at {}", exception.getClass().getName(), safeLocation(exception));
             return HttpResponse.status(HttpStatus.BAD_GATEWAY).body(java.util.Map.of("message", "Stripe Checkout konnte nicht erstellt werden."));
         }
     }
+    private static String safeLocation(Exception failure) {
+        // Locations aid diagnostics without logging messages, request bodies, keys or personal details.
+        for(var frame:failure.getStackTrace())if(frame.getClassName().startsWith("com.gratilo.payment."))
+            return frame.getClassName()+"."+frame.getMethodName()+":"+frame.getLineNumber();
+        return "unavailable";
+    }
+
 }

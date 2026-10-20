@@ -185,3 +185,38 @@ TypeScript-Prüfung aus. `git diff --check` prüft die geänderten Quellen zusä
 
 Die Tests verwenden kontrollierte Fakes bzw. lokale HTTP-Vertragstests. Es wurde
 keine Stripe-Testzahlung erzeugt und keine bestehende Verteilung freigegeben.
+
+== Korrektur: gespeicherte Zahlungsversuche und HTTP 502
+
+Nach dem Rollout meldete ein Pool-Checkout HTTP 502. CloudWatch protokollierte
+`IllegalArgumentException`, keinen Stripe-API-Fehler. Die Untersuchung der letzten
+30 Minuten fand keine neue Stripe-Checkout-Session; die produktive Datenbank wurde
+nur lesend untersucht. Ein frischer Pool-Checkout mit echter isolierter PostgreSQL-
+Persistenz, Gebührenaudit und zwei Allokationen funktionierte mit einem Stripe-Fake.
+
+Ein konkreter Fehlerpfad ist reproduziert: Einzel- und Pool-Seite teilten bisher
+`gratilo:checkout:<Empfänger>` in sessionStorage. Ein früherer Idempotenzschlüssel
+konnte dadurch im falschen Ablauf oder für eine bereits bezahlte Zahlung verwendet
+werden. Das Backend verweigerte diesen Vorgang zwar sicher, meldete aber über den
+allgemeinen Exception-Handler irreführend 502. Der Benutzer bestätigte anschließend, dass eine neue Zahlung in einem frischen
+Browserfenster erfolgreich war. Dies stützt den Befund eines gespeicherten alten
+Versuchs; dessen konkreter Schlüssel wurde weder angefordert noch protokolliert.
+
+Die Zustände liegen jetzt getrennt unter `gratilo:checkout:individual:<Empfänger>`
+und `gratilo:checkout:pool:<Empfänger>`. Kompatible und nicht eindeutig zuordenbare
+Altzustände werden vorsichtig übernommen; sie werden nicht blind gelöscht.
+Bereits verwendete Schlüssel liefern `CHECKOUT_ALREADY_PROCESSED` bzw.
+`CHECKOUT_DETAILS_CONFLICT` mit HTTP 409. Ungültige Eingaben liefern
+`INVALID_CHECKOUT_REQUEST` mit HTTP 400. Ein bekannter Stripe-Test-Checkout wird
+anschließend über den vorhandenen Confirm-Endpunkt geprüft. Solange der Status
+unklar ist, entsteht keine neue Zahlung. Erst die bestätigte Rücknavigation bzw.
+ein bestätigter Fehlversuch erlaubt einen neuen Vorgang.
+
+Unbekannte interne Poolfehler protokollieren zusätzlich die Quellcodeposition,
+ohne Exception-Nachrichten, Request-Inhalte oder Secrets auszugeben. Backendtests
+sichern Konfliktantwort, unveränderte alte Transaktionen und ausbleibende zusätzliche
+Stripe-POSTs ab. Frontendtests prüfen beide Zahlungsarten, offene und bezahlte
+Altfälle sowie die Trennung ihrer Zustände. Es wurden keine bestehenden Zahlungen
+oder Transfers ausgeführt oder freigegeben.
+
+Hotfix-Prüfung: 99 Payment-Service-Tests und alle 18 Checkout-Frontend-Tests erfolgreich. Der TypeScript-/Vite-Build mit explizit aktivierten Testzahlungen und einem Testschlüssel-Platzhalter ist erfolgreich. Die vollständige CI prüft zusätzlich sämtliche anderen Frontend- und Backendtests.

@@ -46,6 +46,24 @@ class StripeCheckoutTest {
         assertEquals(0,creates);assertNull(stored);
     }
 
+    @Test void processedCheckoutReturnsSafeConflictWithOriginalSessionWithoutAnotherStripePost() throws Exception {
+        var service=service();var request=new TipPaymentRequest(500L,"Danke","already-paid",true);
+        service.create(recipient,request);stored.setStatus(TransactionStatus.BOOKED);
+        var conflict=assertThrows(StripeCheckoutService.CheckoutConflictException.class,()->service.create(recipient,request));
+        assertEquals("CHECKOUT_ALREADY_PROCESSED",conflict.response().get("code"));
+        assertEquals(session,conflict.response().get("sessionId"));assertEquals(1,creates);
+    }
+    @Test void changedDetailsKeepOriginalAttemptAndNeverCreateAnotherPayment() throws Exception {
+        var service=service();service.create(recipient,new TipPaymentRequest(500L,null,"frozen",false));
+        var conflict=assertThrows(StripeCheckoutService.CheckoutConflictException.class,()->service.create(recipient,new TipPaymentRequest(1000L,null,"frozen",true)));
+        assertEquals("CHECKOUT_DETAILS_CONFLICT",conflict.response().get("code"));assertEquals(500,stored.getAmountMinor());assertEquals(1,creates);
+    }
+
+    @Test void invalidAttemptKeyIsAnInputErrorBeforeAnyStripeRequest() {
+        assertThrows(StripeCheckoutService.InvalidCheckoutRequestException.class,()->service().create(recipient,new TipPaymentRequest(500L,null,"invalid:key",false)));
+        assertNull(stored);assertEquals(0,creates);
+    }
+
     @SuppressWarnings("unchecked")
     private <T> T proxy(Class<T> type, java.lang.reflect.InvocationHandler handler) {
         return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class[]{type}, handler);

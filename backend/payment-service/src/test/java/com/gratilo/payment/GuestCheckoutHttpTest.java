@@ -10,6 +10,21 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class GuestCheckoutHttpTest {
+    @Test void oldPoolAttemptIsAConflictAndNeverAnUpstreamGatewayFailure() throws Exception {
+        var tx=new com.gratilo.payment.domain.TransactionEntity();tx.setId(UUID.randomUUID());tx.setProviderReference("cs_test_prior");
+        var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",1.5,25,null) {
+            @Override public Optional<CheckoutResponse> createPool(UUID user,TipPaymentRequest request){throw new CheckoutConflictException("CHECKOUT_ALREADY_PROCESSED",tx);}
+        };
+        var props=new HashMap<String,Object>();props.put("payments.enabled",true);props.put("features.tip-pools-enabled",true);props.put("stripe.secret-key","sk_test_fixture");props.put("stripe.webhook-secret","whsec_fixture");props.put("micronaut.server.port",-1);
+        props.put("datasources.default.enabled",false);props.put("jpa.default.enabled",false);props.put("liquibase.enabled",false);props.put("liquibase.datasources.default.enabled",false);
+        try(var context=ApplicationContext.builder().properties(props).environments("test").build()){
+            context.registerSingleton(StripeCheckoutService.class,service);context.start();var server=context.getBean(EmbeddedServer.class).start();
+            var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(server.getURI().resolve("/payment-service/tips/pools/"+UUID.randomUUID()+"/checkout"))
+                .header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString("{\"tipAmountMinor\":500,\"idempotencyKey\":\"prior-attempt\"}")).build(),HttpResponse.BodyHandlers.ofString());
+            assertEquals(409,response.statusCode());assertTrue(response.body().contains("CHECKOUT_ALREADY_PROCESSED"));assertTrue(response.body().contains("cs_test_prior"));
+        }
+    }
+
     @Test void anonymousGuestCanUseCheckoutWithoutCustomerRegistrationOutsideTheAwsTestGate() throws Exception {
         var service = new StripeCheckoutService(null, null, null, "sk_test_fixture", "http://localhost/success", "http://localhost/cancel", 1.5, 25, null) {
             @Override public boolean canReceiveTips(UUID user) { return true; }

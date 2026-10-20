@@ -146,7 +146,7 @@ it('allows a new attempt only after Stripe confirms the prior session failed', a
   render(<DemoPayment />)
   fireEvent.click(await screen.findByRole('button', { name: /Erneut versuchen/ }))
   expect(await screen.findByRole('heading', { name: 'Trinkgeld für Alex.' })).toBeInTheDocument()
-  expect(JSON.parse(sessionStorage.getItem(`gratilo:checkout:${user}`) || '{}')).toMatchObject({ message: 'bleibt', feeCovered: true })
+  expect(JSON.parse(sessionStorage.getItem(`gratilo:checkout:individual:${user}`) || '{}')).toMatchObject({ message: 'bleibt', feeCovered: true })
 })
 
 for (const pool of [false,true]) it(`returns a confirmed ${pool?'pool':'individual'} payment to the first step with a new attempt`,async()=>{
@@ -165,7 +165,7 @@ for (const pool of [false,true]) it(`returns a confirmed ${pool?'pool':'individu
   fireEvent.click(screen.getByRole('button',{name:'Zurück zur Zahlungsseite'}))
   expect(await screen.findByRole('heading',{name:`Trinkgeld für ${pool?'Team':'Alex'}.`})).toBeInTheDocument()
   expect(location.pathname).toBe(`/pay/${pool?'team/':''}${user}`)
-  expect(JSON.parse(sessionStorage.getItem(`gratilo:checkout:${user}`)||'{}')).toEqual({amount:500,message:'',feeCovered:false,step:1})
+  expect(JSON.parse(sessionStorage.getItem(`gratilo:checkout:${pool?'pool':'individual'}:${user}`)||'{}')).toEqual({amount:500,message:'',feeCovered:false,step:1})
 })
 it('labels the voluntary fee as an estimate and does not invent a Gratilo platform fee',async()=>{
  const fetch=installGuest();history.replaceState({},'',`/pay/${user}`);render(<DemoPayment />)
@@ -176,4 +176,33 @@ it('labels the voluntary fee as an estimate and does not invent a Gratilo platfo
  await waitFor(()=>expect(screen.getByRole('button',{name:/Jetzt sicher bezahlen/})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:/Jetzt sicher bezahlen/}))
  await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url.includes('/checkout'))).toBe(true))
  const call=fetch.mock.calls.find(([url])=>url.includes('/checkout'));expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({expectedTotalAmountMinor:533,feeCovered:true})
+})
+
+for(const pool of [false,true])for(const status of ['PAID','PENDING'])it(`resolves a reused ${pool?'pool':'individual'} checkout as ${status} without creating another payment`,async()=>{
+ history.replaceState({},'',`/pay/${pool?'team/':''}${user}`)
+ const fetch=vi.fn(async(url:string)=>{
+  if(url.includes('/pools/public/'))return response({ownerId:user,name:'Team',memberNames:['Alex','Sam']})
+  if(url.includes('/users/public/'))return response({userId:user,firstName:'Alex',paymentEnabled:true})
+  if(url.includes('/eligibility'))return response({canReceiveTips:true})
+  if(url.includes('/quote'))return response({tipAmountMinor:500,serviceFeeMinor:0,totalAmountMinor:500,recipientAmountMinor:500})
+  if(url.includes('/confirm'))return response({status,confirmed:status==='PAID',amountPaidMinor:500})
+  if(url.includes('/checkout'))return response({code:'CHECKOUT_ALREADY_PROCESSED',message:'Prüfe den bestehenden Versuch.',transactionId:'prior-tx',sessionId:'cs_test_prior'},false)
+  throw new Error('Unexpected request')
+ })
+ vi.stubGlobal('fetch',fetch);render(<DemoPayment/>);
+ const next=await screen.findByRole('button',{name:/Weiter/});await waitFor(()=>expect(next).toBeEnabled());fireEvent.click(next)
+ fireEvent.click(await screen.findByRole('button',{name:/Weiter zur Zusammenfassung/}));fireEvent.click(await screen.findByRole('button',{name:/Jetzt sicher bezahlen/}));
+ await screen.findByRole('heading',{name:status==='PAID'?'Danke!':'Bitte noch nicht erneut bezahlen.'})
+ expect(fetch.mock.calls.filter(([url])=>url.includes('/checkout')&&!url.includes('/confirm'))).toHaveLength(1)
+ expect(fetch.mock.calls.some(([url])=>url.includes('/confirm?sessionId=cs_test_prior'))).toBe(true)
+ if(status==='PENDING')expect(screen.queryByRole('button',{name:/Jetzt sicher bezahlen|Erneut versuchen/})).not.toBeInTheDocument()
+})
+
+for(const pool of [true,false])it(`keeps the ${pool?'pool':'individual'} attempt separate from legacy state of the other payment type`,async()=>{
+ sessionStorage.setItem('gratilo:last-pool',String(!pool));sessionStorage.setItem(`gratilo:checkout:${user}`,JSON.stringify({amount:1000,message:'Other payment',step:3,attemptKey:'other-attempt'}))
+ history.replaceState({},'',`/pay/${pool?'team/':''}${user}`)
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>url.includes('/pools/public/')?response({ownerId:user,name:'Team',memberNames:[]}):url.includes('/users/public/')?response({userId:user,firstName:'Alex',paymentEnabled:true}):url.includes('/eligibility')?response({canReceiveTips:true}):response({tipAmountMinor:500,totalAmountMinor:500,serviceFeeMinor:0,recipientAmountMinor:500})))
+ render(<DemoPayment/>);await screen.findByRole('heading',{name:`Trinkgeld für ${pool?'Team':'Alex'}.`})
+ const flow=JSON.parse(sessionStorage.getItem(`gratilo:checkout:${pool?'pool':'individual'}:${user}`)||'{}');expect(flow.amount).toBe(500);expect(flow.attemptKey).toBeUndefined()
+ expect(JSON.parse(sessionStorage.getItem(`gratilo:checkout:${user}`)||'{}').attemptKey).toBe('other-attempt')
 })

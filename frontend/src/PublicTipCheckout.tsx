@@ -16,9 +16,11 @@ const parseMoney = (raw: string): number | null => {
   const minor = Number(euros) * 100 + Number(cents.padEnd(2, '0'))
   return Number.isSafeInteger(minor) && minor >= MIN_TIP && minor <= MAX_TIP ? minor : null
 }
-const savedFlow = (key: string): SavedFlow => {
+const savedFlow = (key: string, legacyKey: string, pool: boolean): SavedFlow => {
   try {
-    const value = JSON.parse(sessionStorage.getItem(key) || 'null')
+    const previousKind = sessionStorage.getItem('gratilo:last-pool')
+    const compatibleLegacy = previousKind === null || previousKind === String(pool)
+    const value = JSON.parse(sessionStorage.getItem(key) || (compatibleLegacy ? sessionStorage.getItem(legacyKey) : null) || 'null')
     if (value && Number.isSafeInteger(value.amount) && value.amount >= MIN_TIP && value.amount <= MAX_TIP)
       return { amount: value.amount, message: typeof value.message === 'string' ? value.message.slice(0, 500) : '', feeCovered: value.feeCovered === true, step: [1, 2, 3].includes(value.step) ? value.step : 1, attemptKey: value.attemptKey, pendingSessionId: value.pendingSessionId }
   } catch { /* Ignore damaged local checkout data. */ }
@@ -31,8 +33,9 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   const isCancelled = path.endsWith('/cancelled')
   const isPool = path.startsWith('/pay/team/') || ((isSuccess || isCancelled) && sessionStorage.getItem('gratilo:last-pool') === 'true')
   const recipientPath = isSuccess || isCancelled ? sessionStorage.getItem('gratilo:last-recipient') || '' : path.split('/').pop() || ''
-  const flowStorageKey = `gratilo:checkout:${recipientPath || 'current'}`
-  const [flow, setFlow] = useState<SavedFlow>(() => savedFlow(flowStorageKey))
+  const legacyFlowStorageKey = `gratilo:checkout:${recipientPath || 'current'}`
+  const flowStorageKey = `gratilo:checkout:${isPool ? 'pool' : 'individual'}:${recipientPath || 'current'}`
+  const [flow, setFlow] = useState<SavedFlow>(() => savedFlow(flowStorageKey, legacyFlowStorageKey, isPool))
   const [amountInput, setAmountInput] = useState((flow.amount / 100).toFixed(2).replace('.', ','))
   const [recipient, setRecipient] = useState<Recipient | null>(null)
   const [recipientId, setRecipientId] = useState('')
@@ -110,7 +113,14 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
     try {
       const response = await fetch(`/payment-service/tips/${isPool ? `pools/${recipientId}` : recipientId}/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ tipAmountMinor: flow.amount, message: flow.message || null, idempotencyKey: attemptKey, feeCovered: flow.feeCovered, expectedTotalAmountMinor: quote.totalAmountMinor }) })
       const result = await response.json()
-      if (!response.ok) { if(result.code==='QUOTE_CHANGED'){setLoadRevision(value=>value+1);update({step:2})} throw new Error(result.message || 'Stripe Checkout konnte nicht gestartet werden.') }
+      if (!response.ok) {
+        if (['CHECKOUT_ALREADY_PROCESSED','CHECKOUT_DETAILS_CONFLICT'].includes(result.code) && /^cs_test_[A-Za-z0-9_]+$/.test(result.sessionId || '')) {
+          // Resolve the existing attempt through Stripe before permitting another payment.
+          update({pendingSessionId:result.sessionId});setRetrying(false);setCheckoutStatus(null);
+          window.history.replaceState({},'',`/pay/success?session_id=${encodeURIComponent(result.sessionId)}`);
+          setLoadRevision(value=>value+1);return;
+        }
+        if(result.code==='QUOTE_CHANGED'){setLoadRevision(value=>value+1);update({step:2})} throw new Error(result.message || 'Stripe Checkout konnte nicht gestartet werden.') }
       if (!result.checkoutUrl) throw new Error('Die sichere Stripe-Zahlungsseite wurde nicht zurückgegeben. Der Versuch bleibt für eine sichere Wiederholung gespeichert.')
       if (result.transactionId) sessionStorage.setItem('gratilo:last-transaction', result.transactionId)
       location.assign(result.checkoutUrl)

@@ -76,7 +76,7 @@ public class StripeCheckoutService {
     public Optional<CheckoutResponse> create(UUID recipient, TipPaymentRequest request) throws Exception {
         if (request.tipAmountMinor() == null || request.tipAmountMinor() < 100 || request.tipAmountMinor() > 1000000
                 || request.idempotencyKey() == null || !request.idempotencyKey().matches("[A-Za-z0-9_-]{1,100}"))
-            throw new IllegalArgumentException("Invalid tip amount or idempotency key");
+            throw new InvalidCheckoutRequestException();
         if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
         var account = eligibleAccount(recipient);
         String accountId = account.getStripeAccountId();
@@ -84,7 +84,7 @@ public class StripeCheckoutService {
         if (request.expectedTotalAmountMinor() != null && request.expectedTotalAmountMinor() != quote.totalAmountMinor()) throw new QuoteChangedException();
         long fee = quote.serviceFeeMinor(), total = quote.totalAmountMinor();
         String key = request.idempotencyKey();
-        if (key == null || key.isBlank()) throw new IllegalArgumentException("An idempotency key is required");
+        if (key == null || key.isBlank()) throw new InvalidCheckoutRequestException();
         var existing = transactions.findByAccountUserIdAndIdempotencyKey(recipient, key);
         var tx = existing.orElseGet(TransactionEntity::new);
         String pricing = "{\"totalAmountMinor\":" + total + ",\"feeCovered\":" + request.feeCovered() + "}";
@@ -93,8 +93,8 @@ public class StripeCheckoutService {
             if (!"STRIPE".equals(tx.getProvider()) || tx.getAmountMinor() != request.tipAmountMinor()
                     || !Objects.equals(tx.getDescription(), request.message()) || !(savedPricing.get("totalAmountMinor") instanceof Number savedTotal) || savedTotal.longValue() != total
                     || !Boolean.valueOf(request.feeCovered()).equals(savedPricing.get("feeCovered")))
-                throw new IllegalArgumentException("Idempotency key already used with different payment details");
-            if (tx.getStatus() != TransactionStatus.PENDING) throw new IllegalArgumentException("Payment already processed");
+                throw new CheckoutConflictException("CHECKOUT_DETAILS_CONFLICT", tx);
+            if (tx.getStatus() != TransactionStatus.PENDING) throw new CheckoutConflictException("CHECKOUT_ALREADY_PROCESSED", tx);
             if (tx.getProviderReference() != null) {
                 var session = json(stripeRequest("/v1/checkout/sessions/" + enc(tx.getProviderReference()), null, null));
                 return Optional.of(new CheckoutResponse((String) session.get("url"), tx.getId().toString(), false));
@@ -168,8 +168,8 @@ public class StripeCheckoutService {
                     || !Objects.equals(tx.getDescription(), request.message()) || !pool.poolId().toString().equals(prior.get("poolId"))
                     || !(prior.get("totalAmountMinor") instanceof Number saved) || saved.longValue() != total
                     || !Boolean.valueOf(request.feeCovered()).equals(prior.get("feeCovered")))
-                throw new IllegalArgumentException("Idempotency key already used with different payment details");
-            if (tx.getStatus() != TransactionStatus.PENDING) throw new IllegalArgumentException("Payment already processed");
+                throw new CheckoutConflictException("CHECKOUT_DETAILS_CONFLICT", tx);
+            if (tx.getStatus() != TransactionStatus.PENDING) throw new CheckoutConflictException("CHECKOUT_ALREADY_PROCESSED", tx);
             if (tx.getProviderReference() != null) {
                 var session = json(stripeRequest("/v1/checkout/sessions/" + enc(tx.getProviderReference()), null, null));
                 return Optional.of(new CheckoutResponse((String) session.get("url"), tx.getId().toString(), false));
@@ -215,10 +215,29 @@ public class StripeCheckoutService {
     private void validateRequest(TipPaymentRequest request) {
         if (request == null || request.tipAmountMinor() == null || request.tipAmountMinor() < 100 || request.tipAmountMinor() > 1000000
                 || request.idempotencyKey() == null || !request.idempotencyKey().matches("[A-Za-z0-9_-]{1,100}"))
-            throw new IllegalArgumentException("Invalid tip amount or idempotency key");
+            throw new InvalidCheckoutRequestException();
     }
 
     private record PoolEligible(UUID userId, String accountId, BigDecimal sharePercent) {}
+    public static class InvalidCheckoutRequestException extends IllegalArgumentException {
+        public InvalidCheckoutRequestException(){super("Die Zahlungsangaben sind ungültig. Bitte prüfe Betrag und Zahlungsversuch.");}
+    }
+    /** Never turn a retry of a frozen checkout into another payment. */
+    public static class CheckoutConflictException extends IllegalArgumentException {
+        private final String code;
+        private final UUID transactionId;
+        private final String sessionId;
+        public CheckoutConflictException(String code, TransactionEntity transaction) {
+            super("Dieser Zahlungsversuch existiert bereits. Bitte prüfe zuerst seinen Zahlungsstatus.");
+            this.code=code;this.transactionId=transaction.getId();this.sessionId=transaction.getProviderReference();
+        }
+        public Map<String,Object> response() {
+            var result=new LinkedHashMap<String,Object>();result.put("code",code);result.put("message",getMessage());
+            result.put("transactionId",transactionId.toString());
+            if(sessionId!=null&&sessionId.matches("cs_test_[A-Za-z0-9_]+"))result.put("sessionId",sessionId);
+            return result;
+        }
+    }
     public static class QuoteChangedException extends IllegalStateException { public QuoteChangedException() { super("Die Gebührenschätzung hat sich geändert. Bitte prüfe den neuen Gesamtbetrag."); } }
     public static class PoolNotReadyException extends IllegalStateException { public PoolNotReadyException() { super("Pool requires all participating members to be transfer-ready"); } }
     private static String jsonEscape(String value) { return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\""); }
