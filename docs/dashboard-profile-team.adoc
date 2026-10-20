@@ -36,7 +36,9 @@ maßgeblich. Die Karte wertet den gespeicherten Accounts-v2-Status sowie
 Nicht eingerichtet, unvollständig, Stripe-Prüfung, Handlungsbedarf, Zahlungsempfang
 mit noch eingeschränkter Bankauszahlung und vollständig aktiv werden unterschieden.
 Die vorhandene private Testfreigabe bleibt vorgeschaltet. Tab-Wechsel erzeugen
-keine neue Stripe-Abfrage. Aktualisierung erfolgt weiterhin beim Laden, bei Fokus,
+keine neue Stripe-Abfrage. Auch die abschließende Aktivierungsnachricht und das
+automatische Schließen des Onboardings verlangen dieselbe vollständige Freigabe,
+einschließlich Transferfähigkeit. Aktualisierung erfolgt weiterhin beim Laden, bei Fokus,
 periodisch und nach der Rückkehr aus dem bestehenden Onboarding.
 Die persönliche Freigabe ersetzt keine Team-Zahlungsberechtigung.
 
@@ -188,7 +190,9 @@ frontend/tests/dashboard.browser.cjs
 == Ergebnis der lokalen Prüfung
 
 * Frontend: 107 Tests in 15 Dateien erfolgreich; nach der abschließenden
-  Eingangsfilterung nochmals 13 Dashboard-Tests erfolgreich.
+  Eingangsfilterung nochmals 13 Dashboard-Tests erfolgreich. Zusätzlich 16
+  gezielte Status-/Onboarding-/Pool-Tests erfolgreich, einschließlich des neuen
+  Regressionstests gegen eine Aktivierungsmeldung ohne Transferfreigabe.
 * Backend: 52 User-Service- und 138 Payment-Service-Tests erfolgreich.
 * PostgreSQL 15: sieben Integrationstests erfolgreich, einschließlich zweier
   konkurrierender Team-Beitrittsfälle und realer Liquibase-Migrationen.

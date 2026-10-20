@@ -127,7 +127,7 @@ export function Dashboard({ session, profile, onProfile, onLogout }: { session: 
           account = await api<ConnectedAccount>('/payment-service/connect-account/sync', {}, session.accessToken)
         if (!cancelled) {
           setConnectedAccount(account)
-          if (account.chargesEnabled && account.payoutsEnabled) setOnboardingOpen(false)
+          if (stripeDashboardStatus(account).title === 'Vollständig aktiv') setOnboardingOpen(false)
         }
       } catch { if (!cancelled) setConnectedAccount(null) }
     }
@@ -239,7 +239,7 @@ export function Dashboard({ session, profile, onProfile, onLogout }: { session: 
   async function removePoolMember(member: PoolMember) { if (!pool || !window.confirm(`${member.name || member.email} wirklich aus dem Team entfernen? Bestehende Zahlungen bleiben unverändert.`)) return; try { setPool(normalizePool(await api<Pool>(`/pools/${pool.id}/members/${member.id}`, undefined, session.accessToken, 'DELETE' as any))) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Mitglied konnte nicht entfernt werden.') } }
   async function resendPoolMember(member: PoolMember) { if (!pool) return; try { setPool(normalizePool(await api<Pool>(`/pools/${pool.id}/members/${member.id}/resend`, {}, session.accessToken))); setNotice('Einladung wurde erneut versendet.') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Einladung konnte nicht erneut versendet werden.') } }
   async function deletePool() { if (!pool || !window.confirm('Team wirklich löschen? Bestehende Zahlungsansprüche bleiben erhalten.')) return; try { await api(`/pools/${pool.id}`, undefined, session.accessToken, 'DELETE' as any); setPool(null); setPoolLoaded(true); setNotice('Pool wurde gelöscht.') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Pool konnte nicht gelöscht werden.') } }
-  async function syncOnboarding() { try { const account = await api<ConnectedAccount>('/payment-service/connect-account/sync', {}, session.accessToken); setConnectedAccount(account); const complete = Boolean(account.chargesEnabled && account.payoutsEnabled); await persistOnboardingStatus(complete); if (complete) { setOnboardingOpen(false); setNotice('Stripe Connect ist vollständig eingerichtet. Trinkgelder sind aktiv.') } else setNotice('Stripe benötigt noch Angaben für die Freischaltung.') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Stripe-Status konnte nicht geprüft werden.') } }
+  async function syncOnboarding() { try { const account = await api<ConnectedAccount>('/payment-service/connect-account/sync', {}, session.accessToken); setConnectedAccount(account); const complete = stripeDashboardStatus(account).title === 'Vollständig aktiv'; await persistOnboardingStatus(complete); if (complete) { setOnboardingOpen(false); setNotice('Stripe Connect ist vollständig eingerichtet. Trinkgelder sind aktiv.') } else setNotice('Der Stripe-Status wurde aktualisiert. Prüfe die einzelnen Freigaben in der Statuskarte.') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Stripe-Status konnte nicht geprüft werden.') } }
   const paymentLink = profile.paymentUrl || `${location.origin}/pay/${encodeURIComponent(session.userId)}`
   const nowForFilter = new Date()
   const periodStart = new Date(nowForFilter)

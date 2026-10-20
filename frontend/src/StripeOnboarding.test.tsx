@@ -27,3 +27,13 @@ it('automatically detects completed onboarding and only then exposes the QR code
   expect(screen.getByTitle('QR-Code zur Test-Trinkgeldseite')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Zahlungslink kopieren' })).toBeEnabled()
 })
+
+it('does not announce activation or close onboarding while transfer permission is missing',async()=>{
+  const account={stripeAccountId:'acct_fixture',chargesEnabled:true,payoutsEnabled:true,transfersEnabled:false,detailsSubmitted:true,stripeStatus:'UNDER_REVIEW',onboardingStatus:'SUBMITTED',statusCheckedAt:new Date().toISOString()}
+  vi.stubGlobal('fetch',vi.fn(async(url:string)=>({ok:true,json:async()=>url.endsWith('/test-access')?{restricted:false,enabled:true}:url.includes('/connect-account')?account:[]})))
+  window.history.replaceState({},'','/account?stripe_onboarding=refresh')
+  render(<Dashboard session={{accessToken:'token',userId:'owner',email:'owner@example.test'}} profile={{email:'owner@example.test'}} onProfile={vi.fn()} onLogout={vi.fn()}/>);
+  const check=await screen.findByRole('button',{name:'Status bei Stripe prüfen'});fireEvent.click(check)
+  await screen.findByText('Der Stripe-Status wurde aktualisiert. Prüfe die einzelnen Freigaben in der Statuskarte.')
+  expect(screen.getByText('Auszahlungen einrichten')).toBeInTheDocument();expect(screen.queryByText(/Trinkgelder sind aktiv/)).not.toBeInTheDocument();expect(screen.getByRole('button',{name:'Zahlungslink kopieren'})).toBeDisabled();window.history.replaceState({},'','/account')
+})
