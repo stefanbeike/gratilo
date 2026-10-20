@@ -70,6 +70,7 @@ services:
       STRIPE_DEMO_ENABLED: "false"
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?Set a local Stripe sandbox key}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?Run stripe_test.py webhook-secret}
+      STRIPE_CONNECT_WEBHOOK_SECRET: ${STRIPE_CONNECT_WEBHOOK_SECRET:-}
       PAYMENTS_TEST_ACTIVATION_CODE: ${PAYMENTS_TEST_ACTIVATION_CODE:?Run stripe_test.py init}
       STRIPE_SUCCESS_URL: "${FRONTEND_BASE_URL:-http://localhost:3001}/pay/success?session_id={CHECKOUT_SESSION_ID}"
       STRIPE_CANCEL_URL: "${FRONTEND_BASE_URL:-http://localhost:3001}/pay/cancelled?session_id={CHECKOUT_SESSION_ID}"

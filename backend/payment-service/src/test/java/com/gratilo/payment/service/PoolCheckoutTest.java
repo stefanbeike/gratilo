@@ -19,7 +19,7 @@ class PoolCheckoutTest {
         var connect = new StripeConnectService("sk_test_fixture", "https://gratilo.test") {
             @Override public String retrieveAccount(String id) { return StripeAccountFixtures.readyJson().replace("acct_fixture", id); }
         };
-        var recipients = new RecipientAvailability("http://localhost") { @Override public void requireEnabled(UUID userId) {} };
+        var recipients = new RecipientAvailability("http://localhost") { @Override public void requireEnabled(UUID userId) {} @Override public void requirePoolMemberEnabled(UUID userId) {} };
         var stored = new java.util.concurrent.atomic.AtomicReference<TransactionEntity>();
         var transactionRepo = proxy(TransactionRepository.class, (p, m, a) -> switch (m.getName()) {
             case "findByAccountUserIdAndIdempotencyKey" -> Optional.ofNullable(stored.get());
@@ -52,8 +52,28 @@ class PoolCheckoutTest {
         assertFalse(form.contains("transfer_data%5Bdestination%5D"));
         assertFalse(form.contains("payment_method_types"));
         assertEquals(2, snapshots.size());
+        assertTrue(snapshots.stream().allMatch(PoolTransferEntity::isSettlementApproved));
         assertEquals(501, snapshots.stream().mapToLong(PoolTransferEntity::getAmountMinor).sum());
         assertTrue(snapshots.stream().allMatch(item -> item.getStatus().equals("PENDING")));
+    }
+
+    @Test void blocksTheWholePoolUntilEveryRequiredMemberIsReadyWithoutRedistribution() throws Exception {
+        UUID owner=UUID.randomUUID(), other=UUID.randomUUID();
+        var pool=new PoolDistributionClient("http://localhost", "fixture", true) {
+            @Override public Optional<Distribution> find(UUID id) { return Optional.of(new Distribution(UUID.randomUUID(), "Team", List.of(new Member(owner,"A",50,true),new Member(other,"B",50,true)))); }
+        };
+        var ready=new java.util.concurrent.atomic.AtomicBoolean(false);
+        var connect=new StripeConnectService("sk_test_fixture", "http://localhost") {
+            @Override public String retrieveAccount(String id) { return StripeAccountFixtures.readyJson().replace("acct_fixture",id).replace("active", id.equals("acct_second") && !ready.get() ? "pending" : "active"); }
+        };
+        var recipients=new RecipientAvailability("http://localhost") { @Override public void requireEnabled(UUID id) { throw new AssertionError("Pool cannot depend on personal link"); } @Override public void requirePoolMemberEnabled(UUID id) {} };
+        var txRepo=proxy(TransactionRepository.class,(p,m,a)->{throw new AssertionError("No writes before eligibility");});
+        var transferRepo=proxy(PoolTransferRepository.class,(p,m,a)->{throw new AssertionError("No allocations before eligibility");});
+        var service=new StripeCheckoutService(txRepo,accountRepository(Map.of(owner,"acct_first",other,"acct_second")),connect,"sk_test_fixture","http://localhost/pay/success","http://localhost/pay/cancelled",1.5,25,recipients,pool,transferRepo);
+        assertFalse(service.canReceivePoolTips(owner));
+        assertThrows(StripeCheckoutService.PoolNotReadyException.class,()->service.createPool(owner,new TipPaymentRequest(1000L,"Danke","pool-blocked",true)));
+        ready.set(true);
+        assertTrue(service.canReceivePoolTips(owner));
     }
 
     private static ConnectedAccountRepository accountRepository(Map<UUID, String> ids) {

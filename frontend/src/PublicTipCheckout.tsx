@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import type { Session } from './api'
 import { paymentsEnabled } from './stripe'
 
 type Quote = { tipAmountMinor: number; serviceFeeMinor: number; totalAmountMinor: number; currency: string; serviceFeePercent: number; fixedFeeMinor: number; recipientAmountMinor: number }
-type Recipient = { userId: string; firstName?: string; lastName?: string; organisation?: string; profileImage?: string | null; paymentEnabled?: boolean; poolName?: string | null; memberNames?: string[] }
+type Recipient = { userId: string; firstName?: string; lastName?: string; organisation?: string; profileImage?: string | null; paymentEnabled?: boolean; personalLinkPaused?: boolean; poolName?: string | null; memberNames?: string[] }
 type SavedFlow = { amount: number; message: string; feeCovered: boolean; step: 1 | 2 | 3; attemptKey?: string; pendingSessionId?: string }
 type CheckoutStatus = { status: 'PAID' | 'PENDING' | 'FAILED'; confirmed: boolean; transactionId?: string; tipAmountMinor?: number; amountPaidMinor?: number; recipientUserId?: string; checkoutUrl?: string }
 const MIN_TIP = 100
@@ -40,6 +40,7 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   const [quote, setQuote] = useState<Quote | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const checkoutInFlight = useRef(false)
   const [checkoutStatus, setCheckoutStatus] = useState<CheckoutStatus | null>(null)
   const [statusBusy, setStatusBusy] = useState(false)
   const [loadRevision, setLoadRevision] = useState(0)
@@ -101,7 +102,8 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   function update(patch: Partial<SavedFlow>) { setFlow(previous => ({ ...previous, ...patch })) }
   function nextKey() { return crypto.randomUUID() }
   async function startCheckout() {
-    if (!recipientId || eligibility !== true || !quote || validInputAmount !== flow.amount) return
+    if (checkoutInFlight.current || !recipientId || eligibility !== true || !quote || validInputAmount !== flow.amount) return
+    checkoutInFlight.current = true
     setBusy(true); setError('')
     const attemptKey = flow.attemptKey || nextKey()
     update({ attemptKey })
@@ -113,16 +115,24 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
       if (result.transactionId) sessionStorage.setItem('gratilo:last-transaction', result.transactionId)
       location.assign(result.checkoutUrl)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Zahlung konnte nicht gestartet werden.') }
-    finally { setBusy(false) }
+    finally { checkoutInFlight.current = false; setBusy(false) }
   }
   function retryAfterConfirmedFailure() {
-    update({ step: 3, attemptKey: nextKey(), pendingSessionId: undefined })
+    update({ step: 1, attemptKey: undefined, pendingSessionId: undefined })
     setRetrying(true)
+  }
+  function returnToPayment() {
+    if (!checkoutStatus || checkoutStatus.status === 'PENDING') return
+    const fresh: SavedFlow = { amount: 500, message: '', feeCovered: false, step: 1 }
+    sessionStorage.setItem(flowStorageKey, JSON.stringify(fresh))
+    setFlow(fresh); setAmountInput('5,00'); setCheckoutStatus(null); setRetrying(true)
+    const target = `/pay/${isPool ? 'team/' : ''}${encodeURIComponent(recipientPath)}`
+    window.history.replaceState({}, '', target)
   }
   async function refreshStatus() { setLoadRevision(value => value + 1) }
 
   if (!paymentsEnabled) return <main className="tip-page"><CheckoutBrand /><section className="tip-card"><h1>Zahlungen sind derzeit deaktiviert.</h1><p>Aktuell sind keine Zahlungen möglich.</p></section></main>
-  if (recipient && recipient.paymentEnabled === false) return <main className="tip-page"><CheckoutBrand /><section className="tip-card"><span className="step-label">ZAHLUNGSSEITE</span><h1>Momentan nicht verfügbar.</h1><p className="tip-intro">Diese Zahlungsseite ist derzeit deaktiviert.</p></section></main>
+  if (!isResult && recipient && recipient.paymentEnabled === false) return <main className="tip-page"><CheckoutBrand /><section className="tip-card"><span className="step-label">ZAHLUNGSSEITE</span><h1>Momentan nicht verfügbar.</h1><p className="tip-intro">{recipient.personalLinkPaused ? 'Dieser persönliche Zahlungslink ist pausiert. Bitte verwende den Pool-Zahlungslink.' : 'Diese Zahlungsseite ist derzeit deaktiviert.'}</p></section></main>
 
   if (isResult) {
     const status = checkoutStatus?.status || 'PENDING'
@@ -133,7 +143,7 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
       {paid ? <><span className="step-label">ZAHLUNG BESTÄTIGT</span><h1>Danke!</h1><p>Dein Trinkgeld für {name} wurde erfolgreich bezahlt.</p><div className="tip-breakdown"><SummaryLine label="Bezahlt" value={money(checkoutStatus.amountPaidMinor || flow.amount)} /><SummaryLine label="Referenz" value={checkoutStatus.transactionId || sessionStorage.getItem('gratilo:last-transaction') || '—'} /></div><p className="tip-note">Die Zahlungsbestätigung bedeutet nicht, dass das Geld bereits auf dem Bankkonto des Empfängers ausgezahlt wurde.</p></>
         : failed ? <><span className="step-label">ZAHLUNG FEHLGESCHLAGEN</span><h1>Das hat leider nicht geklappt.</h1><p>Dieser Checkout wurde von Stripe als abgelaufen oder fehlgeschlagen bestätigt. Deine Betragsauswahl und Nachricht bleiben erhalten.</p><div className="tip-breakdown"><SummaryLine label="Dein Betrag" value={money(flow.amount)} /><SummaryLine label="Gebührenübernahme" value={flow.feeCovered ? 'Ausgewählt' : 'Nicht ausgewählt'} /></div><button className="tip-pay" onClick={retryAfterConfirmedFailure}>Erneut versuchen</button></>
         : <><span className="step-label">ZAHLUNG WIRD GEPRÜFT</span><h1>Bitte noch nicht erneut bezahlen.</h1><p>Der Status bei Stripe ist noch offen oder konnte gerade nicht bestätigt werden. Es wird keine neue Zahlung angelegt.</p>{checkoutStatus?.checkoutUrl && <a className="tip-pay checkout-hosted-link" href={checkoutStatus.checkoutUrl}>Bestehenden Stripe-Checkout fortsetzen</a>}<button className="outline-button result-action" disabled={statusBusy} onClick={refreshStatus}>{statusBusy ? 'Wird geprüft …' : 'Zahlungsstatus aktualisieren'}</button></>}
-      <button className="text-button result-action" onClick={() => { location.href = `/pay/${encodeURIComponent(recipientPath)}` }}>Zur Zahlungsseite</button>
+      <button className="text-button result-action" disabled={!checkoutStatus || (!paid && !failed)} onClick={returnToPayment}>Zurück zur Zahlungsseite</button>
     </section></main>
   }
 
@@ -143,9 +153,9 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
     <span className="step-label">SCHRITT {flow.step} VON 3 · {flow.step === 1 ? 'TRINKGELD' : flow.step === 2 ? 'GEBÜHREN' : 'ZUSAMMENFASSUNG'}</span>
     <h1>{flow.step === 2 ? `Wie viel kommt bei ${name} an?` : flow.step === 3 ? `Dein Trinkgeld für ${name}` : `Trinkgeld für ${name}.`}</h1>
     {flow.step === 1 && <>
-      <p className="tip-intro">{isPool ? `Dein Trinkgeld wird nach der angezeigten Verteilungsregel an zahlungsberechtigte Mitglieder von ${name} verteilt.` : `Dein Trinkgeld geht direkt an ${name}${recipient.organisation && recipient.organisation !== name ? ` bei ${recipient.organisation}` : ''}.`} Ohne Gratilo- oder Stripe-Konto für dich als Gast.</p>
+      <p className="tip-intro">{isPool ? `Dein Trinkgeld wird nach der gespeicherten Verteilungsregel an alle vorgesehenen Mitglieder von ${name} verteilt.` : `Dein Trinkgeld geht direkt an ${name}${recipient.organisation && recipient.organisation !== name ? ` bei ${recipient.organisation}` : ''}.`} Ohne Gratilo- oder Stripe-Konto für dich als Gast.</p>
       {isPool && recipient.memberNames?.length ? <p className="pool-public-members"><strong>Team:</strong> {recipient.memberNames.join(', ')}</p> : null}
-      {eligibility !== true && <p role="status">{eligibility === null ? 'Zahlungsberechtigung wird geprüft …' : 'Dieser Empfänger kann derzeit keine Trinkgelder empfangen oder der Stripe-Status konnte nicht geprüft werden.'}</p>}
+      {eligibility !== true && <p role="status">{eligibility === null ? 'Zahlungsberechtigung wird geprüft …' : isPool ? 'Dieser Pool ist noch nicht zahlungsbereit. Alle vorgesehenen Mitglieder benötigen die Stripe-Transferfreigabe.' : 'Dieser Empfänger kann derzeit keine Trinkgelder empfangen oder der Stripe-Status konnte nicht geprüft werden.'}</p>}
       {error && <div className="message error" role="alert">{error}</div>}
       <div className="tip-amounts">{[100, 200, 500, 1000].map(value => <button type="button" key={value} aria-pressed={flow.amount === value} className={flow.amount === value ? 'selected' : ''} onClick={() => { update({ amount: value }); setAmountInput((value / 100).toFixed(2).replace('.', ',')) }}>{money(value)}</button>)}</div>
       <label className="other-amount" htmlFor="checkout-amount">Anderer Betrag (mindestens 1,00 €)<div className="euro-input"><input id="checkout-amount" inputMode="decimal" min="1" max="10000" step="0.01" aria-invalid={validInputAmount === null} value={amountInput} onChange={event => { setAmountInput(event.target.value); const parsed = parseMoney(event.target.value); if (parsed !== null) update({ amount: parsed }) }} onBlur={() => { if (validInputAmount !== null) setAmountInput((validInputAmount / 100).toFixed(2).replace('.', ',')) }} /><span>€</span></div></label>

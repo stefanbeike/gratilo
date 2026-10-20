@@ -24,6 +24,8 @@ micronaut:
         access: isAnonymous()
       - pattern: /payment-service/tips/**
         access: isAnonymous()
+      - pattern: /payment-service/webhooks/stripe-connect
+        access: isAnonymous()
       - pattern: /payment-service/webhooks/stripe
         access: isAnonymous()
       - pattern: /**
@@ -48,6 +50,7 @@ stripe:
   sandbox-payouts: true
   secret-key: ${STRIPE_SECRET_KEY:}
   webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+  connect-webhook-secret: ${STRIPE_CONNECT_WEBHOOK_SECRET:}
   # STRIPE_SUCCESS_URL can override this property through Micronaut environment binding.
   success-url: "${frontend.base-url}/pay/success?session_id={CHECKOUT_SESSION_ID}"
   cancel-url: ${STRIPE_CANCEL_URL:`http://localhost:3000/pay/cancelled`}

@@ -17,7 +17,7 @@ it('automatically detects completed onboarding and only then exposes the QR code
   } }))
   vi.stubGlobal('fetch', fetch)
   render(<Dashboard session={{ accessToken: 'test-jwt', userId: '11111111-1111-1111-1111-111111111111', email: 'tester@example.invalid' }} profile={{ email: 'tester@example.invalid' }} onProfile={vi.fn()} onLogout={vi.fn()} />)
-  const start = screen.getByRole('button', { name: /Onboarding starten/ })
+  const start = screen.getByRole('button', { name: /Stripe einrichten|Stripe-Einrichtung fortsetzen/ })
   await waitFor(() => expect(start).toBeEnabled())
   expect(screen.queryByTitle('QR-Code zur Test-Trinkgeldseite')).not.toBeInTheDocument()
   fireEvent.click(start)

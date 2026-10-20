@@ -30,7 +30,7 @@ public class StripeWebhookController {
     @Post
     @Transactional
     public HttpResponse<?> receive(@Body String payload, @Header("Stripe-Signature") @Nullable String signature) {
-        if (secret.isBlank() || !validSignature(payload, signature)) return HttpResponse.unauthorized();
+        if (secret.isBlank() || !com.gratilo.payment.service.StripeWebhookSignature.valid(secret, payload, signature)) return HttpResponse.unauthorized();
         java.util.Map<?, ?> body;
         try {
             body = jsonMapper.readValue(payload, java.util.Map.class);
@@ -63,6 +63,7 @@ public class StripeWebhookController {
                     boolean tip = tx.getType() == com.gratilo.payment.domain.TransactionType.TIP;
                     boolean payout = tx.getType() == com.gratilo.payment.domain.TransactionType.PAYOUT;
                     TransactionStatus next = null;
+                    String previousIntent = tx.getStripePaymentIntentId(), previousCharge = tx.getStripeChargeId();
                     if (object.get("payment_intent") instanceof String paymentIntentId && paymentIntentId.startsWith("pi_")) tx.setStripePaymentIntentId(paymentIntentId);
                     if (event.startsWith("payment_intent.") && object.get("id") instanceof String intentId && intentId.startsWith("pi_")) {
                         tx.setStripePaymentIntentId(intentId);
@@ -94,7 +95,8 @@ public class StripeWebhookController {
                         if (next == TransactionStatus.BOOKED) tx.setBookedAt(java.time.OffsetDateTime.now());
                         if (next != TransactionStatus.PENDING) tx.setCompletedAt(java.time.OffsetDateTime.now());
                         transactions.update(tx);
-                    } else if (next == null && (tx.getStripePaymentIntentId() != null || tx.getStripeChargeId() != null)) {
+                    } else if (!java.util.Objects.equals(previousIntent, tx.getStripePaymentIntentId())
+                            || !java.util.Objects.equals(previousCharge, tx.getStripeChargeId())) {
                         transactions.update(tx);
                     }
                 }
@@ -106,32 +108,28 @@ public class StripeWebhookController {
     private void applyPoolRefund(com.gratilo.payment.domain.TransactionEntity tx, long refunded, long chargeTotal) {
         if (chargeTotal <= 0) return;
         long capped = Math.min(refunded, chargeTotal);
-        for (var allocation : poolTransfers.findByTransactionId(tx.getId())) {
-            long reversal = java.math.BigInteger.valueOf(allocation.getAmountMinor()).multiply(java.math.BigInteger.valueOf(capped))
-                    .divide(java.math.BigInteger.valueOf(chargeTotal)).longValue();
-            allocation.setReversalAmountMinor(Math.max(allocation.getReversalAmountMinor(), Math.min(allocation.getAmountMinor(), reversal)));
+        var allocations = poolTransfers.findByTransactionId(tx.getId());
+        long total = allocations.stream().mapToLong(com.gratilo.payment.domain.PoolTransferEntity::getAmountMinor).sum();
+        long target = java.math.BigInteger.valueOf(total).multiply(java.math.BigInteger.valueOf(capped))
+                .divide(java.math.BigInteger.valueOf(chargeTotal)).longValueExact();
+        long already = allocations.stream().mapToLong(com.gratilo.payment.domain.PoolTransferEntity::getReversalAmountMinor).sum();
+        long increment = target - already;
+        if (increment <= 0) return; // Duplicate or older events cannot undo a prior refund allocation.
+        // Allocate only new refundable cents over the remaining frozen budget. This is monotonic
+        // even with three or more members and repeated, increasing partial refunds.
+        var weights = allocations.stream().filter(a -> a.getAmountMinor() > a.getReversalAmountMinor())
+                .map(a -> new com.gratilo.payment.service.PoolAllocation.Weight(a.getRecipientUserId(),
+                        java.math.BigDecimal.valueOf(a.getAmountMinor() - a.getReversalAmountMinor()))).toList();
+        if (weights.isEmpty()) return;
+        var refunds = new java.util.HashMap<UUID, Long>();
+        com.gratilo.payment.service.PoolAllocation.split(increment, weights).forEach(share -> refunds.put(share.userId(), share.amountMinor()));
+        for (var allocation : allocations) {
+            long reversal = allocation.getReversalAmountMinor() + refunds.getOrDefault(allocation.getRecipientUserId(), 0L);
+            allocation.setReversalAmountMinor(Math.min(allocation.getAmountMinor(), reversal));
             allocation.setUpdatedAt(java.time.OffsetDateTime.now()); poolTransfers.update(allocation);
         }
     }
 
     private static long number(Object value) { return value instanceof Number amount ? amount.longValue() : 0L; }
 
-    private boolean validSignature(String payload, String header) {
-        if (header == null) return false;
-        String timestamp = null;
-        var signatures = new java.util.ArrayList<String>();
-        for (String part : header.split(",")) {
-            String[] pair = part.trim().split("=", 2);
-            if (pair.length == 2 && pair[0].equals("t")) timestamp = pair[1];
-            if (pair.length == 2 && pair[0].equals("v1")) signatures.add(pair[1]);
-        }
-        if (timestamp == null || signatures.isEmpty()) return false;
-        try {
-            if (Math.abs(System.currentTimeMillis() / 1000 - Long.parseLong(timestamp)) > 300) return false;
-            Mac mac = Mac.getInstance("HmacSHA256"); mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-            String signed = timestamp + "." + payload;
-            StringBuilder hex = new StringBuilder(); for (byte b : mac.doFinal(signed.getBytes(StandardCharsets.UTF_8))) hex.append(String.format("%02x", b));
-            return signatures.stream().anyMatch(expected -> MessageDigest.isEqual(hex.toString().getBytes(StandardCharsets.UTF_8), expected.getBytes(StandardCharsets.UTF_8)));
-        } catch (Exception e) { return false; }
-    }
 }

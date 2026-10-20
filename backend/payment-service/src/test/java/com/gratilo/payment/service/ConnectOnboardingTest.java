@@ -75,7 +75,9 @@ class ConnectOnboardingTest {
         body.set(StripeAccountFixtures.readyJson().replace("active", "restricted"));
         assertEquals(HttpStatus.OK, controller.sync(auth).getStatus());
         assertFalse(account.isChargesEnabled()); assertFalse(account.isPayoutsEnabled());
-        assertEquals("IN_PROGRESS", account.getOnboardingStatus());
+        assertEquals("COMPLETE", account.getOnboardingStatus());
+        assertFalse(account.isTransfersEnabled());
+        assertEquals("ACTION_REQUIRED", account.getStripeStatus());
         body.set(StripeAccountFixtures.readyJson()); controller.sync(auth);
         body.set(null);
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, controller.sync(auth).getStatus());

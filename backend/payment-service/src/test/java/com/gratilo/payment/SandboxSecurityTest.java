@@ -90,6 +90,20 @@ class SandboxSecurityTest {
         assertEquals(2, updates.get());
     }
 
+    @Test void duplicateSuccessStillPersistsPreviouslyMissingStripeIdentifiers() throws Exception {
+        var tx = new com.gratilo.payment.domain.TransactionEntity(); tx.setId(java.util.UUID.randomUUID());
+        tx.setProvider("STRIPE"); tx.setType(com.gratilo.payment.domain.TransactionType.TIP); tx.setStatus(com.gratilo.payment.domain.TransactionStatus.BOOKED);
+        var updates = new java.util.concurrent.atomic.AtomicInteger();
+        var repository=(com.gratilo.payment.repository.TransactionRepository)java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),new Class[]{com.gratilo.payment.repository.TransactionRepository.class},(p,m,a)->switch(m.getName()){
+            case "findById" -> java.util.Optional.of(tx); case "update" -> {updates.incrementAndGet(); yield tx;} default -> throw new AssertionError(m.getName());
+        });
+        var controller=new StripeWebhookController(repository,WEBHOOK,true,JsonMapper.createDefault());
+        String payload="{\"livemode\":false,\"type\":\"payment_intent.succeeded\",\"data\":{\"object\":{\"id\":\"pi_fixture\",\"latest_charge\":\"ch_fixture\",\"metadata\":{\"transaction_id\":\""+tx.getId()+"\"}}}}";
+        controller.receive(payload,signature(payload,System.currentTimeMillis()/1000));
+        controller.receive(payload,signature(payload,System.currentTimeMillis()/1000));
+        assertEquals("pi_fixture",tx.getStripePaymentIntentId()); assertEquals("ch_fixture",tx.getStripeChargeId()); assertEquals(1,updates.get());
+    }
+
     @Test void blocksLiveKeysWhilePoolFeatureCanBeExplicitlyEnabled() {
         assertThrows(IllegalStateException.class, () -> new com.gratilo.payment.service.StripeConnectService("sk_live_fixture", "http://localhost"));
         assertDoesNotThrow(() -> new com.gratilo.payment.config.PoolDisabledConfiguration(true));

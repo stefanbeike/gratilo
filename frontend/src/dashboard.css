@@ -52,3 +52,5 @@
 @media(max-width:680px){.pool-team-qr{align-items:flex-start;gap:12px;margin-left:14px;margin-right:14px;padding:12px}.pool-team-qr>svg{width:84px;height:84px}}
 .pool-edit-name{display:flex;align-items:center;gap:10px;margin:0 26px 14px}.pool-edit-name label{font-size:11px;color:#718397}.pool-edit-name input{margin:0;max-width:320px;height:38px}.pool-edit-name button{margin-left:auto}
 @media(max-width:680px){.pool-edit-name{margin-left:14px;margin-right:14px;flex-wrap:wrap}.pool-edit-name label{width:100%}.pool-edit-name input{flex:1;max-width:none}}
+
+.personal-link-pause,.pool-readiness{background:#f5f8fc;border:1px solid #dfe7ef;border-radius:10px;padding:14px;line-height:1.6;color:#51677e}.pool-readiness{margin:16px 26px;font-size:12px}.member-stripe-status{margin-top:8px;max-width:340px;line-height:1.5}.member-stripe-status small{margin-top:5px}.status-pill.blocked{background:#fff0ef;color:#a43c36}.pool-blocking-member{color:#a43c36!important}.pool-readiness small{display:block;color:#718397}

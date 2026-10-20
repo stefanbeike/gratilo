@@ -664,3 +664,115 @@ umbenannt und anschließend erneut geöffnet werden.
 Der [manuelle Gesamtworkflow Gratilo Release & Deploy Production](docs/cicd.md)
 versioniert, baut und prüft alle drei Images und deployt erst nach unabhängiger
 Production-Freigabe. Pushes und Tags deployen nicht; Zahlungen bleiben deaktiviert.
+
+### Pool-Zahlungsberechtigung und persönliche Links
+
+Ein vorhandener eigener Pool pausiert den persönlichen Link serverseitig und im
+Profil. Die bestehende URL und die manuelle Zahlungsseiteneinstellung bleiben
+unverändert; beim Löschen des Pools entfällt die Pool-Sperre automatisch. Eine
+Mitgliedschaft in einem fremden Pool pausiert den persönlichen Link nicht. Das
+aktuelle Pool-Datenmodell kennt weder einen Archivstatus noch einen deaktivierten
+Pool: Jeder vorhandene eigene Pool gilt als betrieben. Deaktivierte Mitglieder
+sind davon getrennt. Bereits angelegte Stripe-Sessions dürfen ihren begonnenen
+Zahlungsvorgang abschließen; neue persönliche Sessions werden gesperrt. Bestätigungen
+und Zahlungsereignisse werden auch während einer späteren Link-Sperre verarbeitet.
+
+Neue Pool-Zahlungen erfordern die aktuelle Stripe-Freigabe **aller angenommenen,
+aktiven Mitglieder mit positivem Verteilungsanteil**. Ein fehlendes, eingeschränktes
+oder nicht prüfbares Konto sperrt den gesamten neuen Checkout. Es gibt keine
+Umverteilung auf die übrigen Mitglieder. Die bereits bestehende Normalisierung der
+konfigurierten aktiven Gewichte und die Cent-Verteilung bleiben erhalten; Empfänger,
+Stripe-Konto, Anteil und Centbetrag werden bei Checkout-Erstellung dauerhaft in
+`payment_mgmt.pool_transfers` eingefroren. Änderungen am Pool ändern diese historischen
+Datensätze nicht. Auch der Settlement-Worker prüft den Empfänger erneut bei Stripe.
+
+Accounts v2 werden mit `Stripe-Version: 2026-09-30.endive` und expliziten Includes
+für `configuration.merchant`, `configuration.recipient` und `requirements` gelesen.
+Für Pool-Transfers muss `recipient.capabilities.stripe_balance.stripe_transfers.status`
+`active` sein und es dürfen keine aktuell blockierenden Anforderungen vorliegen.
+Die vorhandene Merchant-/Recipient-Account-Architektur wird beibehalten. Der
+Bankauszahlungsstatus unter `recipient.capabilities.stripe_balance.payouts.status`
+wird separat gespeichert und angezeigt. Für persönliche Destination-Charges bleiben
+zusätzlich aktive `merchant.capabilities.card_payments` und Recipient-Payouts nötig.
+Ein abgeschlossener Datenerfassungsprozess ist keine pauschale Capability-Freigabe.
+Ein unbekannter, falscher, geschlossener oder Live-Account berechtigt nicht zu Zahlungen.
+
+Der Besitzer liest ausschließlich die Statuszusammenfassung seines eigenen Pools
+über `GET /payment-service/connect-account/pools/{owner}/members`; Konto-IDs und
+KYC-Daten werden dort nicht ausgegeben. Der Server fragt Stripe dabei erneut ab,
+speichert Status und Prüfzeitpunkt und die Oberfläche aktualisiert alle 30 Sekunden
+sowie beim Fensterfokus. Anzeigen ohne zuverlässige Prüfung oder älter als zwei
+Minuten gelten als nicht verfügbar. Neue Zahlungen und Transfers verwenden immer
+eine eigene aktuelle Stripe-Abfrage, niemals allein den gespeicherten Status.
+Das vorhandene Onboarding kann ausschließlich vom angemeldeten Kontoinhaber über
+seine eigenen `/connect-account/onboarding/start`- und `/sync`-Endpunkte erfolgen.
+Bestehende Pool-Einladungsmails bleiben erhalten; es wird keine zusätzliche Mailserie
+versendet.
+
+Optional lassen sich Accounts-v2-Thin-Events an
+`POST /payment-service/webhooks/stripe-connect` zustellen. Dafür einen **separaten
+Sandbox-Event-Destination-Signing-Secret** lokal als
+`STRIPE_CONNECT_WEBHOOK_SECRET` setzen. Dieser ersetzt nicht `STRIPE_WEBHOOK_SECRET`
+des vorhandenen Zahlungs-Webhooks. Geeignete Account-/Recipient-Capability- und
+Requirements-Events müssen am Sandbox-Event-Destination ausgewählt werden. Der Handler
+prüft die Raw-Body-Signatur, lädt das Event über `/v2/core/events/{id}`, verwirft
+Live-Events und liest anschließend den aktuellen Account-Zustand. Doppelte und
+verspätete Events können dadurch keine alte Freigabe wiederherstellen. Solange kein
+separates Destination eingerichtet ist, stehen die erneuten serverseitigen Abfragen
+weiterhin zur Verfügung. Dieses Release verändert keine Stripe-Webhook-Einstellungen
+und richtet keinen zusätzlichen produktiven Signing-Secret ein.
+
+### Sichere Pool-Transfer-Verarbeitung
+
+Die bestehende Architektur verwendet Separate Charges and Transfers. Eine erfolgreiche
+Plattformzahlung allein erstellt keine Transfers. Der Worker wartet auf eine bestätigte,
+bezahlte Test-Session, eine erfolgreiche PaymentIntent/Charge, verfügbare Quellmittel
+und ausreichendes verfügbares EUR-Plattformguthaben. Jeder Transfer wird mit
+`source_transaction`, `transfer_group`, unveränderlicher Allocation-ID und stabilem
+Idempotency-Key erstellt. Ein Datenbank-Schreiblock verhindert konkurrierende
+Verarbeitung derselben Allocation. Vor jedem neuen Versuch werden vorhandene
+Stripe-Transfers abgeglichen; unklare alte Versuche werden zur Prüfung angehalten,
+statt nach Ablauf des Stripe-Idempotenzfensters blind erneut gesendet zu werden.
+
+Migration 008 lässt **alle vor dem Release vorhandenen ausstehenden Allocations
+unfreigegeben** (`settlement_approved=false`). Sie löst keine Nachholtransfers aus.
+Eine nachträgliche Freigabe erfordert eine gesonderte Prüfung und ausdrückliche
+Zustimmung. Nur neue Checkout-Allocations setzen die Freigabe selbst. Bereits
+vorhandene Transfer-IDs bleiben erhalten; erforderliche Rückabwicklungen werden
+weiterhin verarbeitet. Migration 009 ergänzt getrennte Connect-Statusfelder, ohne
+historische Zahlungen umzuschreiben. Ein Image-Rollback entfernt diese additiven
+Spalten nicht und darf die alte automatische Settlement-Logik nicht unbeaufsichtigt
+wieder aktivieren.
+
+Warte- und Fehlergründe sowie erwartete Verfügbarkeit werden gespeichert und über
+die bestehende Pool-Transfer-Historie ausgegeben. Refunds werden aus dem ursprünglichen
+Bruttobetrag anteilig auf das eingefrorene Trinkgeldbudget berechnet und centgenau
+verteilt. Bereits vor Transfer-Erstellung einbehaltene Erstattungen werden nicht ein
+zweites Mal reversiert. Stripe-Transfers und Reversals werden vor Wiederholungen mit
+dem tatsächlichen Remote-Zustand abgeglichen. Tatsächliche Stripe-Gebühren dürfen den
+freiwilligen Aufschlag überschreiten: Die Differenz benötigt Plattformmittel und wird
+nicht stillschweigend von den zugesagten Mitgliederanteilen abgezogen. Es gibt derzeit
+keinen separat implementierten Freibetragsmechanismus; Betrag, Nachricht und bisherige
+freiwillige Gebührenberechnung bleiben unverändert.
+
+Nach bestätigtem Erfolg führt „Zurück zur Zahlungsseite“ für Einzel- und Pool-Zahlungen
+zum ersten Betragschritt desselben Empfängers und entfernt alte Session-/Versuchsdaten.
+Bei ungeklärtem Zahlungsstatus bleibt der Neustart gesperrt. Neue Checkouts benötigen
+immer eine eigene explizite Gastaktion und durchlaufen erneut die serverseitige
+Berechtigungsprüfung.
+
+Validierung ohne Stripe-Geldbewegungen:
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 bash ./gradlew \
+  :backend:user-service:test :backend:payment-service:test \
+  :backend:user-service:assemble :backend:payment-service:assemble --no-daemon
+cd frontend
+npm test
+npm run build
+```
+
+Das Repository hat keinen separaten Frontend-Lint-Task. `npm run build` führt die
+TypeScript-Prüfung aus. Automatisierte Pool-Tests verwenden kontrollierte Stripe-Fakes;
+eine echte Sandbox-End-to-End-Zahlung ist ein gesonderter manueller Test und wurde
+für die Untersuchung bestehender Zahlungen nicht erneut ausgelöst.

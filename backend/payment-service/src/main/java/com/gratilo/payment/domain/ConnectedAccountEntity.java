@@ -21,6 +21,9 @@ public class ConnectedAccountEntity {
     @Column(nullable=false) private boolean detailsSubmitted;
     @JdbcTypeCode(SqlTypes.JSON) @Column(name="requirements_due", columnDefinition="jsonb", nullable=false) private String requirementsDue = "[]";
     @Column(name="payout_schedule_interval", nullable=false) private String payoutScheduleInterval = "weekly";
+    @Column(name="transfers_enabled", nullable=false) private boolean transfersEnabled;
+    @Column(name="stripe_status", nullable=false) private String stripeStatus = "UNAVAILABLE";
+    @Column(name="status_checked_at") private OffsetDateTime statusCheckedAt;
     @CreationTimestamp @Column(name="created_at", nullable=false, updatable=false) private OffsetDateTime createdAt;
     @UpdateTimestamp @Column(name="updated_at", nullable=false) private OffsetDateTime updatedAt;
 }

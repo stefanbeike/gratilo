@@ -6,7 +6,15 @@ import java.io.IOException;
 import java.util.*;
 
 /** Native Accounts v2 eligibility; no fallback to writable profile flags or v1 fields. */
-public record StripeAccountStatus(boolean canReceiveTips) {
+public record StripeAccountStatus(boolean canReceiveTips, boolean canReceiveTransfers, boolean canPayout,
+                                  boolean detailsSubmitted, String onboardingStatus, String displayStatus,
+                                  boolean chargesEnabled) {
+    public StripeAccountStatus(boolean ready) {
+        this(ready, ready, ready, ready, ready ? "COMPLETE" : "UNKNOWN", ready ? "READY" : "UNAVAILABLE", ready);
+    }
+    public static StripeAccountStatus notStarted() {
+        return new StripeAccountStatus(false, false, false, false, "NOT_STARTED", "NOT_STARTED", false);
+    }
     public static StripeAccountStatus parse(String expectedId, String json) throws IOException {
         Map<?, ?> account = JsonMapper.createDefault().readValue(json, Map.class);
         if (!expectedId.equals(account.get("id")) || !"v2.core.account".equals(account.get("object"))
@@ -38,7 +46,21 @@ public record StripeAccountStatus(boolean canReceiveTips) {
                 }
             }
         }
-        return new StripeAccountStatus(active && complete);
+        String transfers = Objects.toString(at(account, "configuration", "recipient", "capabilities", "stripe_balance", "stripe_transfers", "status"), "");
+        String payouts = Objects.toString(at(account, "configuration", "recipient", "capabilities", "stripe_balance", "payouts", "status"), "");
+        boolean charges = "active".equals(at(account, "configuration", "merchant", "capabilities", "card_payments", "status"));
+        String deadline = Objects.toString(at(account, "requirements", "summary", "minimum_deadline", "status"), "");
+        Object entries = at(account, "requirements", "entries");
+        boolean awaitingStripe = entries instanceof List<?> list && !list.isEmpty()
+                && list.stream().allMatch(e -> e instanceof Map<?, ?> m && "stripe".equals(m.get("awaiting_action_from")));
+        boolean restricted = List.of("restricted", "rejected", "inactive").contains(transfers)
+                || "past_due".equals(deadline);
+        boolean transferReady = complete && "active".equals(transfers);
+        String display = transferReady ? "READY" : restricted ? "ACTION_REQUIRED"
+                : awaitingStripe || complete && "pending".equals(transfers) ? "UNDER_REVIEW"
+                : !complete && ("currently_due".equals(deadline) || entries instanceof List<?> list && !list.isEmpty()) ? "INCOMPLETE" : "UNAVAILABLE";
+        return new StripeAccountStatus(active && complete, transferReady, "active".equals(payouts), complete || awaitingStripe,
+                complete ? "COMPLETE" : awaitingStripe ? "SUBMITTED" : "IN_PROGRESS", display, charges);
     }
 
     private static Object at(Map<?, ?> root, String... path) {
@@ -51,10 +73,12 @@ public record StripeAccountStatus(boolean canReceiveTips) {
     }
 
     public void applyTo(ConnectedAccountEntity account) {
-        // Legacy response field names are projections of the complete v2 decision.
-        account.setChargesEnabled(canReceiveTips);
-        account.setPayoutsEnabled(canReceiveTips);
-        account.setDetailsSubmitted(canReceiveTips);
-        account.setOnboardingStatus(canReceiveTips ? "COMPLETE" : "IN_PROGRESS");
+        account.setChargesEnabled(chargesEnabled);
+        account.setPayoutsEnabled(canPayout);
+        account.setDetailsSubmitted(detailsSubmitted);
+        account.setTransfersEnabled(canReceiveTransfers);
+        account.setOnboardingStatus(onboardingStatus);
+        account.setStripeStatus(displayStatus);
+        account.setStatusCheckedAt(java.time.OffsetDateTime.now());
     }
 }

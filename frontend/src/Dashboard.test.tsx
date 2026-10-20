@@ -23,7 +23,7 @@ it('keeps payments, payouts and onboarding disabled without Stripe configuration
   expect(screen.queryByTitle('QR-Code zum Demo-Zahlungslink')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Zahlungslink kopieren' })).toBeDisabled()
   expect(screen.getByRole('button', { name: /Aktivieren/ })).toBeDisabled()
-  expect(screen.getByRole('button', { name: /Onboarding starten/ })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /Stripe einrichten|Stripe-Einrichtung fortsetzen/ })).toBeDisabled()
   expect(fetch.mock.calls.some(([url]) => String(url).includes('connect-account'))).toBe(false)
 })
 it('saves the profile using PUT and preserves existing fields', async () => {

@@ -67,7 +67,7 @@ public class TipController {
             if (checkout.isPresent()) return HttpResponse.ok(checkout.get());
             return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("message", "Stripe Checkout ist noch nicht verfügbar."));
         } catch (StripeCheckoutService.PoolNotReadyException unavailable) {
-            return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code", "POOL_NOT_READY", "message", "Für diesen Pool sind derzeit keine berechtigten Stripe-Konten verfügbar."));
+            return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code", "POOL_NOT_READY", "message", "Dieser Pool ist noch nicht zahlungsbereit. Alle aktiven Mitglieder mit Trinkgeldanteil müssen Stripe freigeschaltet haben."));
         } catch (Exception exception) {
             if (exception instanceof StripeCheckoutService.StripeApiException stripeError)
                 LOG.error("Pool Stripe Checkout failed: upstream status={} type={} code={} param={} requestId={}", stripeError.statusCode(), stripeError.errorType(), stripeError.errorCode(), stripeError.parameter(), stripeError.requestId());

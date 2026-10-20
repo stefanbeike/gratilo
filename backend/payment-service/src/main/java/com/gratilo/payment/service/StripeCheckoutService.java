@@ -135,10 +135,10 @@ public class StripeCheckoutService {
             if (!member.active() || member.sharePercent() <= 0) continue;
             if (!Double.isFinite(member.sharePercent()) || member.sharePercent() > 100) throw new PoolNotReadyException();
             try {
-                var account = eligibleAccount(member.userId());
+                var account = eligibleAccount(member.userId(), true);
                 eligible.add(new PoolEligible(member.userId(), account.getStripeAccountId(), BigDecimal.valueOf(member.sharePercent())));
-            } catch (RecipientNotReadyException ignored) {
-                // Incomplete or paused accounts receive no transfer. Remaining configured weights are normalized.
+            } catch (Exception unavailable) {
+                throw new PoolNotReadyException();
             }
         }
         if (eligible.isEmpty()) throw new PoolNotReadyException();
@@ -176,6 +176,7 @@ public class StripeCheckoutService {
                 var transfer = new PoolTransferEntity(); transfer.setId(UUID.randomUUID()); transfer.setTransactionId(tx.getId());
                 transfer.setRecipientUserId(member.userId()); transfer.setStripeAccountId(member.accountId());
                 transfer.setSharePercent(member.sharePercent()); transfer.setAmountMinor(share.amountMinor());
+                transfer.setSettlementApproved(true); // New checkout freezes and authorizes its own allocation.
                 transfer.setStatus("PENDING"); transfer.setCreatedAt(now); transfer.setUpdatedAt(now); poolTransfers.save(transfer);
             }
         }
@@ -205,7 +206,7 @@ public class StripeCheckoutService {
     }
 
     private record PoolEligible(UUID userId, String accountId, BigDecimal sharePercent) {}
-    public static class PoolNotReadyException extends IllegalStateException { public PoolNotReadyException() { super("Pool has no payout-ready members"); } }
+    public static class PoolNotReadyException extends IllegalStateException { public PoolNotReadyException() { super("Pool requires all participating members to be transfer-ready"); } }
     private static String jsonEscape(String value) { return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\""); }
 
     public boolean canReceiveTips(UUID recipient) {
@@ -218,19 +219,25 @@ public class StripeCheckoutService {
         try {
             var pool = poolClient.find(owner).orElse(null);
             if (pool == null || pool.poolId() == null) return false;
+            boolean hasMember = false;
             for (var member : pool.members()) {
                 if (member.active() && member.sharePercent() > 0) {
-                    try { eligibleAccount(member.userId()); return true; }
-                    catch (RecipientNotReadyException ignored) { }
+                    if (!Double.isFinite(member.sharePercent()) || member.sharePercent() > 100) return false;
+                    eligibleAccount(member.userId(), true);
+                    hasMember = true;
                 }
             }
+            return hasMember;
         } catch (Exception ignored) { }
         return false;
     }
 
-    private ConnectedAccountEntity eligibleAccount(UUID recipient) throws Exception {
+    private ConnectedAccountEntity eligibleAccount(UUID recipient) throws Exception { return eligibleAccount(recipient, false); }
+    private ConnectedAccountEntity eligibleAccount(UUID recipient, boolean poolMember) throws Exception {
         if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
-        recipients.requireEnabled(recipient);
+        try {
+            if (poolMember) recipients.requirePoolMemberEnabled(recipient); else recipients.requireEnabled(recipient);
+        } catch (Exception unavailable) { throw new RecipientNotReadyException(); }
         var account = accounts.findByUserId(recipient).orElseThrow(() -> new RecipientNotReadyException());
         String id = account.getStripeAccountId();
         if (id == null || !id.matches("acct_[A-Za-z0-9]+") || id.startsWith("acct_demo_"))
@@ -245,7 +252,7 @@ public class StripeCheckoutService {
         }
         status.applyTo(account);
         accounts.update(account);
-        if (!status.canReceiveTips()) throw new RecipientNotReadyException();
+        if (!(poolMember ? status.canReceiveTransfers() : status.canReceiveTips())) throw new RecipientNotReadyException();
         return account;
     }
 

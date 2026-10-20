@@ -61,6 +61,7 @@ public class StripeConnectService {
         String json = "{\"configuration\":{\"recipient\":{\"capabilities\":{\"stripe_balance\":{\"stripe_transfers\":{\"requested\":true}}}}}}";
         jsonCall("https://api.stripe.com/v2/core/accounts/" + enc(accountId), json);
     }
+    public String retrieveEvent(String id) throws Exception { return get("https://api.stripe.com/v2/core/events/" + enc(id)); }
     public String retrieveAccount(String accountId) throws Exception { return get("https://api.stripe.com/v2/core/accounts/" + enc(accountId)
             + "?include%5B0%5D=configuration.merchant&include%5B1%5D=configuration.recipient&include%5B2%5D=requirements"); }
     protected String call(String url, String form) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30)).header("Authorization", "Bearer "+secret).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form)).build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned "+response.statusCode()); return response.body(); }

@@ -32,4 +32,20 @@ class StripeAccountStatusTest {
         for (String include : java.util.List.of("configuration.merchant", "configuration.recipient", "requirements"))
             assertTrue(request.contains("=" + include));
     }
+    @Test void distinguishesTransferEligibilityFromBankPayoutsAndMerchantCharges() throws Exception {
+        String json = StripeAccountFixtures.changed("configuration.recipient.capabilities.stripe_balance.payouts.status", "pending", false);
+        var status = StripeAccountStatus.parse("acct_fixture", json);
+        assertTrue(status.canReceiveTransfers()); assertFalse(status.canPayout()); assertFalse(status.canReceiveTips());
+        assertEquals("READY", status.displayStatus());
+    }
+    @Test void distinguishesIncompleteReviewAndRestrictedStates() throws Exception {
+        var json = StripeAccountFixtures.changed("configuration.recipient.capabilities.stripe_balance.stripe_transfers.status", "pending", false);
+        assertEquals("UNDER_REVIEW", StripeAccountStatus.parse("acct_fixture", json).displayStatus());
+        json = StripeAccountFixtures.changed("requirements.entries", java.util.List.of(java.util.Map.of("awaiting_action_from", "user")), false);
+        assertEquals("INCOMPLETE", StripeAccountStatus.parse("acct_fixture", json).displayStatus());
+        json = StripeAccountFixtures.changed("configuration.recipient.capabilities.stripe_balance.stripe_transfers.status", "restricted", false);
+        assertEquals("ACTION_REQUIRED", StripeAccountStatus.parse("acct_fixture", json).displayStatus());
+        assertEquals("NOT_STARTED", StripeAccountStatus.notStarted().displayStatus());
+        assertEquals("UNAVAILABLE", new StripeAccountStatus(false).displayStatus());
+    }
 }

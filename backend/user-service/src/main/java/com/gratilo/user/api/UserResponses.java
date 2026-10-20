@@ -43,19 +43,21 @@ public final class UserResponses {
             String profileImage,
             String paymentUrl,
             boolean paymentEnabled,
-            boolean stripeOnboardingCompleted
+            boolean stripeOnboardingCompleted,
+            boolean personalLinkPaused
     ) {
-        public static Profile from(UserEntity user) {
+        public static Profile from(UserEntity user) { return from(user, false); }
+        public static Profile from(UserEntity user, boolean paused) {
             return new Profile(
                     user.getId(), user.getEmail(), user.isEmailVerified(), user.getFirstName(), user.getLastName(),
                     user.getOrganisation(), user.getStreet(), user.getCity(), user.getPhone(), user.getCountry(),
-                    user.isNewsletter(), user.getAgbAcceptedFile(), user.getCreatedAt(), user.getUpdatedAt(), user.getProfileImage(), user.getPaymentUrlPath(), user.isPaymentEnabled(), user.isStripeOnboardingCompleted()
+                    user.isNewsletter(), user.getAgbAcceptedFile(), user.getCreatedAt(), user.getUpdatedAt(), user.getProfileImage(), user.getPaymentUrlPath(), user.isPaymentEnabled(), user.isStripeOnboardingCompleted(), paused
             );
         }
     }
 
     @Serdeable
-    public record PublicProfile(UUID userId, String firstName, String lastName, String organisation, String profileImage, String paymentUrl, boolean paymentEnabled, String poolName) {
+    public record PublicProfile(UUID userId, String firstName, String lastName, String organisation, String profileImage, String paymentUrl, boolean paymentEnabled, String poolName, boolean personalLinkPaused, boolean poolParticipationEnabled) {
         public static PublicProfile from(UserEntity user) { return from(user, null); }
         public static PublicProfile from(UserEntity user, String poolName) {
             // Keep the pool name in the legacy name fields as well. This
@@ -63,7 +65,7 @@ public final class UserResponses {
             // about `poolName` yet) to display the correct recipient.
             String displayFirstName = poolName == null || poolName.isBlank() ? user.getFirstName() : poolName;
             String displayLastName = poolName == null || poolName.isBlank() ? user.getLastName() : null;
-            return new PublicProfile(user.getId(), displayFirstName, displayLastName, user.getOrganisation(), user.getProfileImage(), user.getPaymentUrlPath(), user.isPaymentEnabled(), poolName);
+            return new PublicProfile(user.getId(), displayFirstName, displayLastName, user.getOrganisation(), user.getProfileImage(), user.getPaymentUrlPath(), user.isPaymentEnabled() && poolName == null, poolName, poolName != null, user.isPaymentEnabled());
         }
     }
 }

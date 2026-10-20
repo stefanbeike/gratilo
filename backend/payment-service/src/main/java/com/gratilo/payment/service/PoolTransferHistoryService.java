@@ -26,7 +26,7 @@ public class PoolTransferHistoryService {
             }
             return new PoolTransferResponse(item.getId(), item.getTransactionId(), poolName, item.getAmountMinor(),
                     item.getReversedAmountMinor(), item.getStatus(), item.getStripeTransferId(),
-                    item.getStripeReversalId(), item.getCreatedAt());
+                    item.getStripeReversalId(), item.getCreatedAt(), item.getFailureCode(), item.getFundsAvailableAt(), item.getLastAttemptAt());
         }).toList();
     }
 }

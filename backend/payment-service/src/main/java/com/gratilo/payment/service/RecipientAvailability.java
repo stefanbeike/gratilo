@@ -16,13 +16,15 @@ public class RecipientAvailability {
     public RecipientAvailability(@Value("${pool.user-service-url:http://localhost:8081}") String base) {
         this.base = base.replaceAll("/$", "");
     }
-    public void requireEnabled(UUID recipient) throws Exception {
+    public void requireEnabled(UUID recipient) throws Exception { require(recipient, "paymentEnabled"); }
+    public void requirePoolMemberEnabled(UUID recipient) throws Exception { require(recipient, "poolParticipationEnabled"); }
+    private void require(UUID recipient, String flag) throws Exception {
         var response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(
                 URI.create(base + "/user-service/users/public/" + recipient)).timeout(Duration.ofSeconds(10)).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) throw new IllegalStateException("Recipient unavailable");
         var profile = JsonMapper.createDefault().readValue(response.body(), Map.class);
-        if (!recipient.toString().equals(profile.get("userId")) || !Boolean.TRUE.equals(profile.get("paymentEnabled")))
+        if (!recipient.toString().equals(profile.get("userId")) || !Boolean.TRUE.equals(profile.get(flag)))
             throw new IllegalStateException("Recipient has paused payments");
     }
 }

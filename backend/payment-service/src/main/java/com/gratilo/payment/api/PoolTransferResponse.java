@@ -7,4 +7,4 @@ import java.util.UUID;
 @Serdeable
 public record PoolTransferResponse(UUID id, UUID transactionId, String poolName, long amountMinor,
                                    long reversedAmountMinor, String status, String stripeTransferId,
-                                   String stripeReversalId, OffsetDateTime createdAt) {}
+                                   String stripeReversalId, OffsetDateTime createdAt, String settlementReason, OffsetDateTime fundsAvailableAt, OffsetDateTime lastAttemptAt) {}

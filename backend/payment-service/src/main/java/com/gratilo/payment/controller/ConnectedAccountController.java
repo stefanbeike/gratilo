@@ -50,7 +50,7 @@ public class ConnectedAccountController {
         var account = repository.findByUserId(UUID.fromString(authentication.getName())).orElse(null);
         if (account == null) return HttpResponse.notFound();
         if (account.getStripeAccountId() == null || !account.getStripeAccountId().matches("acct_[A-Za-z0-9]+")) {
-            new com.gratilo.payment.service.StripeAccountStatus(false).applyTo(account);
+            com.gratilo.payment.service.StripeAccountStatus.notStarted().applyTo(account);
             return HttpResponse.ok(ConnectedAccountResponse.from(repository.update(account)));
         }
         try {

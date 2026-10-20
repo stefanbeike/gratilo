@@ -24,6 +24,12 @@ public class PoolTransferEntity {
     @Column(name = "reversal_amount_minor", nullable = false) private long reversalAmountMinor;
     @Column(name = "reversed_amount_minor", nullable = false) private long reversedAmountMinor;
     @Column(name = "failure_code", length = 80) private String failureCode;
+    @Column(name = "settlement_approved", nullable = false) private boolean settlementApproved;
+    @Column(name = "last_attempt_at") private OffsetDateTime lastAttemptAt;
+    @Column(name = "first_attempt_at") private OffsetDateTime firstAttemptAt;
+    @Column(name = "funds_available_at") private OffsetDateTime fundsAvailableAt;
+    @Column(name = "attempted_amount_minor") private Long attemptedAmountMinor;
+    @Version @Column(nullable = false) private long version;
     @Column(name = "created_at", nullable = false) private OffsetDateTime createdAt;
     @Column(name = "updated_at", nullable = false) private OffsetDateTime updatedAt;
 }
