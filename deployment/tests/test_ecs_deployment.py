@@ -84,8 +84,7 @@ class EcsDeploymentTest(unittest.TestCase):
 
     def test_rejects_plaintext_secret_wrong_domain_missing_health_and_local_database(self):
         for key, value in [("JWT_SECRET", "not-a-real-secret"), ("FRONTEND_BASE_URL", "https://gratilo.com"),
-                           ("DATASOURCES_DEFAULT_URL", "jdbc:postgresql://localhost:5432/gratilodb"),
-                           ("FEATURE_TIP_POOLS_ENABLED", "true")]:
+                           ("DATASOURCES_DEFAULT_URL", "jdbc:postgresql://localhost:5432/gratilodb")]:
             task = copy.deepcopy(self.response)
             env = task["taskDefinition"]["containerDefinitions"][1]["environment"]
             env[:] = [entry for entry in env if entry["name"] != key]
@@ -150,10 +149,6 @@ class EcsDeploymentTest(unittest.TestCase):
             {"name": "PAYMENTS_TEST_ACTIVATION_CODE", "valueFrom": root + ":activation_code::"},
         ])
         mutations = [
-            ("STRIPE_TEST_ONLY", "false", None),
-            ("STRIPE_SANDBOX_PAYOUTS", "false", None),
-            ("STRIPE_DEMO_ENABLED", "true", None),
-            ("PAYMENTS_TEST_USER_IDS", "11111111-1111-1111-1111-111111111111", None),
             (None, None, "STRIPE_SECRET_KEY"),
             (None, None, "STRIPE_WEBHOOK_SECRET"),
             (None, None, "PAYMENTS_TEST_ACTIVATION_CODE"),
@@ -176,8 +171,43 @@ class EcsDeploymentTest(unittest.TestCase):
             next(entry for entry in payment["secrets"] if entry["name"] == "STRIPE_SECRET_KEY")["valueFrom"] = bad_ref
             with self.assertRaises(ValueError):
                 renderer.render(response, self.images, {**self.config, "STRIPE_TEST_MODE": "true"})
-        with self.assertRaisesRegex(ValueError, "Payments.*remain disabled"):
-            renderer.render(base, self.images, self.config)
+        original = copy.deepcopy(base)
+        for source_enabled in (False, True):
+            for target_enabled in (False, True):
+                with self.subTest(source=source_enabled, target=target_enabled):
+                    source = copy.deepcopy(base)
+                    for container in source["taskDefinition"]["containerDefinitions"][1:]:
+                        for entry in container["environment"]:
+                            if entry["name"] in ("PAYMENTS_ENABLED", "STRIPE_SANDBOX_PAYOUTS", "FEATURE_TIP_POOLS_ENABLED"):
+                                entry["value"] = str(source_enabled).lower()
+                    # Inherited unsafe/stale settings must be replaced in the candidate.
+                    payment = source["taskDefinition"]["containerDefinitions"][2]
+                    for entry in payment["environment"]:
+                        if entry["name"] == "STRIPE_DEMO_ENABLED": entry["value"] = "true"
+                        if entry["name"] == "STRIPE_TEST_ONLY": entry["value"] = "false"
+                        if entry["name"] == "PAYMENTS_TEST_USER_IDS": entry["value"] = "old-test-user"
+                    before = copy.deepcopy(source)
+                    candidate = renderer.render(source, self.images, {**self.config, "STRIPE_TEST_MODE": str(target_enabled).lower()})
+                    for container in candidate["containerDefinitions"][1:]:
+                        env = {e["name"]: e["value"] for e in container["environment"]}
+                        self.assertEqual(str(target_enabled).lower(), env["FEATURE_TIP_POOLS_ENABLED"])
+                        if container["name"] == "payment-service":
+                            self.assertEqual(str(target_enabled).lower(), env["PAYMENTS_ENABLED"])
+                            self.assertEqual(str(target_enabled).lower(), env["STRIPE_SANDBOX_PAYOUTS"])
+                            self.assertEqual("true", env["STRIPE_TEST_ONLY"])
+                            self.assertEqual("false", env["STRIPE_DEMO_ENABLED"])
+                            self.assertEqual("", env["PAYMENTS_TEST_USER_IDS"])
+                    self.assertEqual(before, source)
+        self.assertEqual(original, base)
+
+    def test_rejects_invalid_mode_and_duplicate_inherited_environment(self):
+        with self.assertRaisesRegex(ValueError, "STRIPE_TEST_MODE"):
+            renderer.render(self.response, self.images, {**self.config, "STRIPE_TEST_MODE": "invalid"})
+        task = copy.deepcopy(self.response)
+        env = task["taskDefinition"]["containerDefinitions"][1]["environment"]
+        env.append(copy.deepcopy(env[0]))
+        with self.assertRaisesRegex(ValueError, "Duplicate environment"):
+            renderer.render(task, self.images, self.config)
 
     def test_service_requires_circuit_breaker_and_frontend_target(self):
         self.assertEqual(self.old, renderer.validate_service(self.service, self.config))
@@ -187,14 +217,14 @@ class EcsDeploymentTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 renderer.validate_service(service, self.config)
 
-    def run_mock_deployment(self, mode, stripe_test=False, test_confirmation="ENABLE STRIPE TEST PAYMENTS"):
+    def run_mock_deployment(self, mode, stripe_test=False, test_confirmation="ENABLE STRIPE TEST PAYMENTS", source_stripe_test=False):
         with tempfile.TemporaryDirectory(prefix="gratilo-deploy-test-") as folder:
             root = Path(folder)
             response = copy.deepcopy(self.response)
-            if stripe_test:
+            if stripe_test or source_stripe_test:
                 payment = response["taskDefinition"]["containerDefinitions"][2]
-                values = {"PAYMENTS_ENABLED": "true", "STRIPE_TEST_ONLY": "true", "STRIPE_SANDBOX_PAYOUTS": "true",
-                          "STRIPE_DEMO_ENABLED": "false", "PAYMENTS_TEST_USER_IDS": "", "FEATURE_TIP_POOLS_ENABLED": "false"}
+                values = {"PAYMENTS_ENABLED": str(source_stripe_test).lower(), "STRIPE_TEST_ONLY": "true", "STRIPE_SANDBOX_PAYOUTS": str(source_stripe_test).lower(),
+                  "STRIPE_DEMO_ENABLED": "false", "PAYMENTS_TEST_USER_IDS": "", "FEATURE_TIP_POOLS_ENABLED": "false"}
                 for key, value in values.items():
                     payment["environment"][:] = [entry for entry in payment["environment"] if entry["name"] != key]
                     payment["environment"].append({"name": key, "value": value})
@@ -294,6 +324,11 @@ print('false-body\\n401' if url.endswith('/transactions') else json.dumps({'tipP
         result, calls = self.run_mock_deployment("success", stripe_test=True)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(1, calls.splitlines().count("register-task-definition"))
+        self.assertEqual(1, calls.splitlines().count("update-service"))
+
+    def test_normal_release_disables_inherited_stripe_test_payments(self):
+        result, calls = self.run_mock_deployment("success", source_stripe_test=True)
+        self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(1, calls.splitlines().count("update-service"))
 
     def test_waiter_returning_before_rollout_completion_does_not_trigger_rollback(self):

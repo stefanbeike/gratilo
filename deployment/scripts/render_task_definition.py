@@ -1,4 +1,4 @@
-"""Validate the existing shared task, then replace only its three image references."""
+"""Render release images and selected payment mode into the existing shared task."""
 import copy
 import json
 import os
@@ -43,7 +43,9 @@ def render(response, images, config):
     for field, key in [("executionRoleArn", "ECS_TASK_EXECUTION_ROLE_ARN"), ("taskRoleArn", "ECS_TASK_ROLE_ARN")]:
         require(task.get(field) == config[key], "Unexpected ECS role: " + field)
     definitions = task.get("containerDefinitions", [])
-    stripe_test_mode = config.get("STRIPE_TEST_MODE", "false") == "true"
+    test_mode = config.get("STRIPE_TEST_MODE", "false")
+    require(test_mode in ("true", "false"), "STRIPE_TEST_MODE must be explicitly true or false")
+    stripe_test_mode = test_mode == "true"
     pools_enabled = "true" if stripe_test_mode else "false"
     require(all(sum(c.get("name") == name for c in definitions) == 1 for name in CONTAINERS), "Task must contain each application container exactly once")
     registry = f'{config["AWS_ACCOUNT_ID"]}.dkr.ecr.{config["AWS_REGION"]}.amazonaws.com'
@@ -54,10 +56,17 @@ def render(response, images, config):
         if name in ("user-service", "payment-service"):
             # Keep the UI feature endpoint and payment backend in lockstep.
             environment = container.get("environment", [])
+            require(len({e["name"] for e in environment}) == len(environment), "Duplicate environment variable: " + name)
             values = {item["name"]: item["value"] for item in environment}
-            require(stripe_test_mode or values.get("FEATURE_TIP_POOLS_ENABLED", "false").lower() != "true",
-                    "Pool features may only be enabled in the explicitly selected Stripe test mode")
             values["FEATURE_TIP_POOLS_ENABLED"] = pools_enabled
+            if name == "payment-service":
+                # The selected release mode is authoritative, not the previous
+                # deployment's flags. Disabled releases must work after test runs.
+                values.update(PAYMENTS_ENABLED=pools_enabled,
+                              STRIPE_SANDBOX_PAYOUTS=pools_enabled,
+                              STRIPE_TEST_ONLY="true", STRIPE_DEMO_ENABLED="false")
+                if "PAYMENTS_TEST_USER_IDS" in values:
+                    values["PAYMENTS_TEST_USER_IDS"] = ""
             container["environment"] = [{"name": key, "value": value} for key, value in values.items()]
         require(re.fullmatch(re.escape(registry + "/gratilo/" + name) + r"@sha256:[0-9a-f]{64}", images[name]), "Expected private ECR digest for " + name)
         require(container.get("essential", True), name + " must be essential")
@@ -95,8 +104,6 @@ def render(response, images, config):
                 require(not any(k.startswith("JAVAMAIL_PROPERTIES_") or k in {"MAIL_SMTP_AUTH", "MAIL_SMTP_STARTTLS_ENABLE", "MAIL_SMTP_STARTTLS_REQUIRED"} for k in env), "Remove legacy SMTP overrides from production task")
             else:
                 require(env.get("USER_SERVICE_URL", "http://localhost:8081") in ("http://127.0.0.1:8081", "http://localhost:8081"), "Wrong shared-task user service URL")
-                test_mode = config.get("STRIPE_TEST_MODE", "false")
-                require(test_mode in ("true", "false"), "STRIPE_TEST_MODE must be explicitly true or false")
                 demo_enabled = env.get("STRIPE_DEMO_ENABLED", "false").lower() == "true"
                 sandbox_payouts = env.get("STRIPE_SANDBOX_PAYOUTS", "false").lower() == "true"
                 payments_enabled = env.get("PAYMENTS_ENABLED", "false").lower() == "true"

@@ -1,5 +1,39 @@
 # Produktions-Healthcheck: fehlende IAM-Leserechte
 
+## Ergänzung vom 20.10.2026: Wechsel des Zahlungsmodus
+
+Der Abbruch `Payments and simulated payouts must remain disabled` trat beim
+Rendern auf, vor RegisterTaskDefinition/UpdateService. Die laufende Revision 11
+hatte `PAYMENTS_ENABLED=true`, `STRIPE_SANDBOX_PAYOUTS=true`, `STRIPE_TEST_ONLY=true`
+und deaktivierte Pools. Der neue Release wählte `STRIPE_TEST_MODE=false`.
+Der Renderer übernahm die alten Zahlungsflags und lehnte sie anschließend ab,
+statt einen Kandidaten für den ausgewählten Modus zu erzeugen.
+
+Der Renderer setzt jetzt alle vom Modus abhängigen Flags ausdrücklich:
+
+| Einstellung | Normaler Release | Ausdrücklich freigegebener Stripe-Testrelease |
+| --- | --- | --- |
+| `PAYMENTS_ENABLED` | `false` | `true` |
+| `STRIPE_SANDBOX_PAYOUTS` | `false` | `true` (simuliert, keine Stripe-Payout-API) |
+| `FEATURE_TIP_POOLS_ENABLED`, beide Backends | `false` | `true` |
+| `STRIPE_TEST_ONLY` | `true` | `true` |
+| `STRIPE_DEMO_ENABLED` | `false` | `false` |
+
+Eine geerbte `PAYMENTS_TEST_USER_IDS`-Liste wird geleert; Testzugang verwendet
+den bestehenden Aktivierungscode. Der Testmodus benötigt weiterhin die drei
+korrekten JSON-Feldreferenzen auf dasselbe dedizierte Stripe-Testsecret. Fehlende,
+fremde oder Live-Secret-Referenzen werden nicht automatisch ergänzt oder akzeptiert.
+Die manuelle Freigabe des Testmodus im Deployment-Skript bleibt erforderlich.
+Vorhandene Secret-Referenzen werden erhalten, damit ein anschließender freigegebener
+Testrelease möglich bleibt; ein normaler Release aktiviert damit keine Zahlungen.
+
+Alle vier Kombinationen aus bisherigem und neuem Modus werden geprüft. Ein
+vollständiger gemockter Deploy prüft den konkreten Wechsel von aktiven Testzahlungen
+zum normalen Release. Zusätzlich wurden beide Kandidaten rein lesend aus der
+tatsächlichen AWS-Task-Revision 11 gerendert; Datenbank-URLs, TLS-Einstellungen,
+Secret-Referenzen und die ursprüngliche Task-Definition blieben erhalten.
+Diese Prüfung registriert oder deployt keine AWS-Revision.
+
 ## Ergänzung vom 20.10.2026: Rollout-Status nach dem AWS-Waiter
 
 Revision `gratilo-prd-app:14` hatte einen gesunden Task und genau ein Deployment,
