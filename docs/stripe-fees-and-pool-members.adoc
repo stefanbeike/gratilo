@@ -620,3 +620,68 @@ kein Status-Reset und keine manuelle Freigabe historischer Allokationen.
 * `frontend/src/PublicTipCheckout.tsx`
 * `frontend/src/StripePayment.test.tsx`
 * `frontend/src/dashboard.css`
+
+== Lokale Korrektur: historische Pool-Anteile in der Transaktionsliste
+
+Der Anzeigefehler `0 % eigener Anteil · von 12,50 EUR` hatte drei Ursachen:
+`GET /payment-service/pool-transfers` lieferte keinen historischen Prozentanteil,
+der Frontend-Mapper übernahm daher keinen Anteil und der Renderer ersetzte den
+fehlenden Wert mit `?? 0`. Außerdem setzte der Mapper den vermeintlichen
+Pool-Gesamtbetrag auf den persönlichen Allokationsbetrag.
+
+Die API ergänzt `historicalSharePercent`, `poolDistributionAmountMinor` und
+`selectedTipAmountMinor`. `amountMinor` bleibt der persönliche eingefrorene
+Betrag. Alle Werte stammen ausschließlich aus der konkreten historischen Zahlung
+und ihren Allokationen. Aktuelle Pool-Mitgliedschaften oder heutige Gewichte
+werden nicht abgefragt. Das gespeicherte `share_percent` ist ein Verteilungsgewicht;
+der historische effektive Prozentanteil ergibt sich aus diesem Gewicht geteilt
+durch die Summe der eingefrorenen Gewichte dieser Zahlung. Er wird mit BigDecimal
+auf vier Prozent-Nachkommastellen dargestellt, ohne die Centbeträge zu verändern.
+Insbesondere verändern Rundungsreste bei der Geldverteilung den Anteil nicht.
+
+Der Anteil wird nur ausgegeben, wenn alle gespeicherten Gewichte verwendbar sind
+und die ursprünglichen Allokationen zusammen den eingefrorenen Verteilungsbetrag
+ergeben. Unvollständige oder widersprüchliche historische Daten liefern keinen
+erfundenen Null-Prozent-Wert. Es erfolgt kein Backfill und keine Datenänderung.
+Der Verteilungsbetrag wird aus dem bestehenden Preissnapshot gelesen; bei alten
+unversionierten Zahlungen gilt weiterhin die frühere Verteilung des vollen
+gewählten Trinkgelds. Beschädigte Snapshots werden nicht anhand eines persönlichen
+Betrags oder heutiger Mitgliedschaften ersetzt.
+
+Die Transaktionsliste zeigt beispielsweise:
+
+* `50 % eigener Anteil · Pool-Verteilungsbetrag 25,00 EUR`, persönlicher Betrag
+  `+12,50 EUR`.
+* Ohne Gebührenübernahme nach der Netto-Regel:
+  `50 % eigener Anteil · Pool-Verteilungsbetrag 23,96 EUR · Gewähltes Trinkgeld 25,00 EUR`,
+  persönlicher Betrag `+11,98 EUR`.
+* Ohne belastbare historische Gewichte: `Historischer Anteil nicht verfügbar`.
+  Fehlt auch der Gesamtbetrag, erscheint `Pool-Verteilungsbetrag nicht verfügbar`.
+
+Eine spätere Änderung der Pool-Verteilung ändert diese historischen Angaben nicht.
+Rückabwicklungen bleiben separat gespeichert; sie überschreiben weder den
+ursprünglichen Prozentanteil noch den ursprünglichen Verteilungsbetrag.
+Keine Migration, Stripe-Abfrage, Stripe-POSTs oder Änderungen am Settlement-Worker
+sind für diese reine Lesekorrektur erforderlich.
+
+Validierung dieser Historienkorrektur: alle 138 Payment-Service-Tests und alle
+83 Frontend-Tests erfolgreich. Die acht neuen Backend-Regressionen prüfen
+API-Serialisierung, 50/50, normalisierte ungleiche Gewichte, Cent-Reste,
+Netto-/Bruttotrennung, fehlende/unvollständige Snapshots und Rückabwicklungen.
+Die 13 neuen Frontend-Regressionen prüfen den vollständigen API-Mapper und die
+Transaktionszeile, eine spätere Änderung der aktuellen Mitgliedschaft, fehlende
+und ungültige Prozente, Prozentformatierung und fehlende Gesamtbeträge.
+TypeScript und Frontend-Build sowie `git diff --check` sind erfolgreich.
+
+Betroffene Dateien:
+
+* `backend/payment-service/src/main/java/com/gratilo/payment/api/PoolTransferResponse.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/PoolTransferHistoryService.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolTransferHistoryServiceTest.java`
+* `frontend/src/Dashboard.tsx`
+* `frontend/src/PoolTransactionHistory.test.tsx`
+* `docs/stripe-fees-and-pool-members.adoc`
+
+Der Benutzer hat anschließend Push und Deployment ausdrücklich freigegeben.
+Die Änderung liest bestehende Daten; sie verändert keine gespeicherten Anteile,
+Allokationen, Zahlungsbeträge oder Settlement-Regeln und benötigt keine Migration.
