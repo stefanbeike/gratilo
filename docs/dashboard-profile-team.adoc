@@ -1,0 +1,204 @@
+= Dashboard: Mein Profil und Mein Team
+
+== Aufbau und Datenflüsse
+
+Das Dashboard verwendet zwei getrennte Bereiche unter `/account#overview` und
+`/account#team`. `/account#profile` öffnet weiterhin die persönlichen Einstellungen.
+Einladungs- und öffentliche Zahlungslinks bleiben unverändert.
+Die zentrale Stripe-Statuskarte bleibt beim Bereichswechsel montiert.
+Vollständig aktive Konten erhalten nur eine kompakte Statuszeile.
+
+`Mein Profil` zeigt persönliche Zahlungseingänge aus
+`GET /payment-service/transactions`, ohne Pool-Zahlungen aus deren Metadaten.
+`Mein Team` verwendet ausschließlich die eigenen Allokationen aus
+`GET /payment-service/pool-transfers`. Frühere Team-Einnahmen bleiben auch ohne
+aktuelle Mitgliedschaft sichtbar. Kennzahlen summieren nur gebuchte persönliche
+Beträge im jeweiligen Bereich; ausstehende Transfers zählen nicht als erhalten.
+Heute sowie die letzten sieben beziehungsweise dreißig Kalendertage beginnen in
+der lokalen Zeitzone um Mitternacht. Es werden keine Demo-Einnahmen eingesetzt.
+Ladefehler werden ausgewiesen und nicht als leere erfolgreiche Historie behandelt.
+
+Auszahlungen sind keine persönlichen Trinkgeld-Eingänge und erscheinen nicht in
+den beiden Trinkgeldhistorien. Erstattungen bleiben als solche nachvollziehbar.
+Die vorhandenen Exporte, Filter und persönlichen Profileinstellungen werden
+weiterverwendet. Auf kleinen Bildschirmen werden Transaktionen als Karten mit
+sichtbarem Betrag und Status dargestellt. Die Detailansicht unterstützt Escape,
+Tastaturfokus-Begrenzung und Rückgabe des Fokus an die auslösende Schaltfläche.
+
+== Stripe-Status
+
+Die bestehenden Connect-Abfragen, deren Synchronisierung und Webhooks bleiben
+maßgeblich. Die Karte wertet den gespeicherten Accounts-v2-Status sowie
+`chargesEnabled`, `transfersEnabled`, `payoutsEnabled`, `detailsSubmitted`,
+`onboardingStatus` und `statusCheckedAt` getrennt aus. Ein gespeicherter Status
+älter als zwei Minuten oder `UNAVAILABLE` begründet keine Freigabe.
+
+Nicht eingerichtet, unvollständig, Stripe-Prüfung, Handlungsbedarf, Zahlungsempfang
+mit noch eingeschränkter Bankauszahlung und vollständig aktiv werden unterschieden.
+Die vorhandene private Testfreigabe bleibt vorgeschaltet. Tab-Wechsel erzeugen
+keine neue Stripe-Abfrage. Aktualisierung erfolgt weiterhin beim Laden, bei Fokus,
+periodisch und nach der Rückkehr aus dem bestehenden Onboarding.
+Die persönliche Freigabe ersetzt keine Team-Zahlungsberechtigung.
+
+== Historische Beträge und Status
+
+Die Transaktionshistorie verwendet ausschließlich die eingefrorenen
+`pool_transfers.share_percent`-Gewichte derselben Zahlung, normiert auf deren
+vollständige Allokationsmenge. Aktuelle Team-Gewichte werden dafür nie gelesen.
+Fehlende oder widersprüchliche Snapshots ergeben `Historischer Anteil nicht verfügbar`.
+Der persönliche Allokationsbetrag wird niemals als Gesamttrinkgeld ausgegeben.
+
+Die nur lesende Pool-History-API ergänzt `personalGrossAmountMinor`,
+`personalFeeAmountMinor` und `guestPaymentStatus`. Der persönliche Bruttoanteil
+wird mit der vorhandenen deterministischen Cent-Aufteilung aus ausgewähltem
+Gesamttrinkgeld und eingefrorenen Gewichten rekonstruiert. Die Differenz zur
+ursprünglichen Nettoallokation ist der zugeordnete geschätzte Gebührenabzug.
+Wenn diese Rekonstruktion nicht zuverlässig möglich ist, bleibt die Aufschlüsselung
+unbekannt. Bei Rückabwicklungen bleiben ursprüngliche Brutto- und Gebührenwerte
+erhalten; der angezeigte verbleibende Nettobetrag berücksichtigt die Rückabwicklung.
+
+Bei 25 EUR und 50/50 ohne Gebührenübernahme: 25 EUR ausgewählt,
+23,96 EUR Verteilungsbudget, 12,50 EUR persönlicher Bruttoanteil,
+0,52 EUR zugeordneter geschätzter Gebührenabzug, 11,98 EUR Nettoallokation.
+Mit Gebührenübernahme sind Brutto- und Nettoanteil jeweils 12,50 EUR.
+Die historische Preisberechnung wird nicht nachträglich ausgeführt oder verändert.
+
+Ein gebuchter Gastzahlungsvorgang und ein erfolgreicher persönlicher Transfer
+sind verschiedene Zustände. Nur `TRANSFERRED` gilt als erfolgreicher Empfang.
+Insbesondere `STRIPE_INSUFFICIENT_FUNDS` zeigt einen verzögerten Transfer,
+`RECONCILIATION_REQUIRED` Handlungsbedarf und `REVERSAL_PENDING` eine laufende
+Rückabwicklung. Die bisherigen Settlement-Worker, Idempotenzschlüssel,
+Source-Transaction-Verknüpfung und Gebührenformeln werden nicht verändert.
+
+== Team-Bilder und Berechtigungen
+
+Migration `015_team_image.sql` ergänzt ausschließlich die nullable Spalte
+`user_mgmt.pools.profile_image TEXT`. Bestehende Pools ohne Bild verwenden ein
+lokales Standardmotiv. Keine bestehenden Zeilen oder Zahlungsdaten werden geändert.
+Das Schema bleibt für die vorherige Anwendungsversion lesbar.
+
+Das Bild verwendet dieselbe Infrastruktur wie persönliche Profilbilder:
+maximal 5 MB JPG/PNG/WebP im Browser, quadratischer zentraler Zuschnitt auf 256 x 256,
+JPEG-Normalisierung und serverseitige Prüfung von Format, Dimensionen, tatsächlicher
+Dekodierbarkeit und maximal 140.000 Zeichen der Data-URL. SVG und beliebige URLs
+werden serverseitig nicht angenommen. Speicherung erfolgt in der vorhandenen
+Datenbank, ohne neue S3-Buckets oder andere AWS-Ressourcen.
+
+`PUT /user-service/pools/{poolId}/image` erlaubt Änderungen ausschließlich dem
+Eigentümer. Upload und lokale Team-/Café-/Bar-Vorlagen erscheinen zuerst als
+Vorschau. Erst `Team-Bild bestätigen` speichert sie. Entfernen setzt das Bild
+nach Bestätigung auf null. Eine kostenpflichtige Bildgenerierung ist nicht angebunden.
+`GET /user-service/pools/public/{ownerId}` liefert den Teamnamen und dessen Bild,
+aber keine internen Mitgliedernamen, E-Mails oder Einladungen.
+
+Normale Mitglieder erhalten in Mitgliedschaftsantworten nur ihre eigene
+Mitgliedschaft und die Teamidentität. Auch Annahme, Reaktivierung und Austritt
+liefern keine fremden Einladungstoken. Eigentümer behalten ihre Mitgliederverwaltung.
+
+== Ein aktives Team
+
+Erstellung, Einladungsannahme und beide Reaktivierungswege sperren zuerst den
+betroffenen Benutzer mit `SELECT ... FOR UPDATE`. Innerhalb derselben Transaktion
+werden existierendes Eigentum und andere aktive, angenommene Mitgliedschaften
+geprüft. Dadurch können parallele Erstellungen oder Annahme und Erstellung nicht
+zwei aktive Teams für denselben Benutzer erzeugen. Einladungen und inaktive
+Mitgliedschaften zählen nicht als aktive Teilnahme.
+
+Widersprüchliche Altdaten werden nicht automatisch gelöscht oder verändert.
+Das Dashboard zeigt einen Konflikthinweis statt einer Mehr-Pool-Verwaltung.
+Die Sperre gilt für die vorhandenen Service-/API-Schreibwege. Direkte externe
+Datenbank-Schreibzugriffe umgehen Anwendungsregeln; ein bedingungslos angelegter
+Unique-Index wäre bei widersprüchlichen Altdaten keine sichere Migration.
+
+== Lokale Prüfung
+
+[source,bash]
+----
+npm --prefix frontend test -- --maxWorkers=2
+npm --prefix frontend run build
+./gradlew :backend:user-service:test :backend:payment-service:test \
+  :backend:user-service:assemble :backend:payment-service:assemble
+python3 deployment/scripts/test_registration_postgres.py
+----
+
+Der PostgreSQL-Lauf verwendet einen wegwerfbaren PostgreSQL-15-Container an
+Loopback, reale Liquibase-Migrationen, echte Transaktionen und simulierten
+E-Mail-Versand. Die Team-Integrationstests prüfen konkurrierende Erstellungen
+sowie gleichzeitige Einladungsannahme und Erstellung.
+
+Die ergänzende Browserprüfung verwendet Playwright außerhalb der
+Anwendungsabhängigkeiten und simuliert sämtliche Backend-Endpunkte:
+
+[source,bash]
+----
+# Terminal 1: WSL-Dateisysteme benötigen gegebenenfalls Polling.
+VITE_PAYMENTS_ENABLED=true CHOKIDAR_USEPOLLING=true \
+  npm --prefix frontend run dev -- --host 127.0.0.1 --port 15173
+
+# Playwright kann in einem separaten temporären Werkzeugverzeichnis installiert werden.
+# Falls bereits vorhanden, dessen Modulpfad verwenden.
+GRATILO_PLAYWRIGHT_MODULE=/tmp/gratilo-browser-tools/node_modules/playwright \
+  node frontend/tests/dashboard.browser.cjs
+----
+
+Optional setzt `GRATILO_BROWSER_EXECUTABLE` den vorhandenen Chromium-Pfad.
+Die Prüfung deckt 1440, 390 und 320 Pixel ab, einschließlich öffentlicher Teamseite,
+Navigation, getrennter Historien, zentralem Status, Detailansicht und fehlendem
+horizontalen Seitenüberlauf. Netzwerkzugriffe außerhalb des lokalen Testservers
+werden abgeblockt. Sie erstellt keine Stripe-Zahlungen oder Transfers.
+
+== Geänderte Dateien
+
+[source,text]
+----
+backend/payment-service/src/main/java/com/gratilo/payment/api/PoolTransferResponse.java
+backend/payment-service/src/main/java/com/gratilo/payment/service/PoolTransferHistoryService.java
+backend/payment-service/src/test/java/com/gratilo/payment/service/PoolTransferHistoryServiceTest.java
+backend/user-service/build.gradle
+backend/user-service/src/main/java/com/gratilo/user/api/PoolResponses.java
+backend/user-service/src/main/java/com/gratilo/user/controller/PoolController.java
+backend/user-service/src/main/java/com/gratilo/user/domain/PoolEntity.java
+backend/user-service/src/main/java/com/gratilo/user/service/PoolService.java
+backend/user-service/src/main/resources/db/changelog/changelog-master.xml
+backend/user-service/src/main/resources/db/changelog/user_mgmt/015_team_image.sql
+backend/user-service/src/test/java/com/gratilo/user/controller/PersonalPoolLinkTest.java
+backend/user-service/src/test/java/com/gratilo/user/service/PoolWeightsTest.java
+backend/user-service/src/test/java/com/gratilo/user/service/TeamDashboardTest.java
+backend/user-service/src/test/java/com/gratilo/user/service/TeamMembershipIntegrationTest.java
+docs/dashboard-profile-team.adoc
+docs/stripe-fees-and-pool-members.adoc
+frontend/src/App.test.tsx
+frontend/src/Dashboard.test.tsx
+frontend/src/Dashboard.tsx
+frontend/src/DashboardStructure.test.tsx
+frontend/src/PoolPayments.test.tsx
+frontend/src/PoolTransactionHistory.test.tsx
+frontend/src/PublicTipCheckout.tsx
+frontend/src/StripeOnboarding.test.tsx
+frontend/src/StripePayment.test.tsx
+frontend/src/StripeStatusCard.test.tsx
+frontend/src/StripeStatusCard.tsx
+frontend/src/TeamImageEditor.test.tsx
+frontend/src/TeamImageEditor.tsx
+frontend/src/dashboard.css
+frontend/src/features.test.tsx
+frontend/tests/dashboard.browser.cjs
+----
+
+== Ergebnis der lokalen Prüfung
+
+* Frontend: 107 Tests in 15 Dateien erfolgreich; nach der abschließenden
+  Eingangsfilterung nochmals 13 Dashboard-Tests erfolgreich.
+* Backend: 52 User-Service- und 138 Payment-Service-Tests erfolgreich.
+* PostgreSQL 15: sieben Integrationstests erfolgreich, einschließlich zweier
+  konkurrierender Team-Beitrittsfälle und realer Liquibase-Migrationen.
+* TypeScript-/Vite-Build und beide Backend-Assemblies erfolgreich.
+* Chromium: 1440, 390 und 320 Pixel erfolgreich; einschließlich bestätigter
+  Bildvorschau, öffentlichem Team-Bild, Tastaturnavigation und Statusdetails.
+* `git diff --check` erfolgreich. Ein eigenständiger Frontend-Linter ist nicht
+  konfiguriert; TypeScript-Prüfung ist Bestandteil des Builds.
+
+Es wurden keine echten Stripe-Zahlungen oder Transfers zum Testen angelegt.
+Die bestehende Stripe-Verarbeitung und ihre Sicherheitsprüfungen bleiben bestehen.
+Ein echter Sandbox-End-to-End-Zahlungstest ist damit nicht behauptet.
+Die externe Bildgenerierung bleibt bewusst unangebunden; Vorlagen werden lokal erzeugt.

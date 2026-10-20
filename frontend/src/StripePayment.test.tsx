@@ -34,7 +34,7 @@ it('displays the recipient and only continues after eligibility and quote are re
 
 it('uses the team QR route and creates a guest payment against the pool endpoint', async () => {
   const fetch = vi.fn(async (url: string, options?: RequestInit) => {
-    if (url.includes('/pools/public/')) return response({ ownerId: user, name: 'Service-Team', memberNames: ['Alex', 'Sam'] })
+    if (url.includes('/pools/public/')) return response({ ownerId: user, name: 'Service-Team', memberNames: ['Alex', 'Sam'],profileImage:'data:image/jpeg;base64,team-fixture' })
     if (url.includes('/eligibility')) return response({ canReceiveTips: true })
     if (url.includes('/quote')) return response({ tipAmountMinor: 500, serviceFeeMinor: 0, totalAmountMinor: 500, recipientAmountMinor: 500 })
     if (url.includes('/checkout')) return response({ transactionId: 'pool-tx' })
@@ -44,7 +44,7 @@ it('uses the team QR route and creates a guest payment against the pool endpoint
   history.replaceState({}, '', `/pay/team/${user}`)
   render(<DemoPayment />)
   expect(await screen.findByRole('heading', { name: 'Trinkgeld für Service-Team.' })).toBeInTheDocument()
-  expect(screen.getByText(/Alex, Sam/)).toBeInTheDocument()
+  expect(screen.getByAltText('Team-Profilbild von Service-Team')).toHaveAttribute('src','data:image/jpeg;base64,team-fixture');expect(screen.getByText('Trinkgeld für das gesamte Team')).toBeInTheDocument();expect(screen.queryByText(/Alex, Sam/)).not.toBeInTheDocument()
   const next = screen.getByRole('button', { name: /Weiter/ }); await waitFor(() => expect(next).toBeEnabled()); fireEvent.click(next)
   fireEvent.click(await screen.findByRole('button', { name: /Weiter zur Zusammenfassung/ }))
   fireEvent.click(await screen.findByRole('button', { name: /Jetzt sicher bezahlen/ }))

@@ -70,7 +70,7 @@ tasks.register('registrationPostgresTest', Test) {
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform()
-    include '**/RegistrationIntegrationTest.class'
+    include '**/RegistrationIntegrationTest.class', '**/TeamMembershipIntegrationTest.class'
     // Java 21 containers may prohibit Mockito's dynamic self-attachment.
     // Use its supported premain agent from the actual resolved test classpath.
     jvmArgumentProviders.add({

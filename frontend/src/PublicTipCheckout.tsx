@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import type { Session } from './api'
 import { paymentsEnabled } from './stripe'
+import { TeamAvatar } from './TeamImageEditor'
 
 type Quote = { tipAmountMinor: number; serviceFeeMinor: number; totalAmountMinor: number; currency: string; serviceFeePercent: number; fixedFeeMinor: number; recipientAmountMinor: number; feeEstimated?: boolean; estimatedStripeFeeMinor?: number; feeEstimateBasis?: string }
 type Recipient = { userId: string; firstName?: string; lastName?: string; organisation?: string; profileImage?: string | null; paymentEnabled?: boolean; personalLinkPaused?: boolean; poolName?: string | null; memberNames?: string[] }
@@ -60,7 +61,7 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
       : `/user-service/users/public/${(/^[0-9a-f-]{36}$/i.test(recipientPath) ? recipientPath : `payment/${encodeURIComponent(recipientPath)}`)}`
     let current = true
     fetch(endpoint, { cache: 'no-store' }).then(response => response.ok ? response.json() : Promise.reject())
-      .then((profile: Recipient | { ownerId: string; name: string; memberNames: string[] }) => { if (current) { const recipientProfile = isPool ? { userId: (profile as { ownerId: string }).ownerId, poolName: (profile as { name: string }).name, memberNames: (profile as { memberNames: string[] }).memberNames } : profile as Recipient; setRecipient(recipientProfile); setRecipientId(recipientProfile.userId); sessionStorage.setItem('gratilo:last-recipient', recipientPath); sessionStorage.setItem('gratilo:last-pool', String(isPool)) } })
+      .then((profile: Recipient | { ownerId: string; name: string; memberNames: string[]; profileImage?: string | null }) => { if (current) { const recipientProfile = isPool ? { userId: (profile as { ownerId: string }).ownerId, poolName: (profile as { name: string }).name, profileImage: (profile as { profileImage?: string | null }).profileImage } : profile as Recipient; setRecipient(recipientProfile); setRecipientId(recipientProfile.userId); sessionStorage.setItem('gratilo:last-recipient', recipientPath); sessionStorage.setItem('gratilo:last-pool', String(isPool)) } })
       .catch(() => { if (current) setError('Das Gratilo-Profil konnte nicht geladen werden.') })
     return () => { current = false }
   }, [recipientPath, isPool])
@@ -163,12 +164,12 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
 
   if (!recipient) return <main className="tip-page"><CheckoutBrand /><section className="tip-card"><p role="status">{error || 'Gratilo-Profil wird geladen …'}</p></section></main>
   return <main className="tip-page"><CheckoutBrand /><section className="tip-card">
-    {recipient.profileImage && <img className="tip-profile-image" src={recipient.profileImage} alt={`Profilbild von ${name}`} />}
+    {isPool?<TeamAvatar image={recipient.profileImage} name={name}/>:recipient.profileImage&&<img className="tip-profile-image" src={recipient.profileImage} alt={`Profilbild von ${name}`} />}
     <span className="step-label">SCHRITT {flow.step} VON 3 · {flow.step === 1 ? 'TRINKGELD' : flow.step === 2 ? 'GEBÜHREN' : 'ZUSAMMENFASSUNG'}</span>
     <h1>{flow.step === 2 ? `Wie viel kommt bei ${name} an?` : flow.step === 3 ? `Dein Trinkgeld für ${name}` : `Trinkgeld für ${name}.`}</h1>
     {flow.step === 1 && <>
       <p className="tip-intro">{isPool ? `Der nach deiner Gebührenauswahl festgelegte Betrag wird nach der gespeicherten Verteilungsregel an alle vorgesehenen Mitglieder von ${name} verteilt.` : `Dein Trinkgeld geht direkt an ${name}${recipient.organisation && recipient.organisation !== name ? ` bei ${recipient.organisation}` : ''}.`} Ohne Gratilo- oder Stripe-Konto für dich als Gast.</p>
-      {isPool && recipient.memberNames?.length ? <p className="pool-public-members"><strong>Team:</strong> {recipient.memberNames.join(', ')}</p> : null}
+      {isPool && <p className="pool-public-members"><strong>Trinkgeld für das gesamte Team</strong><br/>Ein gemeinsames Danke für euren Service.</p>}
       {eligibility !== true && <p role="status">{eligibility === null ? 'Zahlungsberechtigung wird geprüft …' : isPool ? 'Dieser Pool ist noch nicht zahlungsbereit. Alle vorgesehenen Mitglieder benötigen die Stripe-Transferfreigabe.' : 'Dieser Empfänger kann derzeit keine Trinkgelder empfangen oder der Stripe-Status konnte nicht geprüft werden.'}</p>}
       {error && <div className="message error" role="alert">{error}</div>}
       <div className="tip-amounts">{[100, 200, 500, 1000].map(value => <button type="button" key={value} aria-pressed={flow.amount === value} className={flow.amount === value ? 'selected' : ''} onClick={() => { update({ amount: value }); setAmountInput((value / 100).toFixed(2).replace('.', ',')) }}>{money(value)}</button>)}</div>

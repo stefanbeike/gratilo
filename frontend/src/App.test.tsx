@@ -11,7 +11,7 @@ describe('authentication', () => {
     fetchMock.mockResolvedValueOnce(respond({ accessToken: 'jwt-token', email: 'alex@example.com', userId: '123' })).mockResolvedValueOnce(respond({ email: 'alex@example.com' }))
     render(<App />); fill('E-Mail-Adresse', 'alex@example.com'); fill('Passwort', 'Secret!1')
     fireEvent.click(screen.getByRole('button', { name: 'Anmelden' }))
-    expect(await screen.findByText('Deine Transaktionen')).toBeInTheDocument()
+    expect(await screen.findByRole('heading',{name:'Persönliche Transaktionen'})).toBeInTheDocument()
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/user-service/users/me', expect.objectContaining({ headers: { Authorization: 'Bearer jwt-token' } }))
     fireEvent.click(screen.getByRole('button', { name: 'Abmelden' }))
     expect(screen.getByRole('button', { name: 'Anmelden' })).toBeInTheDocument()

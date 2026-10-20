@@ -35,11 +35,20 @@ public class PoolTransferHistoryService {
                     // Missing/corrupt historical pricing is unknown, never the recipient's amount.
                 }
             }
-            var historicalShare = historicalShare(item, transfers.findByTransactionId(item.getTransactionId()), distribution);
+            var frozen = transfers.findByTransactionId(item.getTransactionId());
+            var historicalShare = historicalShare(item, frozen, distribution);
+            Long gross = null, fee = null;
+            if (historicalShare != null && selected != null) {
+                try {
+                    var weights = frozen.stream().map(row -> new PoolAllocation.Weight(row.getRecipientUserId(),row.getSharePercent())).toList();
+                    var original = PoolAllocation.split(selected,weights).stream().filter(row -> row.userId().equals(userId)).findFirst().orElseThrow().amountMinor();
+                    if (original >= item.getAmountMinor()) { gross=original;fee=original-item.getAmountMinor(); }
+                } catch (RuntimeException invalid) { /* An unavailable historical breakdown stays unknown. */ }
+            }
             return new PoolTransferResponse(item.getId(), item.getTransactionId(), poolName, item.getAmountMinor(),
                     item.getReversedAmountMinor(), item.getStatus(), item.getStripeTransferId(),
                     item.getStripeReversalId(), item.getCreatedAt(), item.getFailureCode(), item.getFundsAvailableAt(), item.getLastAttemptAt(),
-                    historicalShare, distribution, selected);
+                    historicalShare, distribution, selected, gross, fee, transaction == null || transaction.getStatus() == null ? null : transaction.getStatus().name());
         }).toList();
     }
 

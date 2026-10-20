@@ -17,4 +17,5 @@
     <include file="user_mgmt/012_production_payment_urls.sql" relativeToChangelogFile="true"/>
     <include file="user_mgmt/013_owned_domain.sql" relativeToChangelogFile="true"/>
     <include file="user_mgmt/014_gratilo_eu.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/015_team_image.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>

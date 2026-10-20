@@ -14,7 +14,7 @@ class PersonalPoolLinkTest {
     @Test void ownershipPausesPersonalLinkAndDeletionRestoresTheSameUrl() {
         UUID owner=UUID.randomUUID();
         var user=new UserEntity(); user.setId(owner); user.setEmail("owner@example.test"); user.setPaymentEnabled(true); user.setPaymentUrlPath("/pay/unchanged");
-        var users=mock(UserRepository.class); when(users.findById(owner)).thenReturn(Optional.of(user));
+        var users=mock(UserRepository.class); when(users.findById(owner)).thenReturn(Optional.of(user)); when(users.findByIdForUpdate(owner)).thenReturn(Optional.of(user));
         var pools=mock(PoolRepository.class); var members=mock(PoolMemberRepository.class);
         when(members.findByPoolId(any())).thenReturn(List.of()); when(members.findByPoolIdAndUserId(any(),any())).thenReturn(Optional.empty());
         var stored=new java.util.concurrent.atomic.AtomicReference<PoolEntity>();

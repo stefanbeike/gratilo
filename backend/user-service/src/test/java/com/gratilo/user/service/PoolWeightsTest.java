@@ -28,7 +28,7 @@ class PoolWeightsTest {
   var members=mock(PoolMemberRepository.class);var stored=new ArrayList<>(List.of(a,b));when(members.findByPoolId(poolId)).thenAnswer(i->List.copyOf(stored));
   when(members.findById(b.getId())).thenReturn(Optional.of(b));when(members.findByPoolIdAndUserId(poolId,a.getUserId())).thenReturn(Optional.of(a));
   doAnswer(i->{stored.remove(b);return null;}).when(members).deleteById(b.getId());
-  var users=mock(UserRepository.class);when(users.findById(any())).thenReturn(Optional.empty());
+  var users=mock(UserRepository.class);when(users.findById(any())).thenReturn(Optional.empty());when(users.findByIdForUpdate(any())).thenReturn(Optional.of(new UserEntity()));
   var service=new PoolService(pools,members,users,mock(EmailSendService.class),"http://localhost",true);
   var response=service.setActive(a.getUserId(),poolId,b.getId(),false);assertEquals(100,response.members().getFirst().effectiveSharePercent());assertEquals(0,response.members().get(1).effectiveSharePercent());assertEquals(70,b.getSharePercent());
   response=service.setActive(a.getUserId(),poolId,b.getId(),true);assertEquals(30,response.members().getFirst().effectiveSharePercent());assertEquals(70,response.members().get(1).effectiveSharePercent());

@@ -16,6 +16,7 @@ class PoolTransferHistoryServiceTest {
         var result=f.history();
         assertEquals(0,new BigDecimal("50").compareTo(result.historicalSharePercent()));
         assertEquals(1250,result.amountMinor());assertEquals(2500L,result.poolDistributionAmountMinor());
+        assertEquals(1250L,result.personalGrossAmountMinor());assertEquals(0L,result.personalFeeAmountMinor());assertEquals("BOOKED",result.guestPaymentStatus());
         assertEquals(2500L,result.selectedTipAmountMinor());assertEquals("testpool",result.poolName());
         var json=JsonMapper.createDefault().writeValueAsString(result);
         var wire=JsonMapper.createDefault().readValue(json,Map.class);
@@ -40,6 +41,7 @@ class PoolTransferHistoryServiceTest {
         f.tx.setMetadata(JsonMapper.createDefault().writeValueAsString(metadata));
         var result=f.history();assertEquals(2396L,result.poolDistributionAmountMinor());
         assertEquals(2500L,result.selectedTipAmountMinor());assertEquals(1198,result.amountMinor());
+        assertEquals(1250L,result.personalGrossAmountMinor());assertEquals(52L,result.personalFeeAmountMinor());
         assertEquals(0,new BigDecimal("50").compareTo(result.historicalSharePercent()));
         TipPricing.quote(2500,false,new BigDecimal("1.5"),25);
         assertEquals(result,f.history());
@@ -72,7 +74,7 @@ class PoolTransferHistoryServiceTest {
         boolean transactionMissing;
         Fixture(long selected,long first,long second,String firstWeight,String secondWeight) {
             tx.setId(UUID.randomUUID());tx.setAmountMinor(selected);tx.setProvider("STRIPE");tx.setType(TransactionType.TIP);
-            tx.setMetadata("{\"poolName\":\"testpool\"}");
+            tx.setStatus(TransactionStatus.BOOKED);tx.setMetadata("{\"poolName\":\"testpool\"}");
             for(int i=0;i<2;i++) {
                 var row=new PoolTransferEntity();row.setId(UUID.randomUUID());row.setTransactionId(tx.getId());
                 row.setRecipientUserId(i==0?user:UUID.randomUUID());row.setSharePercent(new BigDecimal(i==0?firstWeight:secondWeight));

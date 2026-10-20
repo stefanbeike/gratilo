@@ -685,3 +685,11 @@ Betroffene Dateien:
 Der Benutzer hat anschließend Push und Deployment ausdrücklich freigegeben.
 Die Änderung liest bestehende Daten; sie verändert keine gespeicherten Anteile,
 Allokationen, Zahlungsbeträge oder Settlement-Regeln und benötigt keine Migration.
+
+== Getrennte Dashboard-Historien
+
+Das Dashboard trennt persönliche und Team-Einnahmen unter `Mein Profil` und
+`Mein Team`. Die Pool-History liefert zusätzlich persönliche historische
+Brutto-/Gebührenanteile und den Gastzahlungsstatus. Die ursprünglichen
+Allokationen, Gebührenformeln und Transfer-Verarbeitung bleiben unverändert.
+Weitere Details und Prüfbefehle: xref:dashboard-profile-team.adoc[].

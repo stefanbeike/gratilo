@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { FeatureFlagsProvider } from './features'
 import { Dashboard } from './Dashboard'
@@ -32,7 +32,8 @@ it.each([false, undefined])('hides pools and skips pool requests when disabled o
 
 it('restores pool management and requests when enabled by the backend', async () => {
   const fetchMock = mount(true)
-  expect(await screen.findByRole('heading', { name: 'Dein Trinkgeld-Pool' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button',{name:'Mein Team'}))
+  expect(await screen.findByText('Du bist noch keinem Team zugeordnet.')).toBeInTheDocument()
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === '/user-service/pools/memberships')).toBe(true))
 })
 
