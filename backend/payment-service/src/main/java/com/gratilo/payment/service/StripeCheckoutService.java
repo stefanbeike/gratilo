@@ -11,10 +11,21 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.*;
+import java.math.BigDecimal;
+import com.gratilo.payment.domain.PoolTransferEntity;
+import com.gratilo.payment.repository.PoolTransferRepository;
+import jakarta.inject.Inject;
 @Singleton
 public class StripeCheckoutService {
     private final RecipientAvailability recipients; private final TransactionRepository transactions; private final ConnectedAccountRepository accounts; private final StripeConnectService connect; private final String secret, successUrl, cancelUrl; private final double feePercent; private final long fixedFeeMinor;
-    public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect, @Value("${stripe.secret-key:}") String secret, @Value("${stripe.success-url}") String successUrl, @Value("${stripe.cancel-url}") String cancelUrl, @Value("${stripe.fee-percent:1.5}") double feePercent, @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor, RecipientAvailability recipients) { this.recipients=recipients; this.transactions=transactions; this.accounts=accounts; this.connect=connect; StripeConnectService.requireTestKey(secret); this.secret=secret; this.successUrl=absoluteUrl(successUrl); this.cancelUrl=absoluteUrl(cancelUrl); this.feePercent=feePercent; this.fixedFeeMinor=fixedFeeMinor; }
+    private final PoolDistributionClient poolClient; private final PoolTransferRepository poolTransfers;
+    public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect, @Value("${stripe.secret-key:}") String secret, @Value("${stripe.success-url}") String successUrl, @Value("${stripe.cancel-url}") String cancelUrl, @Value("${stripe.fee-percent:1.5}") double feePercent, @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor, RecipientAvailability recipients) {
+        this(transactions, accounts, connect, secret, successUrl, cancelUrl, feePercent, fixedFeeMinor, recipients, null, null);
+    }
+    @Inject
+    public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect, @Value("${stripe.secret-key:}") String secret, @Value("${stripe.success-url}") String successUrl, @Value("${stripe.cancel-url}") String cancelUrl, @Value("${stripe.fee-percent:1.5}") double feePercent, @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor, RecipientAvailability recipients, PoolDistributionClient poolClient, PoolTransferRepository poolTransfers) {
+        this.recipients=recipients; this.transactions=transactions; this.accounts=accounts; this.connect=connect; this.poolClient=poolClient; this.poolTransfers=poolTransfers; StripeConnectService.requireTestKey(secret); this.secret=secret; this.successUrl=absoluteUrl(successUrl); this.cancelUrl=absoluteUrl(cancelUrl); this.feePercent=feePercent; this.fixedFeeMinor=fixedFeeMinor;
+    }
     public boolean isConfigured() { return !secret.isBlank(); }
     public boolean isSandbox() { return true; }
 
@@ -111,9 +122,110 @@ public class StripeCheckoutService {
         return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false));
     }
 
+    /** A team QR is charged once to Gratilo, then settled as separate transfers after funds are available. */
+    @Transactional
+    public Optional<CheckoutResponse> createPool(UUID owner, TipPaymentRequest request) throws Exception {
+        validateRequest(request);
+        if (poolClient == null || poolTransfers == null) throw new PoolNotReadyException();
+        if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
+        var pool = poolClient.find(owner).orElseThrow(PoolNotReadyException::new);
+        if (pool.poolId() == null || pool.members().isEmpty()) throw new PoolNotReadyException();
+        var eligible = new ArrayList<PoolEligible>();
+        for (var member : pool.members()) {
+            if (!member.active() || member.sharePercent() <= 0) continue;
+            if (!Double.isFinite(member.sharePercent()) || member.sharePercent() > 100) throw new PoolNotReadyException();
+            try {
+                var account = eligibleAccount(member.userId());
+                eligible.add(new PoolEligible(member.userId(), account.getStripeAccountId(), BigDecimal.valueOf(member.sharePercent())));
+            } catch (RecipientNotReadyException ignored) {
+                // Incomplete or paused accounts receive no transfer. Remaining configured weights are normalized.
+            }
+        }
+        if (eligible.isEmpty()) throw new PoolNotReadyException();
+        long fee = request.feeCovered() ? TipPricing.voluntaryIncreaseMinor(request.tipAmountMinor(), feePercent, fixedFeeMinor) : 0;
+        long total = Math.addExact(request.tipAmountMinor(), fee);
+        var weights = eligible.stream().map(e -> new PoolAllocation.Weight(e.userId(), e.sharePercent())).toList();
+        var shares = PoolAllocation.split(request.tipAmountMinor(), weights);
+        var idempotency = request.idempotencyKey();
+        var existing = transactions.findByAccountUserIdAndIdempotencyKey(owner, idempotency);
+        TransactionEntity tx;
+        if (existing.isPresent()) {
+            tx = existing.get();
+            var prior = json(tx.getMetadata());
+            if (!"STRIPE".equals(tx.getProvider()) || tx.getType() != TransactionType.TIP || tx.getAmountMinor() != request.tipAmountMinor()
+                    || !Objects.equals(tx.getDescription(), request.message()) || !pool.poolId().toString().equals(prior.get("poolId"))
+                    || !(prior.get("totalAmountMinor") instanceof Number saved) || saved.longValue() != total
+                    || !Boolean.valueOf(request.feeCovered()).equals(prior.get("feeCovered")))
+                throw new IllegalArgumentException("Idempotency key already used with different payment details");
+            if (tx.getStatus() != TransactionStatus.PENDING) throw new IllegalArgumentException("Payment already processed");
+            if (tx.getProviderReference() != null) {
+                var session = json(stripeRequest("/v1/checkout/sessions/" + enc(tx.getProviderReference()), null, null));
+                return Optional.of(new CheckoutResponse((String) session.get("url"), tx.getId().toString(), false));
+            }
+        } else {
+            tx = new TransactionEntity(); tx.setAccountUserId(owner); tx.setAmountMinor(request.tipAmountMinor()); tx.setCurrency("EUR");
+            tx.setType(TransactionType.TIP); tx.setStatus(TransactionStatus.PENDING); tx.setDescription(request.message());
+            tx.setIdempotencyKey(idempotency); tx.setProvider("STRIPE");
+            tx.setMetadata("{\"poolId\":\"" + pool.poolId() + "\",\"poolName\":\"" + jsonEscape(pool.poolName()) + "\",\"totalAmountMinor\":" + total + ",\"feeCovered\":" + request.feeCovered() + ",\"feeSurchargeMinor\":" + fee + "}");
+            tx = transactions.save(tx);
+            var eligibleById = new HashMap<UUID, PoolEligible>(); eligible.forEach(e -> eligibleById.put(e.userId(), e));
+            var now = OffsetDateTime.now();
+            for (var share : shares) {
+                var member = eligibleById.get(share.userId());
+                if (member == null || share.amountMinor() <= 0) continue;
+                var transfer = new PoolTransferEntity(); transfer.setId(UUID.randomUUID()); transfer.setTransactionId(tx.getId());
+                transfer.setRecipientUserId(member.userId()); transfer.setStripeAccountId(member.accountId());
+                transfer.setSharePercent(member.sharePercent()); transfer.setAmountMinor(share.amountMinor());
+                transfer.setStatus("PENDING"); transfer.setCreatedAt(now); transfer.setUpdatedAt(now); poolTransfers.save(transfer);
+            }
+        }
+        String group = "gratilo_" + tx.getId();
+        String metadata = param("transaction_id", tx.getId().toString()) + param("pool_id", pool.poolId().toString());
+        String form = param("mode", "payment") + param("line_items[0][price_data][currency]", "eur")
+                + param("line_items[0][price_data][unit_amount]", Long.toString(total))
+                + param("line_items[0][price_data][product_data][name]", "Trinkgeld für " + pool.poolName())
+                + param("line_items[0][quantity]", "1") + param("metadata[transaction_id]", tx.getId().toString())
+                + param("metadata[pool_id]", pool.poolId().toString()) + param("metadata[fee_covered]", Boolean.toString(request.feeCovered()))
+                + param("metadata[fee_surcharge_minor]", Long.toString(fee)) + param("payment_intent_data[transfer_group]", group)
+                + param("payment_intent_data[metadata][transaction_id]", tx.getId().toString())
+                + param("payment_intent_data[metadata][pool_id]", pool.poolId().toString())
+                + param("success_url", successUrl) + param("cancel_url", cancelUrl);
+        var session = json(stripeRequest("/v1/checkout/sessions", form, "checkout-" + tx.getId()));
+        String id = (String) session.get("id"), url = (String) session.get("url");
+        if (!Boolean.FALSE.equals(session.get("livemode")) || id == null || !id.startsWith("cs_test_") || url == null)
+            throw new IllegalStateException("Invalid Stripe test Checkout response");
+        tx.setProviderReference(id); tx.setPaymentMethod("card"); transactions.update(tx);
+        return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false));
+    }
+
+    private void validateRequest(TipPaymentRequest request) {
+        if (request == null || request.tipAmountMinor() == null || request.tipAmountMinor() < 100 || request.tipAmountMinor() > 1000000
+                || request.idempotencyKey() == null || !request.idempotencyKey().matches("[A-Za-z0-9_-]{1,100}"))
+            throw new IllegalArgumentException("Invalid tip amount or idempotency key");
+    }
+
+    private record PoolEligible(UUID userId, String accountId, BigDecimal sharePercent) {}
+    public static class PoolNotReadyException extends IllegalStateException { public PoolNotReadyException() { super("Pool has no payout-ready members"); } }
+    private static String jsonEscape(String value) { return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\""); }
+
     public boolean canReceiveTips(UUID recipient) {
         try { eligibleAccount(recipient); return true; }
         catch (Exception unavailable) { return false; }
+    }
+
+    public boolean canReceivePoolTips(UUID owner) {
+        if (poolClient == null || poolTransfers == null) return false;
+        try {
+            var pool = poolClient.find(owner).orElse(null);
+            if (pool == null || pool.poolId() == null) return false;
+            for (var member : pool.members()) {
+                if (member.active() && member.sharePercent() > 0) {
+                    try { eligibleAccount(member.userId()); return true; }
+                    catch (RecipientNotReadyException ignored) { }
+                }
+            }
+        } catch (Exception ignored) { }
+        return false;
     }
 
     private ConnectedAccountEntity eligibleAccount(UUID recipient) throws Exception {

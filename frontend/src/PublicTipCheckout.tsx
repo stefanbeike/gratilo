@@ -3,7 +3,7 @@ import type { Session } from './api'
 import { paymentsEnabled } from './stripe'
 
 type Quote = { tipAmountMinor: number; serviceFeeMinor: number; totalAmountMinor: number; currency: string; serviceFeePercent: number; fixedFeeMinor: number; recipientAmountMinor: number }
-type Recipient = { userId: string; firstName?: string; lastName?: string; organisation?: string; profileImage?: string | null; paymentEnabled?: boolean; poolName?: string | null }
+type Recipient = { userId: string; firstName?: string; lastName?: string; organisation?: string; profileImage?: string | null; paymentEnabled?: boolean; poolName?: string | null; memberNames?: string[] }
 type SavedFlow = { amount: number; message: string; feeCovered: boolean; step: 1 | 2 | 3; attemptKey?: string; pendingSessionId?: string }
 type CheckoutStatus = { status: 'PAID' | 'PENDING' | 'FAILED'; confirmed: boolean; transactionId?: string; tipAmountMinor?: number; amountPaidMinor?: number; recipientUserId?: string; checkoutUrl?: string }
 const MIN_TIP = 100
@@ -29,6 +29,7 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   const path = location.pathname
   const isSuccess = path.endsWith('/success')
   const isCancelled = path.endsWith('/cancelled')
+  const isPool = path.startsWith('/pay/team/') || ((isSuccess || isCancelled) && sessionStorage.getItem('gratilo:last-pool') === 'true')
   const recipientPath = isSuccess || isCancelled ? sessionStorage.getItem('gratilo:last-recipient') || '' : path.split('/').pop() || ''
   const flowStorageKey = `gratilo:checkout:${recipientPath || 'current'}`
   const [flow, setFlow] = useState<SavedFlow>(() => savedFlow(flowStorageKey))
@@ -51,32 +52,33 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   useEffect(() => { sessionStorage.setItem(flowStorageKey, JSON.stringify(flow)) }, [flow, flowStorageKey])
   useEffect(() => {
     if (!recipientPath) return
-    const endpoint = /^[0-9a-f-]{36}$/i.test(recipientPath) ? recipientPath : `payment/${encodeURIComponent(recipientPath)}`
+    const endpoint = isPool ? `/user-service/pools/public/${encodeURIComponent(recipientPath)}`
+      : `/user-service/users/public/${(/^[0-9a-f-]{36}$/i.test(recipientPath) ? recipientPath : `payment/${encodeURIComponent(recipientPath)}`)}`
     let current = true
-    fetch(`/user-service/users/public/${endpoint}`, { cache: 'no-store' }).then(response => response.ok ? response.json() : Promise.reject())
-      .then((profile: Recipient) => { if (current) { setRecipient(profile); setRecipientId(profile.userId); sessionStorage.setItem('gratilo:last-recipient', recipientPath) } })
+    fetch(endpoint, { cache: 'no-store' }).then(response => response.ok ? response.json() : Promise.reject())
+      .then((profile: Recipient | { ownerId: string; name: string; memberNames: string[] }) => { if (current) { const recipientProfile = isPool ? { userId: (profile as { ownerId: string }).ownerId, poolName: (profile as { name: string }).name, memberNames: (profile as { memberNames: string[] }).memberNames } : profile as Recipient; setRecipient(recipientProfile); setRecipientId(recipientProfile.userId); sessionStorage.setItem('gratilo:last-recipient', recipientPath); sessionStorage.setItem('gratilo:last-pool', String(isPool)) } })
       .catch(() => { if (current) setError('Das Gratilo-Profil konnte nicht geladen werden.') })
     return () => { current = false }
-  }, [recipientPath])
+  }, [recipientPath, isPool])
   useEffect(() => {
     if (!recipientId || isResult) return
     let current = true
-    fetch(`/payment-service/tips/${recipientId}/eligibility`, { headers, cache: 'no-store' })
+    fetch(`/payment-service/tips/${isPool ? `pools/${recipientId}` : recipientId}/eligibility`, { headers, cache: 'no-store' })
       .then(response => response.ok ? response.json() : Promise.reject())
       .then(value => { if (current) setEligibility(value?.canReceiveTips === true) })
       .catch(() => { if (current) setEligibility(false) })
     return () => { current = false }
-  }, [recipientId, headers, isResult])
+  }, [recipientId, headers, isResult, isPool])
   useEffect(() => {
     if (!recipientId || isResult || !validInputAmount) { setQuote(null); return }
     let current = true
     setQuote(null)
-    fetch(`/payment-service/tips/${recipientId}/quote?amountMinor=${validInputAmount}&feeCovered=${flow.feeCovered}`, { headers, cache: 'no-store' })
+    fetch(`/payment-service/tips/${isPool ? `pools/${recipientId}` : recipientId}/quote?amountMinor=${validInputAmount}&feeCovered=${flow.feeCovered}`, { headers, cache: 'no-store' })
       .then(response => response.ok ? response.json() : Promise.reject())
       .then(value => { if (current) { setQuote(value); setError('') } })
       .catch(() => { if (current) { setQuote(null); setError('Der Betrag konnte gerade nicht berechnet werden. Bitte versuche es erneut.') } })
     return () => { current = false }
-  }, [recipientId, validInputAmount, flow.feeCovered, headers, isResult, loadRevision])
+  }, [recipientId, validInputAmount, flow.feeCovered, headers, isResult, loadRevision, isPool])
   const sessionId = new URLSearchParams(location.search).get('session_id') || flow.pendingSessionId
   useEffect(() => {
     if (!isResult || !sessionId) return
@@ -104,7 +106,7 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
     const attemptKey = flow.attemptKey || nextKey()
     update({ attemptKey })
     try {
-      const response = await fetch(`/payment-service/tips/${recipientId}/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ tipAmountMinor: flow.amount, message: flow.message || null, idempotencyKey: attemptKey, feeCovered: flow.feeCovered }) })
+      const response = await fetch(`/payment-service/tips/${isPool ? `pools/${recipientId}` : recipientId}/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ tipAmountMinor: flow.amount, message: flow.message || null, idempotencyKey: attemptKey, feeCovered: flow.feeCovered }) })
       const result = await response.json()
       if (!response.ok) throw new Error(result.message || 'Stripe Checkout konnte nicht gestartet werden.')
       if (!result.checkoutUrl) throw new Error('Die sichere Stripe-Zahlungsseite wurde nicht zurückgegeben. Der Versuch bleibt für eine sichere Wiederholung gespeichert.')
@@ -141,7 +143,8 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
     <span className="step-label">SCHRITT {flow.step} VON 3 · {flow.step === 1 ? 'TRINKGELD' : flow.step === 2 ? 'GEBÜHREN' : 'ZUSAMMENFASSUNG'}</span>
     <h1>{flow.step === 2 ? `Wie viel kommt bei ${name} an?` : flow.step === 3 ? `Dein Trinkgeld für ${name}` : `Trinkgeld für ${name}.`}</h1>
     {flow.step === 1 && <>
-      <p className="tip-intro">Dein Trinkgeld geht direkt an {name}{recipient.organisation && recipient.organisation !== name ? ` bei ${recipient.organisation}` : ''}. Ohne Gratilo- oder Stripe-Konto für dich als Gast.</p>
+      <p className="tip-intro">{isPool ? `Dein Trinkgeld wird nach der angezeigten Verteilungsregel an zahlungsberechtigte Mitglieder von ${name} verteilt.` : `Dein Trinkgeld geht direkt an ${name}${recipient.organisation && recipient.organisation !== name ? ` bei ${recipient.organisation}` : ''}.`} Ohne Gratilo- oder Stripe-Konto für dich als Gast.</p>
+      {isPool && recipient.memberNames?.length ? <p className="pool-public-members"><strong>Team:</strong> {recipient.memberNames.join(', ')}</p> : null}
       {eligibility !== true && <p role="status">{eligibility === null ? 'Zahlungsberechtigung wird geprüft …' : 'Dieser Empfänger kann derzeit keine Trinkgelder empfangen oder der Stripe-Status konnte nicht geprüft werden.'}</p>}
       {error && <div className="message error" role="alert">{error}</div>}
       <div className="tip-amounts">{[100, 200, 500, 1000].map(value => <button type="button" key={value} aria-pressed={flow.amount === value} className={flow.amount === value ? 'selected' : ''} onClick={() => { update({ amount: value }); setAmountInput((value / 100).toFixed(2).replace('.', ',')) }}>{money(value)}</button>)}</div>

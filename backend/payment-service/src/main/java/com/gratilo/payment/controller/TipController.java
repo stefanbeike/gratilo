@@ -22,7 +22,15 @@ public class TipController {
         return HttpResponse.ok(java.util.Map.of("canReceiveTips", checkoutService.canReceiveTips(recipientUserId)))
                 .header("Cache-Control", "no-store");
     }
+    @Get("/pools/{ownerUserId}/eligibility") public HttpResponse<?> poolEligibility(UUID ownerUserId) {
+        return HttpResponse.ok(java.util.Map.of("canReceiveTips", checkoutService.canReceivePoolTips(ownerUserId)))
+                .header("Cache-Control", "no-store");
+    }
     @Get("/{recipientUserId}/quote") public TipQuote quote(UUID recipientUserId, @QueryValue @jakarta.validation.constraints.Min(100) @jakarta.validation.constraints.Max(1000000) long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) {
+        long fee = feeCovered ? TipPricing.voluntaryIncreaseMinor(amountMinor, feePercent, fixedFeeMinor) : 0;
+        return new TipQuote(amountMinor, fee, Math.addExact(amountMinor, fee), "EUR", feePercent, fixedFeeMinor, amountMinor);
+    }
+    @Get("/pools/{ownerUserId}/quote") public TipQuote poolQuote(UUID ownerUserId, @QueryValue @jakarta.validation.constraints.Min(100) @jakarta.validation.constraints.Max(1000000) long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) {
         long fee = feeCovered ? TipPricing.voluntaryIncreaseMinor(amountMinor, feePercent, fixedFeeMinor) : 0;
         return new TipQuote(amountMinor, fee, Math.addExact(amountMinor, fee), "EUR", feePercent, fixedFeeMinor, amountMinor);
     }
@@ -48,6 +56,22 @@ public class TipController {
                         stripeError.parameter(), stripeError.requestId());
             else
                 LOG.error("Stripe Checkout failed: internal error type {}", exception.getClass().getName());
+            return HttpResponse.status(HttpStatus.BAD_GATEWAY).body(java.util.Map.of("message", "Stripe Checkout konnte nicht erstellt werden."));
+        }
+    }
+    @Post("/pools/{ownerUserId}/checkout") public HttpResponse<?> poolCheckout(UUID ownerUserId, @QueryValue(value = "demo", defaultValue = "false") String demo, @Body @Valid TipPaymentRequest request) {
+        if (request.tipAmountMinor() < 100) return HttpResponse.badRequest(java.util.Map.of("message", "Mindesttrinkgeld: 1,00 EUR"));
+        if ("1".equals(demo) || "true".equalsIgnoreCase(demo)) return HttpResponse.badRequest(java.util.Map.of("message", "Demo-Zahlungen sind deaktiviert."));
+        try {
+            var checkout = checkoutService.createPool(ownerUserId, request);
+            if (checkout.isPresent()) return HttpResponse.ok(checkout.get());
+            return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("message", "Stripe Checkout ist noch nicht verfügbar."));
+        } catch (StripeCheckoutService.PoolNotReadyException unavailable) {
+            return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code", "POOL_NOT_READY", "message", "Für diesen Pool sind derzeit keine berechtigten Stripe-Konten verfügbar."));
+        } catch (Exception exception) {
+            if (exception instanceof StripeCheckoutService.StripeApiException stripeError)
+                LOG.error("Pool Stripe Checkout failed: upstream status={} type={} code={} param={} requestId={}", stripeError.statusCode(), stripeError.errorType(), stripeError.errorCode(), stripeError.parameter(), stripeError.requestId());
+            else LOG.error("Pool Stripe Checkout failed: internal error type {}", exception.getClass().getName());
             return HttpResponse.status(HttpStatus.BAD_GATEWAY).body(java.util.Map.of("message", "Stripe Checkout konnte nicht erstellt werden."));
         }
     }

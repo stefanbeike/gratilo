@@ -25,6 +25,8 @@ public class TransactionEntity {
     @Column(name = "idempotency_key", length = 100) private String idempotencyKey;
     @Column(nullable = false, length = 40) private String provider = "DEMO";
     @Column(name = "provider_reference") private String providerReference;
+    @Column(name = "stripe_payment_intent_id", length = 255) private String stripePaymentIntentId;
+    @Column(name = "stripe_charge_id", length = 255) private String stripeChargeId;
     @Column(name = "payment_method", length = 40) private String paymentMethod;
     @Column(name = "failure_code", length = 80) private String failureCode;
     @Column(name = "failure_message", length = 500) private String failureMessage;

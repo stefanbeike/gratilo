@@ -23,7 +23,8 @@ WEBHOOK = "https://gratilo.eu/payment-service/webhooks/stripe"
 EVENTS = ["checkout.session.completed", "checkout.session.expired",
           "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed",
           "payment_intent.succeeded", "payment_intent.payment_failed",
-          "payment_intent.canceled", "charge.refunded"]
+          "payment_intent.canceled", "charge.refunded", "charge.dispute.created",
+          "charge.dispute.closed"]
 SAFE_ENV = {"PAYMENTS_ENABLED", "STRIPE_TEST_ONLY", "STRIPE_DEMO_ENABLED", "STRIPE_SANDBOX_PAYOUTS",
             "FEATURE_TIP_POOLS_ENABLED", "PAYMENTS_TEST_USER_IDS", "FRONTEND_BASE_URL",
             "STRIPE_SUCCESS_URL", "STRIPE_CANCEL_URL", "USER_SERVICE_URL"}
@@ -99,7 +100,7 @@ def task_candidate(task, secret_arn, test_users, self_activation=False):
         if any(re.search(r"SECRET|PASSWORD|TOKEN|PRIVATE_KEY|ACCESS_KEY|ACTIVATION_CODE", key) for key in env):
             raise AuditError("Task contains plaintext credential variables; draft refused")
         if name in ("user-service", "payment-service"):
-            env["FEATURE_TIP_POOLS_ENABLED"] = "false"
+            env["FEATURE_TIP_POOLS_ENABLED"] = "true"
         if name == "payment-service":
             env.update(PAYMENTS_ENABLED="true", STRIPE_TEST_ONLY="true", STRIPE_DEMO_ENABLED="false",
                        STRIPE_SANDBOX_PAYOUTS="true", PAYMENTS_TEST_USER_IDS=",".join(test_users),

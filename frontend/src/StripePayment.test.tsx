@@ -32,6 +32,28 @@ it('displays the recipient and only continues after eligibility and quote are re
   expect(await screen.findByRole('heading', { name: 'Wie viel kommt bei Alex an?' })).toBeInTheDocument()
 })
 
+it('uses the team QR route and creates a guest payment against the pool endpoint', async () => {
+  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+    if (url.includes('/pools/public/')) return response({ ownerId: user, name: 'Service-Team', memberNames: ['Alex', 'Sam'] })
+    if (url.includes('/eligibility')) return response({ canReceiveTips: true })
+    if (url.includes('/quote')) return response({ tipAmountMinor: 500, serviceFeeMinor: 0, totalAmountMinor: 500, recipientAmountMinor: 500 })
+    if (url.includes('/checkout')) return response({ transactionId: 'pool-tx' })
+    return response({})
+  })
+  vi.stubGlobal('fetch', fetch)
+  history.replaceState({}, '', `/pay/team/${user}`)
+  render(<DemoPayment />)
+  expect(await screen.findByRole('heading', { name: 'Trinkgeld für Service-Team.' })).toBeInTheDocument()
+  expect(screen.getByText(/Alex, Sam/)).toBeInTheDocument()
+  const next = screen.getByRole('button', { name: /Weiter/ }); await waitFor(() => expect(next).toBeEnabled()); fireEvent.click(next)
+  fireEvent.click(await screen.findByRole('button', { name: /Weiter zur Zusammenfassung/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /Jetzt sicher bezahlen/ }))
+  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes(`/payment-service/tips/pools/${user}/checkout`))).toBe(true))
+  expect(await screen.findByText(/sichere Stripe-Zahlungsseite wurde nicht zurückgegeben/)).toBeInTheDocument()
+  const checkout = fetch.mock.calls.find(([url]) => url.includes('/checkout'))
+  expect(checkout?.[1]?.headers && (checkout[1]?.headers as Record<string, string>).Authorization).toBeUndefined()
+})
+
 it('supports fee coverage, summary and back navigation while preserving the message', async () => {
   installGuest()
   history.replaceState({}, '', `/pay/${user}`)

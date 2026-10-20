@@ -3,10 +3,10 @@ package com.gratilo.user.config;
 import io.micronaut.context.annotation.Context;
 import io.micronaut.context.annotation.Value;
 
-/** Pooling is not supported in the current individual-tip release. */
+/** Kept as a compatibility bean; pool routes are independently guarded by the feature flag. */
 @Context
 public class PoolDisabledConfiguration {
     public PoolDisabledConfiguration(@Value("${features.tip-pools-enabled:false}") boolean enabled) {
-        if (enabled) throw new IllegalStateException("Tip pooling must remain disabled");
+        // Enabling the feature exposes only authenticated pool management routes.
     }
 }

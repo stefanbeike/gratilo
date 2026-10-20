@@ -48,3 +48,7 @@
 .account-welcome{display:flex;align-items:center;gap:20px;min-width:0}
 .account-smile{display:block;width:80px;height:80px;flex-shrink:0;transform:rotate(-10deg)}
 @media(max-width:650px){.account-brand img{width:120px}.account-welcome{gap:12px}.account-smile{width:48px;height:48px}}
+.pool-team-qr{display:flex;align-items:center;gap:18px;margin:0 26px 18px;padding:16px;background:#f7faff;border:1px solid #dfe9f2;border-radius:10px}.pool-team-qr>svg{flex:none;background:#fff;padding:6px;border-radius:6px}.pool-team-qr>div{min-width:0;flex:1}.pool-team-qr strong{font-size:12px}.pool-team-qr .muted{font-size:11px;line-height:1.5;margin:5px 0 10px}.pool-public-members{font-size:12px;color:#718397}
+@media(max-width:680px){.pool-team-qr{align-items:flex-start;gap:12px;margin-left:14px;margin-right:14px;padding:12px}.pool-team-qr>svg{width:84px;height:84px}}
+.pool-edit-name{display:flex;align-items:center;gap:10px;margin:0 26px 14px}.pool-edit-name label{font-size:11px;color:#718397}.pool-edit-name input{margin:0;max-width:320px;height:38px}.pool-edit-name button{margin-left:auto}
+@media(max-width:680px){.pool-edit-name{margin-left:14px;margin-right:14px;flex-wrap:wrap}.pool-edit-name label{width:100%}.pool-edit-name input{flex:1;max-width:none}}

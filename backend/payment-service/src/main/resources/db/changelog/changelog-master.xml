@@ -8,4 +8,6 @@
     <include file="payment_mgmt/003_connect_accounts.sql" relativeToChangelogFile="true"/>
     <include file="payment_mgmt/004_payment_method.sql" relativeToChangelogFile="true"/>
     <include file="payment_mgmt/005_test_access.sql" relativeToChangelogFile="true"/>
+    <include file="payment_mgmt/006_pool_transfers.sql" relativeToChangelogFile="true"/>
+    <include file="payment_mgmt/007_stripe_payment_refs.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>

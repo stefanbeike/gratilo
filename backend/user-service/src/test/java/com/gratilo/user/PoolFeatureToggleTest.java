@@ -3,6 +3,7 @@ package com.gratilo.user;
 import com.gratilo.user.controller.FeatureController;
 import com.gratilo.user.controller.PoolController;
 import com.gratilo.user.controller.PoolDistributionController;
+import com.gratilo.user.controller.PublicPoolController;
 import com.gratilo.user.service.PoolService;
 import io.micronaut.context.ApplicationContext;
 import org.junit.jupiter.api.Test;
@@ -13,7 +14,7 @@ import static org.mockito.Mockito.mock;
 
 class PoolFeatureToggleTest {
     @Test
-    void poolRoutesAreAbsentAndEnablingPoolsPreventsStartup() {
+    void poolRoutesAreAbsentWhenDisabledAndRegisteredWhenEnabled() {
         for (boolean enabled : new boolean[]{false, true}) {
             try (ApplicationContext context = ApplicationContext.builder()
                     .environmentPropertySource(false)
@@ -21,13 +22,10 @@ class PoolFeatureToggleTest {
                     .properties(enabled ? Map.of("features.tip-pools-enabled", true) : Map.of())
                     .build()) {
                 context.registerSingleton(PoolService.class, mock(PoolService.class));
-                if (enabled) {
-                    assertThrows(io.micronaut.context.exceptions.BeanInstantiationException.class, context::start);
-                    continue;
-                }
                 context.start();
                 assertEquals(enabled, context.containsBean(PoolController.class));
                 assertEquals(enabled, context.containsBean(PoolDistributionController.class));
+                assertEquals(enabled, context.containsBean(PublicPoolController.class));
                 assertEquals(enabled, context.getEnvironment()
                         .getProperty("features.tip-pools-enabled", Boolean.class).orElse(false));
             }

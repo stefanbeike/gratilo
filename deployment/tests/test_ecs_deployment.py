@@ -96,12 +96,15 @@ class EcsDeploymentTest(unittest.TestCase):
         response = copy.deepcopy(self.response)
         payment = response["taskDefinition"]["containerDefinitions"][2]
         values = {"PAYMENTS_ENABLED": "true", "STRIPE_TEST_ONLY": "true", "STRIPE_SANDBOX_PAYOUTS": "true",
-                  "STRIPE_DEMO_ENABLED": "false", "PAYMENTS_TEST_USER_IDS": "", "FEATURE_TIP_POOLS_ENABLED": "false"}
+                  "STRIPE_DEMO_ENABLED": "false", "PAYMENTS_TEST_USER_IDS": "", "FEATURE_TIP_POOLS_ENABLED": "true"}
         env = payment["environment"]
         for key, value in values.items():
             env[:] = [entry for entry in env if entry["name"] != key]
             env.append({"name": key, "value": value})
         root = "arn:aws:secretsmanager:eu-central-1:123456789012:secret:gratilo/prd/stripe-test-fixture"
+        for service_name in ("user-service",):
+            service_container = next(c for c in response["taskDefinition"]["containerDefinitions"] if c["name"] == service_name)
+            service_container["environment"] = [e for e in service_container["environment"] if e["name"] != "FEATURE_TIP_POOLS_ENABLED"] + [{"name": "FEATURE_TIP_POOLS_ENABLED", "value": "true"}]
         payment["secrets"].extend([
             {"name": "STRIPE_SECRET_KEY", "valueFrom": root + ":secret_key::"},
             {"name": "STRIPE_WEBHOOK_SECRET", "valueFrom": root + ":webhook_secret::"},
@@ -113,7 +116,9 @@ class EcsDeploymentTest(unittest.TestCase):
         rendered_env = {entry["name"]: entry["value"] for entry in rendered_payment["environment"]}
         self.assertEqual("true", rendered_env["PAYMENTS_ENABLED"])
         self.assertEqual("true", rendered_env["STRIPE_SANDBOX_PAYOUTS"])
-        self.assertEqual("false", rendered_env["FEATURE_TIP_POOLS_ENABLED"])
+        self.assertEqual("true", rendered_env["FEATURE_TIP_POOLS_ENABLED"])
+        rendered_user = next(c for c in rendered["containerDefinitions"] if c["name"] == "user-service")
+        self.assertEqual("true", {entry["name"]: entry["value"] for entry in rendered_user["environment"]}["FEATURE_TIP_POOLS_ENABLED"])
 
     def test_rejects_live_or_unrestricted_payment_configurations(self):
         base = copy.deepcopy(self.response)
@@ -135,7 +140,6 @@ class EcsDeploymentTest(unittest.TestCase):
             ("STRIPE_SANDBOX_PAYOUTS", "false", None),
             ("STRIPE_DEMO_ENABLED", "true", None),
             ("PAYMENTS_TEST_USER_IDS", "11111111-1111-1111-1111-111111111111", None),
-            ("FEATURE_TIP_POOLS_ENABLED", "true", None),
             (None, None, "STRIPE_SECRET_KEY"),
             (None, None, "STRIPE_WEBHOOK_SECRET"),
             (None, None, "PAYMENTS_TEST_ACTIVATION_CODE"),

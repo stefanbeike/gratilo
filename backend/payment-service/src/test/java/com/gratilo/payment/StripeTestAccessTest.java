@@ -58,7 +58,10 @@ class StripeTestAccessTest {
         access.activate(tester, code);
         for (String action : new String[]{"checkout", "quote", "eligibility"})
             assertEquals(SecurityRuleResult.UNKNOWN, rule.evaluate(HttpRequest.GET("/payment-service/tips/" + tester + "/" + action), null));
+        for (String action : new String[]{"checkout", "quote", "eligibility"})
+            assertEquals(SecurityRuleResult.UNKNOWN, rule.evaluate(HttpRequest.GET("/payment-service/tips/pools/" + tester + "/" + action), null));
         assertEquals(SecurityRuleResult.UNKNOWN, rule.evaluate(request, null));
+        assertEquals(SecurityRuleResult.REJECTED, rule.evaluate(HttpRequest.POST("/payment-service/tips/pools/" + other + "/checkout", "{}"), null));
         assertEquals(SecurityRuleResult.REJECTED, rule.evaluate(HttpRequest.POST("/payment-service/tips/" + other + "/checkout", "{}"), Authentication.build(tester.toString())));
         access.revoke(tester);
         assertEquals(SecurityRuleResult.REJECTED, rule.evaluate(request, null));

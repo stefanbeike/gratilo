@@ -43,12 +43,22 @@ def render(response, images, config):
     for field, key in [("executionRoleArn", "ECS_TASK_EXECUTION_ROLE_ARN"), ("taskRoleArn", "ECS_TASK_ROLE_ARN")]:
         require(task.get(field) == config[key], "Unexpected ECS role: " + field)
     definitions = task.get("containerDefinitions", [])
+    stripe_test_mode = config.get("STRIPE_TEST_MODE", "false") == "true"
+    pools_enabled = "true" if stripe_test_mode else "false"
     require(all(sum(c.get("name") == name for c in definitions) == 1 for name in CONTAINERS), "Task must contain each application container exactly once")
     registry = f'{config["AWS_ACCOUNT_ID"]}.dkr.ecr.{config["AWS_REGION"]}.amazonaws.com'
     for container in definitions:
         name = container["name"]
         if name not in CONTAINERS:
             continue  # Preserve unrelated sidecars as well.
+        if name in ("user-service", "payment-service"):
+            # Keep the UI feature endpoint and payment backend in lockstep.
+            environment = container.get("environment", [])
+            values = {item["name"]: item["value"] for item in environment}
+            require(stripe_test_mode or values.get("FEATURE_TIP_POOLS_ENABLED", "false").lower() != "true",
+                    "Pool features may only be enabled in the explicitly selected Stripe test mode")
+            values["FEATURE_TIP_POOLS_ENABLED"] = pools_enabled
+            container["environment"] = [{"name": key, "value": value} for key, value in values.items()]
         require(re.fullmatch(re.escape(registry + "/gratilo/" + name) + r"@sha256:[0-9a-f]{64}", images[name]), "Expected private ECR digest for " + name)
         require(container.get("essential", True), name + " must be essential")
         require(container.get("healthCheck", {}).get("command"), "Missing ECS health check: " + name)
@@ -69,7 +79,7 @@ def render(response, images, config):
         else:
             require("prd" in env.get("MICRONAUT_ENVIRONMENTS", "").split(","), "Missing production profile: " + name)
             require(env.get("FRONTEND_BASE_URL", "https://gratilo.eu") == "https://gratilo.eu", "Wrong production domain: " + name)
-            require(env.get("FEATURE_TIP_POOLS_ENABLED", "false").lower() == "false", "Pool splitting must remain disabled for this production baseline")
+            require(env.get("FEATURE_TIP_POOLS_ENABLED", "false").lower() == pools_enabled, "Pool feature must match the explicitly selected Stripe test mode")
             db = urlparse(env.get("DATASOURCES_DEFAULT_URL", "").removeprefix("jdbc:"))
             query = parse_qs(db.query)
             require(db.scheme == "postgresql" and db.path == "/gratilodb" and db.hostname not in (None, "localhost", "127.0.0.1", "postgres"), "Expected private RDS URL for existing gratilodb: " + name)

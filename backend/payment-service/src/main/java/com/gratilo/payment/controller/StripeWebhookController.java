@@ -22,7 +22,10 @@ public class StripeWebhookController {
     private final String secret;
     private final boolean testOnly;
     private final JsonMapper jsonMapper;
-    public StripeWebhookController(TransactionRepository transactions, @Value("${stripe.webhook-secret:}") String secret, @Value("${stripe.test-only:false}") boolean testOnly, JsonMapper jsonMapper) { this.transactions = transactions; this.secret = secret; this.testOnly = true; this.jsonMapper = jsonMapper; }
+    private final com.gratilo.payment.repository.PoolTransferRepository poolTransfers;
+    public StripeWebhookController(TransactionRepository transactions, @Value("${stripe.webhook-secret:}") String secret, @Value("${stripe.test-only:false}") boolean testOnly, JsonMapper jsonMapper) { this(transactions, secret, testOnly, jsonMapper, null); }
+    @jakarta.inject.Inject
+    public StripeWebhookController(TransactionRepository transactions, @Value("${stripe.webhook-secret:}") String secret, @Value("${stripe.test-only:false}") boolean testOnly, JsonMapper jsonMapper, com.gratilo.payment.repository.PoolTransferRepository poolTransfers) { this.transactions = transactions; this.secret = secret; this.testOnly = true; this.jsonMapper = jsonMapper; this.poolTransfers = poolTransfers; }
 
     @Post
     @Transactional
@@ -43,6 +46,14 @@ public class StripeWebhookController {
         Object transactionId = metadata.get("transaction_id");
         if (transactionId == null) transactionId = metadata.get("transactionId");
         String txId = transactionId instanceof String value ? value : null;
+        if (txId == null && event != null && event.startsWith("checkout.session.") && object.get("id") instanceof String sessionId) {
+            var bySession = transactions.findByProviderReference(sessionId).orElse(null);
+            if (bySession != null) txId = bySession.getId().toString();
+        }
+        if (txId == null && object.get("payment_intent") instanceof String intentId) {
+            var byIntent = transactions.findByStripePaymentIntentId(intentId).orElse(null);
+            if (byIntent != null) txId = byIntent.getId().toString();
+        }
         if (txId != null && event != null) {
             try {
                 var tx = transactions.findById(UUID.fromString(txId)).orElse(null);
@@ -52,22 +63,38 @@ public class StripeWebhookController {
                     boolean tip = tx.getType() == com.gratilo.payment.domain.TransactionType.TIP;
                     boolean payout = tx.getType() == com.gratilo.payment.domain.TransactionType.PAYOUT;
                     TransactionStatus next = null;
+                    if (object.get("payment_intent") instanceof String paymentIntentId && paymentIntentId.startsWith("pi_")) tx.setStripePaymentIntentId(paymentIntentId);
+                    if (event.startsWith("payment_intent.") && object.get("id") instanceof String intentId && intentId.startsWith("pi_")) {
+                        tx.setStripePaymentIntentId(intentId);
+                        if (object.get("latest_charge") instanceof String chargeId && chargeId.startsWith("ch_")) tx.setStripeChargeId(chargeId);
+                    }
+                    if (event.startsWith("charge.") && object.get("id") instanceof String chargeId && chargeId.startsWith("ch_")) tx.setStripeChargeId(chargeId);
                     if (tip && (event.equals("payment_intent.succeeded")
                             || ((event.equals("checkout.session.completed") || event.equals("checkout.session.async_payment_succeeded"))
                                 && "paid".equals(object.get("payment_status"))))) next = TransactionStatus.BOOKED;
                     else if (tip && (event.equals("payment_intent.payment_failed") || event.equals("checkout.session.expired")
                             || event.equals("checkout.session.async_payment_failed"))) next = TransactionStatus.FAILED;
                     else if (tip && event.equals("payment_intent.canceled")) next = TransactionStatus.CANCELLED;
-                    else if (tip && event.equals("charge.refunded") && Boolean.TRUE.equals(object.get("refunded"))) next = TransactionStatus.REFUNDED;
+                    else if (tip && event.equals("charge.refunded")) {
+                        long amount = number(object.get("amount"));
+                        long refunded = number(object.get("amount_refunded"));
+                        if (Boolean.TRUE.equals(object.get("refunded")) || amount > 0 && refunded >= amount) next = TransactionStatus.REFUNDED;
+                        if (refunded > 0 && poolTransfers != null) applyPoolRefund(tx, refunded, amount);
+                    }
+                    else if (tip && event.equals("charge.dispute.created")) next = TransactionStatus.DISPUTED;
+                    else if (tip && event.equals("charge.dispute.closed")) next = "lost".equals(object.get("status")) ? TransactionStatus.CHARGEBACK : "won".equals(object.get("status")) ? TransactionStatus.BOOKED : TransactionStatus.DISPUTED;
                     else if (payout && event.equals("payout.paid")) next = TransactionStatus.BOOKED;
                     else if (payout && (event.equals("payout.failed") || event.equals("payout.canceled"))) next = TransactionStatus.FAILED;
                     // Late failures and duplicate successes cannot overwrite a completed or refunded tip.
                     boolean settled = tx.getStatus() == TransactionStatus.BOOKED || tx.getStatus() == TransactionStatus.COMPLETED;
                     if (next != null && next != tx.getStatus() && tx.getStatus() != TransactionStatus.REFUNDED
-                            && (!settled || next == TransactionStatus.REFUNDED || payout)) {
+                            && (!settled || next == TransactionStatus.REFUNDED || next == TransactionStatus.DISPUTED
+                                || next == TransactionStatus.CHARGEBACK || payout)) {
                         tx.setStatus(next);
                         if (next == TransactionStatus.BOOKED) tx.setBookedAt(java.time.OffsetDateTime.now());
                         if (next != TransactionStatus.PENDING) tx.setCompletedAt(java.time.OffsetDateTime.now());
+                        transactions.update(tx);
+                    } else if (next == null && (tx.getStripePaymentIntentId() != null || tx.getStripeChargeId() != null)) {
                         transactions.update(tx);
                     }
                 }
@@ -75,6 +102,19 @@ public class StripeWebhookController {
         }
         return HttpResponse.ok();
     }
+
+    private void applyPoolRefund(com.gratilo.payment.domain.TransactionEntity tx, long refunded, long chargeTotal) {
+        if (chargeTotal <= 0) return;
+        long capped = Math.min(refunded, chargeTotal);
+        for (var allocation : poolTransfers.findByTransactionId(tx.getId())) {
+            long reversal = java.math.BigInteger.valueOf(allocation.getAmountMinor()).multiply(java.math.BigInteger.valueOf(capped))
+                    .divide(java.math.BigInteger.valueOf(chargeTotal)).longValue();
+            allocation.setReversalAmountMinor(Math.max(allocation.getReversalAmountMinor(), Math.min(allocation.getAmountMinor(), reversal)));
+            allocation.setUpdatedAt(java.time.OffsetDateTime.now()); poolTransfers.update(allocation);
+        }
+    }
+
+    private static long number(Object value) { return value instanceof Number amount ? amount.longValue() : 0L; }
 
     private boolean validSignature(String payload, String header) {
         if (header == null) return false;

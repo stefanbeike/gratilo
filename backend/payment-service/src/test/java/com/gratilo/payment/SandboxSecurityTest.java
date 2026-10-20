@@ -90,9 +90,9 @@ class SandboxSecurityTest {
         assertEquals(2, updates.get());
     }
 
-    @Test void blocksLiveKeysAndPoolActivationInEveryEnvironment() {
+    @Test void blocksLiveKeysWhilePoolFeatureCanBeExplicitlyEnabled() {
         assertThrows(IllegalStateException.class, () -> new com.gratilo.payment.service.StripeConnectService("sk_live_fixture", "http://localhost"));
-        assertThrows(IllegalStateException.class, () -> new com.gratilo.payment.config.PoolDisabledConfiguration(true));
+        assertDoesNotThrow(() -> new com.gratilo.payment.config.PoolDisabledConfiguration(true));
         assertDoesNotThrow(() -> new com.gratilo.payment.config.PoolDisabledConfiguration(false));
         var controller = new com.gratilo.payment.controller.ConnectedAccountController(null, null);
         assertEquals(HttpStatus.NOT_FOUND, controller.demoComplete(null).getStatus());

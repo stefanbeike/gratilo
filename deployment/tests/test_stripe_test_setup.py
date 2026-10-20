@@ -51,14 +51,17 @@ class StripeTestSetupTest(unittest.TestCase):
         for before, after in zip(task["containerDefinitions"], result["containerDefinitions"]):
             for field in ("image", "healthCheck", "logConfiguration", "portMappings"):
                 self.assertEqual(before[field], after[field])
+            env = {e["name"]: e["value"] for e in after["environment"]}
+            if after["name"] == "user-service":
+                self.assertEqual("true", env["FEATURE_TIP_POOLS_ENABLED"])
+                continue
             if after["name"] != "payment-service":
                 self.assertEqual(before, after)
                 continue
-            env = {e["name"]: e["value"] for e in after["environment"]}
             self.assertEqual("true", env["PAYMENTS_ENABLED"])
             self.assertEqual("true", env["STRIPE_TEST_ONLY"])
             self.assertEqual("true", env["STRIPE_SANDBOX_PAYOUTS"])
-            self.assertEqual("false", env["FEATURE_TIP_POOLS_ENABLED"])
+            self.assertEqual("true", env["FEATURE_TIP_POOLS_ENABLED"])
             refs = {s["name"]: s["valueFrom"] for s in after["secrets"]}
             self.assertEqual(arn + ":secret_key::", refs["STRIPE_SECRET_KEY"])
             self.assertEqual(arn + ":webhook_secret::", refs["STRIPE_WEBHOOK_SECRET"])

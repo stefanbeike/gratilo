@@ -9,4 +9,6 @@ public interface TransactionRepository extends CrudRepository<TransactionEntity,
     List<TransactionEntity> findByAccountUserIdOrderByCreatedAtDesc(UUID accountUserId);
     Optional<TransactionEntity> findByIdAndAccountUserId(UUID id, UUID accountUserId);
     Optional<TransactionEntity> findByAccountUserIdAndIdempotencyKey(UUID accountUserId, String idempotencyKey);
+    Optional<TransactionEntity> findByStripePaymentIntentId(String stripePaymentIntentId);
+    Optional<TransactionEntity> findByProviderReference(String providerReference);
 }

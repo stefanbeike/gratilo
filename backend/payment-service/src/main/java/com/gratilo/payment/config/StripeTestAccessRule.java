@@ -53,6 +53,11 @@ public class StripeTestAccessRule implements SecurityRule<HttpRequest<?>> {
         String prefix = "/payment-service/tips/";
         if (path.startsWith(prefix)) {
             String[] parts = path.substring(prefix.length()).split("/", -1);
+            if (parts.length == 3 && "pools".equals(parts[0])
+                    && Set.of("quote", "eligibility", "checkout").contains(parts[2])) {
+                try { return access.enabled(UUID.fromString(parts[1])) ? SecurityRuleResult.UNKNOWN : SecurityRuleResult.REJECTED; }
+                catch (IllegalArgumentException invalid) { return SecurityRuleResult.REJECTED; }
+            }
             if (parts.length != 2 || !Set.of("quote", "eligibility", "checkout").contains(parts[1])) return SecurityRuleResult.REJECTED;
             try { return access.enabled(UUID.fromString(parts[0])) ? SecurityRuleResult.UNKNOWN : SecurityRuleResult.REJECTED; }
             catch (IllegalArgumentException invalid) { return SecurityRuleResult.REJECTED; }

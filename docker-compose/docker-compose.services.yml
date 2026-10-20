@@ -24,7 +24,7 @@ services:
       MAIL_HOST: mailhog
       MAIL_PORT: 1025
       MICRONAUT_ENVIRONMENTS: docker
-      FEATURE_TIP_POOLS_ENABLED: "false"
+      FEATURE_TIP_POOLS_ENABLED: ${FEATURE_TIP_POOLS_ENABLED:-false}
     ports:
       - "8081:8081"
     networks:
@@ -47,7 +47,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the ignored root .env}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in the ignored root .env}
       USER_SERVICE_URL: http://user-service:8081
-      FEATURE_TIP_POOLS_ENABLED: "false"
+      FEATURE_TIP_POOLS_ENABLED: ${FEATURE_TIP_POOLS_ENABLED:-false}
       PAYMENTS_ENABLED: ${PAYMENTS_ENABLED:-false}
       STRIPE_SANDBOX_PAYOUTS: "true"
       STRIPE_TEST_ONLY: "true"

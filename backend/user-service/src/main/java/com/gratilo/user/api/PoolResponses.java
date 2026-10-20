@@ -5,4 +5,5 @@ public final class PoolResponses { private PoolResponses() {}
  @Serdeable public record Pool(UUID id,String name,UUID ownerId,List<Member> members) {}
  @Serdeable public record DistributionMember(UUID userId,String name,String email,double sharePercent,boolean active,boolean stripeOnboardingCompleted) {}
  @Serdeable public record Distribution(UUID poolId,String poolName,List<DistributionMember> members) {}
+ @Serdeable public record PublicPool(UUID ownerId,String name,List<String> memberNames) {}
 }
