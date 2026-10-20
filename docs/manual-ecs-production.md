@@ -278,3 +278,168 @@ Die dort beschriebenen Startprüfungen gelten für alle Umgebungen. Pooling darf
 nicht aktiviert werden. Bestehende ECS-Vorlagen und Release-Builds bleiben auf
 deaktivierten Zahlungen; zum genehmigten Aktivieren sind die dort genannten
 Werte ausdrücklich anzupassen.
+
+## Statisches Datenbankpasswort und Startfehler am 20.10.2026
+
+Gewünschter Betrieb: statisches PostgreSQL-Passwort aus `gratilo/prd/database`
+(JSON `username` und `password`), keine automatische Passwortrotation.
+Die ECS-Secret-Referenzen bleiben auf diesem Secret. Passwörter gehören weder
+in Git noch in Shell-Argumente, Logs oder JDBC-URLs.
+
+Die lesende Untersuchung am 20.10.2026 ergab:
+
+- RDS `gratilo-postgres-prd` war `available`, PostgreSQL 15.19, privat.
+- RDS rotierte das separat verwaltete Master-Secret um 08:09 Uhr MESZ.
+- `gratilo/prd/database` wurde zuletzt am 16.10. geändert. Ein Vergleich nur
+  im Arbeitsspeicher bestätigte: Benutzer identisch, Passwörter verschieden.
+- CloudWatch meldete `FATAL: password authentication failed for user "postgres"`.
+  ECS hatte 0 laufende Tasks bei Sollwert 1, die ALB-Target-Group keine Targets.
+  Revisionen 10, 11 und 12 verwenden dieselbe veraltete Passwortreferenz;
+  deshalb behebt ein Image-Rollback diesen Authentifizierungsfehler nicht.
+
+Vorbereitete Reparatur: RDS-Passwortverwaltung abschalten und als Master-Passwort
+den vorhandenen Wert aus `gratilo/prd/database` setzen. AWS löscht dabei
+automatisch das **RDS-verwaltete** Secret; das Anwendungssecret bleibt bestehen.
+Siehe [AWS ModifyDBInstance](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_ModifyDBInstance.html).
+Diese Nebenwirkung muss vor Ausführung ausdrücklich freigegeben sein.
+
+Die sichere Vorschau liest nur Metadaten:
+
+```bash
+python3 deployment/scripts/static_rds_password.py
+```
+
+Erst nach Freigabe der Passwortänderung einschließlich der Secret-Löschung:
+
+```bash
+python3 deployment/scripts/static_rds_password.py --apply --acknowledge-managed-secret-deletion
+```
+
+Das Skript bindet Konto, Profil, Region, Datenbank und VPC fest, verweigert
+öffentliche Datenbanken und ausstehende RDS-Änderungen. Das Passwort wird nur
+im Speicher verarbeitet und per stdin an die CLI übergeben. Kein
+`ApplyImmediately` für andere Änderungen, kein Reboot, keine Netzwerkänderung,
+kein neues Deployment. Die Passwortverwaltung ändert AWS unmittelbar.
+Nach Abschluss: RDS ohne `MasterUserSecret` prüfen, ECS-Neustartversuche beobachten,
+Running=Desired=1, alle drei Container gesund, ALB-Target gesund und HTTPS prüfen.
+Ein laufendes Pipeline-Skript kann sich bereits im Rollback befinden; zuerst
+dessen Zustand klären, bevor eine freigegebene Release-Version erneut deployt wird.
+Ein erfolgreicher Passwortwechsel allein bestätigt noch keine gesunde Anwendung.
+
+## DBeaver: geprüfter privater Zugang am 20.10.2026
+
+Konto `070351676632`, Profil `gratilo`, Region `eu-central-1`.
+Die aktuelle Rechner-IPv4 war `217.253.49.160`, unabhängig über
+`checkip.amazonaws.com` und `api.ipify.org` ermittelt. Vor jeder Freigabe erneut prüfen.
+
+| Ressource | Bestand / Abhängigkeit |
+| --- | --- |
+| VPC | `gratilo-prd-vpc`, `vpc-07825b07bcd00d0d1`, `10.42.0.0/16` |
+| RDS | `gratilo-postgres-prd`, `PubliclyAccessible=false`, verschlüsselte Speicherung |
+| DB-Subnetzgruppe | `gratilo-prd-db-subnet-group`, beide privaten Subnetze |
+| Privat 1a | `subnet-08a0a07b07ba145d7`, `10.42.128.0/20`, Route `rtb-0717e64d6b949154f` |
+| Privat 1b | `subnet-0c25e23bc429c8e67`, `10.42.144.0/20`, Route `rtb-07c731cca16f1fbf1` |
+| Private Default-Routen | bestehendes regionales NAT `nat-17a6b349ebc05b283` |
+| Öffentlich 1a | `subnet-06b9a46b90f2af341`, `10.42.0.0/20` |
+| Öffentlich 1b | `subnet-0dfbfaadeb94a50e7`, `10.42.16.0/20` |
+| Öffentliche Routen | `rtb-06cfebe01b3df2502` → `igw-050b21e12eda88878` |
+| NAT-Routentabelle | `rtb-00661d0ea27dfebf5` → dasselbe Internet-Gateway |
+| Main-Routentabelle | `rtb-0de237a23aac7ab8a`, nur VPC-lokal |
+| RDS-SG | `sg-0b31d54acc7c91867`, TCP 5432 ausschließlich von ECS- und Zugangs-SG |
+| ECS-SG | `sg-0cdb5b617a4dfd97d`, Frontend-Port 80 ausschließlich vom ALB |
+| ALB-SG | `sg-0eb4dd906ce35350b`, öffentliche Ports 80/443 für den produktiven Webdienst |
+| NACL | `acl-0f385b9157243f32a`, Standard-ACL aller vier Subnetze |
+
+ECS `gratilo-prd-app` nutzt die beiden privaten Subnetze ohne öffentliche IP.
+ALB `gratilo-prd-alb` nutzt die beiden öffentlichen Subnetze. VPC, alle vier
+Subnetze, Routing, Internet-Gateway, NAT samt zugehörigen IPs, ALB/Target-Group,
+RDS und deren produktive SGs müssen erhalten bleiben. NAT wird auch für
+ECR/S3-Images, CloudWatch, Secrets Manager und den SSM-Agent benötigt.
+Keine VPC-Endpunkte, Client-VPN-Endpunkte oder Site-to-Site-VPN-Verbindungen
+in der geprüften Region gefunden. DNS-Support und DNS-Hostnames sind aktiviert.
+
+**Eine `/32`-Security-Group-Regel allein ermöglicht keinen Internetzugriff auf
+diese private RDS-Instanz.** Das NAT ermöglicht keine eingehenden Verbindungen.
+Direktzugriff erforderte `PubliclyAccessible=true` und geeignete öffentliche
+DB-Subnetze mit Internet-Gateway-Routen. Das kann eine Subnetzgruppenänderung,
+Unterbrechungen und öffentliche Exposition mit sich bringen. Die aktuellen
+privaten Subnetzrouten werden auch von ECS genutzt und dürfen nicht für
+DBeaver umgestellt werden. Empfehlung: vorhandenen SSM-Zugang beibehalten.
+Siehe [AWS-Netzwerkszenarien](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_VPC.Scenarios.html).
+
+Vorhandener Zugangsrechner `gratilo-prd-db-access`: `i-09fe8ff6c84bda64b`,
+`t3.nano`, Amazon Linux 2023, private IP `10.42.135.43`, keine öffentliche IP,
+im privaten Subnetz 1a. SSM-Agent 3.3.5390.0 war online. SG
+`sg-0802b2876336a911b` hat keine Ingress-Regeln. Instanzprofil und Rolle
+`gratilo-prd-db-access-ssm-role` verwenden nur `AmazonSSMManagedInstanceCore`,
+keine Inline-Policies. Lokal sind AWS CLI und Session Manager Plugin installiert.
+
+Nach gesonderter Freigabe kann der vorhandene Tunnel gestartet werden
+(Bash; bei Windows-DBeaver CLI/Plugin vorzugsweise ebenfalls unter Windows starten):
+
+```bash
+aws ssm start-session --profile gratilo --region eu-central-1 \
+  --target i-09fe8ff6c84bda64b \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters '{"host":["gratilo-postgres-prd.chocqs4ummy7.eu-central-1.rds.amazonaws.com"],"portNumber":["5432"],"localPortNumber":["15432"]}'
+```
+
+| DBeaver-Einstellung | Wert |
+| --- | --- |
+| Host | `gratilo-postgres-prd.chocqs4ummy7.eu-central-1.rds.amazonaws.com` |
+| Port mit SSM | `15432` (Weiterleitung an RDS 5432) |
+| Datenbank | `gratilodb` (aus der aktiven ECS-Konfiguration bestätigt) |
+| Benutzer / Passwort | autorisierte Datenbank-Zugangsdaten, aktuell aus `gratilo/prd/database` nach Reparatur |
+| SSL-Modus | `verify-full`, Hostnamenprüfung und Zertifikatsvalidierung aktiv |
+| Root-CA | offizielles [Frankfurt-RDS-CA-Bundle](https://truststore.pki.rds.amazonaws.com/eu-central-1/eu-central-1-bundle.pem) |
+
+Für `verify-full` muss der echte RDS-Hostname als JDBC-Host erhalten bleiben.
+Dazu temporär ausschließlich auf dem DBeaver-Rechner in der Hosts-Datei
+`127.0.0.1 gratilo-postgres-prd.chocqs4ummy7.eu-central-1.rds.amazonaws.com`
+abbilden. Der SSM-Agent löst den Host unabhängig innerhalb der VPC auf.
+Nach Nutzung den Eintrag wieder entfernen. `localhost` als JDBC-Hostname
+würde nicht zum RDS-Zertifikat passen. Keine unvalidierende SSLFactory verwenden.
+RDS erzwingt bereits `rds.force_ssl=1`, `ssl=1`; CA `rds-ca-rsa2048-g1`.
+Der Tunnel und eine SQL-/TLS-Verbindung wurden bei dieser Analyse nicht gestartet.
+
+Die `/32`-Beschränkung muss bei SSM am Sitzungszugang umgesetzt werden:
+geplant sind eine eigene DBeaver-Benutzerrolle mit `aws:SourceIp=217.253.49.160/32`
+für Start/Resume und ein eigenes Session-Dokument mit festem RDS-Ziel/Port 5432,
+Zielinstanz ausschließlich `i-09fe8ff6c84bda64b`, Zugriff nur auf eigene Sessions.
+Andere Shell-/Portforwarding-Dokumente und breitere parallele Berechtigungen
+dürfen die Einschränkung nicht umgehen. Das aktuell genutzte SSO-Administratorprofil
+ist bereits weitreichend berechtigt; eine neue Allow-Policy allein schränkt es
+nicht ein. Die IP-Bedingung kontrolliert API-Aufrufe, keine fortlaufende Prüfung
+bereits offener Tunnel. Bei IP-Wechsel bestehende Sessions beenden.
+RDS sieht beim Tunnel die Zugangsinstanz, nicht die öffentliche Rechner-IP.
+
+Es wird keine öffentliche RDS-SG-Regel empfohlen. Der ausschließlich hypothetische
+Direktzugriff wäre TCP 5432, Quelle `217.253.49.160/32`, Beschreibung
+`Temporary DBeaver access`, Gruppe `sg-0b31d54acc7c91867`; niemals größere Ranges.
+Bei später ausdrücklich genehmigter Anlage die neue `SecurityGroupRuleId`
+festhalten und anschließend exakt diese Regel widerrufen. Beim empfohlenen
+SSM-Weg gibt es keine öffentliche SG-Regel zu entfernen: Tunnel beenden,
+temporäre IAM-Berechtigung entfernen und lokalen Hosts-Eintrag löschen.
+
+### Hilfsressourcen und möglicher späterer Rückbau
+
+Die Zugangsinstanz und ihre SG sind eindeutig für privaten DB-Zugang vorgesehen;
+eine ausschließlich DBeaver betreffende Nutzung ist allein aus Metadaten nicht
+beweisbar. Es wurden keine weiteren EC2-Instanzen, Launch-Templates, Auto-Scaling-
+Gruppen, aktiven SSM-Sessions oder eigenen EBS-Snapshots gefunden.
+Die Rolle hat nur das genannte Instanzprofil; die SG hängt nur an dieser
+Instanz. Die einzige gefundene eingehende SG-Referenz ist RDS-Regel
+`sgr-067526ca574fca6b2`, TCP 5432 von der Zugangs-SG.
+
+Nur bei bestätigter Nichtnutzung und Ersatz des Zugangs wären entfernbar:
+
+1. Instanz `i-09fe8ff6c84bda64b`; ihr Root-Volume `vol-0b6167009a3e2ce3f`
+   und ENI `eni-0e060691e8be457d4` haben `DeleteOnTermination=true`.
+   Vorher lokale Inhalte und laufende Benutzerprozesse prüfen; das wurde nicht geprüft.
+2. Exakt RDS-Regel `sgr-067526ca574fca6b2`, dann SG `sg-0802b2876336a911b`.
+3. Instanzprofil/Rolle `gratilo-prd-db-access-ssm-role` nach erneuter
+   Abhängigkeitsprüfung und Entfernung der Policy-Anbindung.
+
+Diese Ressourcen sind für den empfohlenen SSM-Weg weiterhin erforderlich.
+Die produktive ECS→RDS-Regel `sgr-0b1799ed8b66a265a` bleibt erhalten.
+Keine VPC-, NAT-, ALB-, ECS-, RDS- oder produktiven SG-Löschungen geplant.
