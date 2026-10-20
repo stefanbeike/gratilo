@@ -2,6 +2,8 @@ import contextlib
 import copy
 import importlib.util
 import io
+import json
+import os
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -12,6 +14,24 @@ spec.loader.exec_module(module)
 
 
 class StaticRdsPasswordTest(unittest.TestCase):
+    def test_cli_receives_seekable_memory_file_and_descriptor_is_closed(self):
+        descriptors = []
+        payload = {"MasterUserPassword": "fixture-only-password"}
+
+        def run(command, **kwargs):
+            descriptor, = kwargs["pass_fds"]
+            descriptors.append(descriptor)
+            self.assertEqual(f"file:///proc/self/fd/{descriptor}", command[-1])
+            self.assertNotIn("fixture-only-password", " ".join(command))
+            with open(f"/proc/self/fd/{descriptor}") as source:
+                self.assertEqual(payload, json.load(source))
+            return module.subprocess.CompletedProcess(command, 0, "{}", "")
+
+        with patch.object(module.subprocess, "run", side_effect=run):
+            self.assertEqual({}, module.aws("rds", "modify-db-instance", payload=payload))
+        with self.assertRaises(OSError):
+            os.fstat(descriptors[0])
+
     def setUp(self):
         self.db = {"DBInstanceIdentifier": module.DATABASE, "Engine": "postgres",
                    "DBSubnetGroup": {"VpcId": module.VPC}, "PubliclyAccessible": False,

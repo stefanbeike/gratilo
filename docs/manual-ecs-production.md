@@ -317,7 +317,9 @@ python3 deployment/scripts/static_rds_password.py --apply --acknowledge-managed-
 
 Das Skript bindet Konto, Profil, Region, Datenbank und VPC fest, verweigert
 öffentliche Datenbanken und ausstehende RDS-Änderungen. Das Passwort wird nur
-im Speicher verarbeitet und per stdin an die CLI übergeben. Kein
+im Speicher verarbeitet und über eine Linux-Speicherdatei (`memfd`) an die CLI
+übergeben. AWS CLI v2 konnte hier JSON aus `/dev/stdin` nicht einlesen; das
+Skript benötigt deshalb Linux/WSL mit `os.memfd_create`. Kein
 `ApplyImmediately` für andere Änderungen, kein Reboot, keine Netzwerkänderung,
 kein neues Deployment. Die Passwortverwaltung ändert AWS unmittelbar.
 Nach Abschluss: RDS ohne `MasterUserSecret` prüfen, ECS-Neustartversuche beobachten,
@@ -325,6 +327,26 @@ Running=Desired=1, alle drei Container gesund, ALB-Target gesund und HTTPS prüf
 Ein laufendes Pipeline-Skript kann sich bereits im Rollback befinden; zuerst
 dessen Zustand klären, bevor eine freigegebene Release-Version erneut deployt wird.
 Ein erfolgreicher Passwortwechsel allein bestätigt noch keine gesunde Anwendung.
+
+### Nach Freigabe ausgeführt: 20.10.2026
+
+Die Umstellung wurde mit ausdrücklicher Freigabe des Betreibers durchgeführt.
+RDS ist wieder `available`, `MasterUserSecret` ist nicht mehr gesetzt,
+`PendingModifiedValues` ist leer und `PubliclyAccessible` bleibt `false`.
+Das frühere RDS-verwaltete Secret ist nicht mehr vorhanden. Das Anwendungssecret
+`gratilo/prd/database` besteht unverändert (letzte Änderung 16.10.2026), ohne
+aktivierte Rotation. Keine SG-, Subnetz-, Routing- oder IAM-Änderungen ausgeführt.
+
+ECS hat selbstständig einen neuen Task gestartet und den laufenden Rollback auf
+`gratilo-prd-app:11` am 20.10.2026 um 09:52:57 MESZ abgeschlossen:
+Running/Desired `1/1`, Pending `0`, Rollout `COMPLETED`. Das vorhandene
+`verify_ecs_health.py` bestätigt alle drei gesunden Container, gesundes ALB-Target,
+HTTPS-Frontend und beide API-Routen. Es wurde kein neues Deployment ausgelöst.
+Die fehlgeschlagene neue Release-Revision 12 wurde damit nicht ausgerollt.
+
+Der erste Reparaturaufruf wurde wegen einer lokalen AWS-CLI-Eingabeproblematik
+vor einer RDS-Änderung abgebrochen. Die danach verwendete `memfd`-Übergabe ist
+mit einem eigenen Test abgedeckt; insgesamt bestanden 114 Deployment-Tooling-Tests.
 
 ## DBeaver: geprüfter privater Zugang am 20.10.2026
 

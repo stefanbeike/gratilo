@@ -5,6 +5,7 @@ The application secret is retained. No password is printed or written to disk.
 """
 import argparse
 import json
+import os
 import subprocess
 import sys
 
@@ -17,10 +18,19 @@ VPC = "vpc-07825b07bcd00d0d1"
 def aws(*args, payload=None):
     command = ["aws", "--profile", "gratilo", "--region", "eu-central-1",
                "--no-cli-pager", *args, "--output", "json"]
-    if payload is not None:
-        command += ["--cli-input-json", "file:///dev/stdin"]
-    result = subprocess.run(command, input=json.dumps(payload) if payload is not None else None,
-                            text=True, capture_output=True)
+    if payload is None:
+        result = subprocess.run(command, text=True, capture_output=True)
+    else:
+        # AWS CLI v2 does not reliably load JSON from /dev/stdin. A Linux memfd
+        # gives its file loader a seekable input without persisting credentials.
+        descriptor = os.memfd_create("gratilo-rds-request", flags=0)
+        try:
+            os.write(descriptor, json.dumps(payload).encode())
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            command += ["--cli-input-json", f"file:///proc/self/fd/{descriptor}"]
+            result = subprocess.run(command, pass_fds=(descriptor,), text=True, capture_output=True)
+        finally:
+            os.close(descriptor)
     if result.returncode:
         raise ValueError("AWS operation failed: " + " ".join(args[:2]) + "; response suppressed")
     return json.loads(result.stdout)
