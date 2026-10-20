@@ -45,6 +45,8 @@ public class TipController {
             var checkout = checkoutService.create(recipientUserId, request);
             if (checkout.isPresent()) return HttpResponse.ok(checkout.get());
             return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("message", "Stripe Checkout ist noch nicht verfügbar."));
+        } catch (TipPricing.NoDistributableTipException small) {
+            return tipTooSmall(small);
         } catch (StripeCheckoutService.InvalidCheckoutRequestException invalid) {
             return HttpResponse.badRequest(java.util.Map.of("code","INVALID_CHECKOUT_REQUEST","message",invalid.getMessage()));
         } catch (StripeCheckoutService.CheckoutConflictException conflict) {
@@ -71,6 +73,8 @@ public class TipController {
             var checkout = checkoutService.createPool(ownerUserId, request);
             if (checkout.isPresent()) return HttpResponse.ok(checkout.get());
             return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("message", "Stripe Checkout ist noch nicht verfügbar."));
+        } catch (TipPricing.NoDistributableTipException small) {
+            return tipTooSmall(small);
         } catch (StripeCheckoutService.InvalidCheckoutRequestException invalid) {
             return HttpResponse.badRequest(java.util.Map.of("code","INVALID_CHECKOUT_REQUEST","message",invalid.getMessage()));
         } catch (StripeCheckoutService.CheckoutConflictException conflict) {
@@ -85,6 +89,10 @@ public class TipController {
             else LOG.error("Pool Stripe Checkout failed: internal error type {} at {}", exception.getClass().getName(), safeLocation(exception));
             return HttpResponse.status(HttpStatus.BAD_GATEWAY).body(java.util.Map.of("message", "Stripe Checkout konnte nicht erstellt werden."));
         }
+    }
+    @io.micronaut.http.annotation.Error(global = true, exception = TipPricing.NoDistributableTipException.class)
+    public HttpResponse<?> tipTooSmall(TipPricing.NoDistributableTipException failure) {
+        return HttpResponse.badRequest(java.util.Map.of("code","TIP_TOO_SMALL_AFTER_FEES","message",failure.getMessage()));
     }
     private static String safeLocation(Exception failure) {
         // Locations aid diagnostics without logging messages, request bodies, keys or personal details.

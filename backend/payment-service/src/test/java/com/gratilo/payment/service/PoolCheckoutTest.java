@@ -16,14 +16,32 @@ class PoolCheckoutTest {
             assertPoolCharge(covered,tip,new java.math.BigDecimal(rate));
     }
     private void assertPoolCharge(boolean covered) throws Exception { assertPoolCharge(covered,501,new java.math.BigDecimal("1.5")); }
+    @Test void threeUnequalSharesUseTheNetBudgetOnceAndPreserveCents() throws Exception {
+        assertPoolCharge(false,2500,new java.math.BigDecimal("3.15"),List.of(20.0,30.0,50.0));
+        assertPoolCharge(true,2500,new java.math.BigDecimal("3.15"),List.of(20.0,30.0,50.0));
+    }
+    @Test void twentyFiveEurosWithoutCoverageProducesTwoTransfersOfElevenNinetyEight() throws Exception {
+        assertPoolCharge(false,2500,new java.math.BigDecimal("3.15"));
+    }
+    @Test void tinySharesAreRejectedBeforeCheckoutOrAllocationWrites() {
+        assertThrows(TipPricing.NoDistributableTipException.class,()->assertPoolCharge(false,100,new java.math.BigDecimal("3.15"),List.of(99.99,0.01)));
+    }
     private void assertPoolCharge(boolean covered,long tip,java.math.BigDecimal rate) throws Exception {
+        assertPoolCharge(covered,tip,rate,List.of(50.0,50.0));
+    }
+    private void assertPoolCharge(boolean covered,long tip,java.math.BigDecimal rate,List<Double> distribution) throws Exception {
         var expected=TipPricing.quote(tip,covered,rate,25);
-        UUID owner = UUID.randomUUID(), first = UUID.randomUUID(), second = UUID.randomUUID();
+        UUID owner = UUID.randomUUID(), first = new UUID(0,1), second = new UUID(0,2), third = new UUID(0,3);
+        var members=new ArrayList<PoolDistributionClient.Member>();
+        members.add(new PoolDistributionClient.Member(first,"A",distribution.get(0),true));
+        members.add(new PoolDistributionClient.Member(second,"B",distribution.get(1),true));
+        if(distribution.size()==3)members.add(new PoolDistributionClient.Member(third,"C",distribution.get(2),true));
+        UUID frozenPoolId=UUID.randomUUID();
         var poolClient = new PoolDistributionClient("http://localhost", "fixture", true) {
-            @Override public Optional<Distribution> find(UUID id) { return Optional.of(new Distribution(UUID.randomUUID(), "Team",
-                    List.of(new Member(first, "A", 50, true), new Member(second, "B", 50, true)))); }
+            @Override public Optional<Distribution> find(UUID id) { return Optional.of(new Distribution(frozenPoolId, "Team",
+                    members)); }
         };
-        var accounts = accountRepository(Map.of(first, "acct_first", second, "acct_second"));
+        var accounts = accountRepository(Map.of(first, "acct_first", second, "acct_second",third,"acct_third"));
         var connect = new StripeConnectService("sk_test_fixture", "https://gratilo.test") {
             @Override public String retrieveAccount(String id) { return StripeAccountFixtures.readyJson().replace("acct_fixture", id); }
         };
@@ -66,12 +84,20 @@ class PoolCheckoutTest {
         assertTrue(form.contains("payment_intent_data%5Btransfer_group%5D=gratilo_"));
         assertFalse(form.contains("transfer_data%5Bdestination%5D"));
         assertFalse(form.contains("payment_method_types"));
-        assertEquals(2, snapshots.size());
+        service.createPool(owner,new TipPaymentRequest(tip,"Team danke","pool-key",covered));
+        assertEquals(1,calls.stream().filter(c->c.contains("unit_amount")).count());
+        assertEquals(distribution.size(), snapshots.size());
+        assertEquals(expected,response.quote());
+        assertEquals(expected.recipientAmountMinor(),TipPricingSnapshot.from(stored.get()).recipientMinor());
+        if(tip==2500&&rate.toString().equals("3.15")) {
+            var actual=snapshots.stream().sorted(java.util.Comparator.comparing(a->a.getRecipientUserId().toString())).map(PoolTransferEntity::getAmountMinor).toList();
+            assertEquals(distribution.size()==3?(covered?List.of(500L,750L,1250L):List.of(479L,719L,1198L)):(covered?List.of(1250L,1250L):List.of(1198L,1198L)),actual);
+        }
         assertEquals(1,auditRows.size());var audit=auditRows.get(stored.get().getId());
         assertEquals(expected.totalAmountMinor(),audit.getChargedMinor());assertEquals(expected.serviceFeeMinor(),audit.getSurchargeMinor());
         assertEquals("Team danke",stored.get().getDescription());
         assertTrue(snapshots.stream().allMatch(PoolTransferEntity::isSettlementApproved));
-        assertEquals(tip, snapshots.stream().mapToLong(PoolTransferEntity::getAmountMinor).sum());
+        assertEquals(expected.recipientAmountMinor(), snapshots.stream().mapToLong(PoolTransferEntity::getAmountMinor).sum());
         assertTrue(snapshots.stream().allMatch(item -> item.getStatus().equals("PENDING")));
     }
 

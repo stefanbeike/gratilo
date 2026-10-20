@@ -203,7 +203,7 @@ public class PoolTransferSettlementService {
             containsAllocation |= allocation.getId().equals(row.getId());
             total = Math.addExact(total, row.getAmountMinor());
         }
-        if (!containsAllocation || !"EUR".equals(tx.getCurrency()) || total != tx.getAmountMinor()
+        if (!containsAllocation || !"EUR".equals(tx.getCurrency()) || total != TipPricingSnapshot.from(tx).recipientMinor()
                 || total > source.amount()) throw new SettlementProblem("SOURCE_ALLOCATION_TOTAL_MISMATCH");
     }
 

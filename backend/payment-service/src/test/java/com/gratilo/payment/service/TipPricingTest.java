@@ -24,7 +24,7 @@ class TipPricingTest {
             assertEquals(tip,quote.recipientAmountMinor());assertEquals(tip+surcharge,quote.totalAmountMinor());
             assertTrue(surcharge>=TipPricing.serviceFeeMinor(quote.totalAmountMinor(),rate,fixed));
             if(surcharge>0)assertTrue(surcharge-1<TipPricing.serviceFeeMinor(quote.totalAmountMinor()-1,rate,fixed));
-            var uncovered=TipPricing.quote(tip,false,rate,fixed);assertEquals(0,uncovered.serviceFeeMinor());assertEquals(tip,uncovered.totalAmountMinor());
+            var uncovered=TipPricing.quote(tip,false,rate,fixed);assertEquals(0,uncovered.serviceFeeMinor());assertEquals(tip,uncovered.totalAmountMinor());assertEquals(tip-uncovered.estimatedStripeFeeMinor(),uncovered.recipientAmountMinor());
         }
     }
     @Test void configuredInternationalRateMatchesObservedTestChargeFee() {
@@ -40,8 +40,17 @@ class TipPricingTest {
             assertEquals(tip,quote.totalAmountMinor()-TipPricing.serviceFeeMinor(quote.totalAmountMinor(),rate,25));
             assertEquals(tip,quote.recipientAmountMinor());assertTrue(quote.feeEstimated());
             assertTrue(quote.feeEstimateBasis().contains("Abweichungen trägt Gratilo"));
-            var uncovered=TipPricing.quote(tip,false,rate,25);assertEquals(0,uncovered.serviceFeeMinor());assertEquals(tip,uncovered.totalAmountMinor());
+            var uncovered=TipPricing.quote(tip,false,rate,25);assertEquals(0,uncovered.serviceFeeMinor());assertEquals(tip,uncovered.totalAmountMinor());assertEquals(tip-uncovered.estimatedStripeFeeMinor(),uncovered.recipientAmountMinor());
         }
+    }
+    @Test void nonCoveredTwentyFiveEurosProducesTheAgreedNetAndSmallTipsRemainPositive() {
+        var rate=new java.math.BigDecimal("3.15");var quote=TipPricing.quote(2500,false,rate,25);
+        assertEquals(2500,quote.totalAmountMinor());assertEquals(0,quote.serviceFeeMinor());
+        assertEquals(104,quote.estimatedStripeFeeMinor());assertEquals(2396,quote.recipientAmountMinor());
+        assertEquals(72,TipPricing.quote(100,false,rate,25).recipientAmountMinor());
+        assertEquals(1,TipPricing.quote(100,false,java.math.BigDecimal.ZERO,99).recipientAmountMinor());
+        assertThrows(TipPricing.NoDistributableTipException.class,()->TipPricing.quote(100,false,java.math.BigDecimal.ZERO,100));
+        assertThrows(TipPricing.NoDistributableTipException.class,()->TipPricing.quote(100,false,java.math.BigDecimal.ZERO,101));
     }
     @Test void rejectsInvalidRatesAndAmountsAndCannotOverflowOrQuoteBeyondStripeLimit() {
         for(String rate:java.util.List.of("-0.01","100","101"))

@@ -11,7 +11,7 @@ function installGuest(extra: (url: string, options?: RequestInit) => unknown = (
     if (url.includes('/eligibility')) return response({ canReceiveTips: true })
     if (url.includes('/quote')) {
       const covered = new URLSearchParams(url.split('?')[1]).get('feeCovered') === 'true'
-      return response({ tipAmountMinor: 500, serviceFeeMinor: covered ? 33 : 0, totalAmountMinor: covered ? 533 : 500, recipientAmountMinor: 500 })
+      return response({ tipAmountMinor: 500, serviceFeeMinor: covered ? 33 : 0, totalAmountMinor: covered ? 533 : 500, recipientAmountMinor: covered ? 500 : 467, estimatedStripeFeeMinor: covered ? 33 : 33 })
     }
     return extra(url, options) as ReturnType<typeof response>
   })
@@ -215,7 +215,7 @@ for (const pool of [false, true]) it(`uses the server's international-card estim
     if (url.includes('/eligibility')) return response({ canReceiveTips: true })
     if (url.includes('/quote')) {
       const covered = new URLSearchParams(url.split('?')[1]).get('feeCovered') === 'true'
-      return response({ tipAmountMinor: 2500, serviceFeeMinor: covered ? 107 : 0, totalAmountMinor: covered ? 2607 : 2500, recipientAmountMinor: 2500, serviceFeePercent: 3.15, fixedFeeMinor: 25, feeEstimated: true })
+      return response({ tipAmountMinor: 2500, serviceFeeMinor: covered ? 107 : 0, totalAmountMinor: covered ? 2607 : 2500, recipientAmountMinor: covered ? 2500 : 2396, estimatedStripeFeeMinor: covered ? 107 : 104, serviceFeePercent: 3.15, fixedFeeMinor: 25, feeEstimated: true })
     }
     if (url.includes('/checkout')) return response({ transactionId: 'fake' })
     return response({})
@@ -234,4 +234,39 @@ for (const pool of [false, true]) it(`uses the server's international-card estim
   await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(true))
   const sent = fetch.mock.calls.find(([url]) => url.includes('/checkout'))
   expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ tipAmountMinor: 2500, expectedTotalAmountMinor: 2607, feeCovered: true })
+})
+
+for (const pool of [false, true]) it(`shows the server-calculated fee deduction for an uncovered ${pool ? 'pool' : 'individual'} payment`, async () => {
+  history.replaceState({}, '', `/pay/${pool ? 'team/' : ''}${user}`)
+  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+    if (url.includes('/pools/public/')) return response({ ownerId: user, name: 'Team', memberNames: ['Alex', 'Sam'] })
+    if (url.includes('/users/public/')) return response({ userId: user, firstName: 'Alex', paymentEnabled: true })
+    if (url.includes('/eligibility')) return response({ canReceiveTips: true })
+    if (url.includes('/quote')) return response({ tipAmountMinor: 2500, serviceFeeMinor: 0, totalAmountMinor: 2500, recipientAmountMinor: 2396, estimatedStripeFeeMinor: 104, feeEstimated: true })
+    return response({ transactionId: 'fake' })
+  })
+  vi.stubGlobal('fetch', fetch); render(<DemoPayment />)
+  await screen.findByRole('heading', { name: `Trinkgeld für ${pool ? 'Team' : 'Alex'}.` })
+  fireEvent.change(screen.getByLabelText(/Anderer Betrag/), { target: { value: '25,00' } })
+  const next = screen.getByRole('button', { name: /Weiter/ }); await waitFor(() => expect(next).toBeEnabled()); fireEvent.click(next)
+  expect(await screen.findByText(/Du übernimmst die Gebühren nicht/)).toHaveTextContent('23,96')
+  expect(screen.getByText('Geschätzte Stripe-Gebühren als Abzug')).toBeInTheDocument()
+  expect(screen.getByText(/− 1,04/)).toBeInTheDocument()
+  expect(screen.getByText(`Voraussichtlicher Nettobetrag für den ${pool ? 'Pool' : 'Empfänger'}`)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /Weiter zur Zusammenfassung/ }))
+  expect(screen.getByText(/− 1,04/)).toBeInTheDocument()
+  const pay = screen.getByRole('button', { name: /Jetzt sicher bezahlen/ }); await waitFor(() => expect(pay).toBeEnabled()); fireEvent.click(pay)
+  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(true))
+  const sent = fetch.mock.calls.find(([url]) => url.includes('/checkout'))
+  expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ tipAmountMinor: 2500, expectedTotalAmountMinor: 2500, expectedRecipientAmountMinor: 2396, feeCovered: false })
+})
+it('shows the actionable net-minimum error without allowing checkout', async () => {
+  history.replaceState({}, '', `/pay/${user}`)
+  const fetch = vi.fn(async (url: string) => url.includes('/users/public/') ? response({ userId: user, firstName: 'Alex', paymentEnabled: true })
+    : url.includes('/eligibility') ? response({ canReceiveTips: true })
+    : response({ code: 'TIP_TOO_SMALL_AFTER_FEES', message: 'Nach Gebührenabzug muss mindestens 0,01 € übrig bleiben.' }, false))
+  vi.stubGlobal('fetch', fetch); render(<DemoPayment />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('0,01 €')
+  expect(screen.getByRole('button', { name: /Weiter/ })).toBeDisabled()
+  expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(false)
 })

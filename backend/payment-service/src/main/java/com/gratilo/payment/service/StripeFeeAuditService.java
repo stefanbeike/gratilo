@@ -78,15 +78,22 @@ public class StripeFeeAuditService {
         }
         long actual=Math.subtractExact(totalFee,applicationFee);if(actual<0)throw new IllegalStateException("Invalid Stripe fee");
         audit.setActualTotalFeeMinor(totalFee);audit.setActualFeeMinor(actual);audit.setActualNetMinor(net);audit.setDifferenceMinor(actual-audit.getEstimatedFeeMinor());
-        audit.setUncoveredMinor(actual-audit.getSurchargeMinor());audit.setBalanceTransactionId(balanceId);audit.setFeeDetails(JsonMapper.createDefault().writeValueAsString(details));
+        long retained = Math.subtractExact(audit.getChargedMinor(),TipPricingSnapshot.from(tx).recipientMinor());
+        audit.setUncoveredMinor(Math.subtractExact(actual,retained));audit.setBalanceTransactionId(balanceId);audit.setFeeDetails(JsonMapper.createDefault().writeValueAsString(details));
         audit.setStatus(actual==audit.getEstimatedFeeMinor()?"MATCHED":"DIFFERENCE");audit.setLastError(null);audit.setCheckedAt(OffsetDateTime.now());audits.update(audit);
         LoggerFactory.getLogger(getClass()).info("Stripe fee audit transaction={} chargedMinor={} surchargeMinor={} estimatedMinor={} actualMinor={} differenceMinor={} uncoveredMinor={} status={}",
                 audit.getTransactionId(),audit.getChargedMinor(),audit.getSurchargeMinor(),audit.getEstimatedFeeMinor(),actual,audit.getDifferenceMinor(),audit.getUncoveredMinor(),audit.getStatus());
     }
     @Serdeable public record Report(UUID transactionId,String status,long chargedMinor,long surchargeMinor,long estimatedFeeMinor,
             Long actualFeeMinor,Long actualTotalFeeMinor,Long actualNetMinor,Long differenceMinor,Long uncoveredMinor,String balanceTransactionId,
-            String feeDetails,String estimateBasis,double estimatePercent,long estimateFixedMinor,String lastError,OffsetDateTime checkedAt){}
-    public Optional<Report> report(UUID id){return audits.findById(id).map(a->new Report(a.getTransactionId(),a.getStatus(),a.getChargedMinor(),a.getSurchargeMinor(),a.getEstimatedFeeMinor(),a.getActualFeeMinor(),a.getActualTotalFeeMinor(),a.getActualNetMinor(),a.getDifferenceMinor(),a.getUncoveredMinor(),a.getBalanceTransactionId(),a.getFeeDetails(),a.getEstimateBasis(),a.getEstimatePercent(),a.getEstimateFixedMinor(),a.getLastError(),a.getCheckedAt()));}
+            String feeDetails,String estimateBasis,double estimatePercent,long estimateFixedMinor,String lastError,OffsetDateTime checkedAt,Long selectedAmountMinor,Long recipientAmountMinor,Boolean feeCovered,Long platformRetainedMinor,Long platformResultMinor){}
+    public Optional<Report> report(UUID id){return audits.findById(id).map(a->{
+        var tx=transactions.findById(id).orElse(null);
+        var pricing=tx==null?null:TipPricingSnapshot.from(tx);
+        Long retained=pricing==null?null:Math.subtractExact(a.getChargedMinor(),pricing.recipientMinor());
+        Long result=retained==null||a.getActualFeeMinor()==null?null:Math.subtractExact(retained,a.getActualFeeMinor());
+        return new Report(a.getTransactionId(),a.getStatus(),a.getChargedMinor(),a.getSurchargeMinor(),a.getEstimatedFeeMinor(),a.getActualFeeMinor(),a.getActualTotalFeeMinor(),a.getActualNetMinor(),a.getDifferenceMinor(),a.getUncoveredMinor(),a.getBalanceTransactionId(),a.getFeeDetails(),a.getEstimateBasis(),a.getEstimatePercent(),a.getEstimateFixedMinor(),a.getLastError(),a.getCheckedAt(),pricing==null?null:pricing.selectedMinor(),pricing==null?null:pricing.recipientMinor(),pricing==null?null:pricing.feeCovered(),retained,result);
+    });}
     protected String get(String path)throws Exception {
         var request=HttpRequest.newBuilder(URI.create("https://api.stripe.com"+path)).timeout(Duration.ofSeconds(20)).header("Authorization","Bearer "+secret).header("Stripe-Version","2026-09-30.endive").GET().build();
         var response=HttpClient.newHttpClient().send(request,HttpResponse.BodyHandlers.ofString());

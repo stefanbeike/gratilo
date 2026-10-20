@@ -6,6 +6,13 @@ public final class TipPricing {
     private TipPricing() {}
     // Stripe DE public international-card tariff, verified 2026-10-20; not a universal price guarantee.
     public static final String DEFAULT_PERCENT = "3.15";
+    /** Existing guest minimum stays EUR 1; every intended recipient must receive at least one cent. */
+    public static final long MIN_RECIPIENT_MINOR = 1;
+    public static class NoDistributableTipException extends IllegalArgumentException {
+        public NoDistributableTipException() {
+            super("Nach Gebührenabzug muss für jeden vorgesehenen Empfänger mindestens 0,01 € übrig bleiben. Bitte erhöhe den Betrag oder übernimm die Gebühren.");
+        }
+    }
     private static long safeTotal(long tip, long surcharge) {
         long total = Math.addExact(tip, surcharge);
         // Stripe EUR amounts support at most eight digits. Reject unusable configurations before Checkout.
@@ -40,8 +47,11 @@ public final class TipPricing {
         if (tipMinor < 100 || tipMinor > 1_000_000) throw new IllegalArgumentException("Invalid tip amount");
         long surcharge = covered ? voluntaryIncreaseMinor(tipMinor, percent, fixed) : 0;
         long total = safeTotal(tipMinor, surcharge);
-        return new TipQuote(tipMinor, surcharge, total, "EUR", percent, fixed, tipMinor,
-                true, serviceFeeMinor(total, percent, fixed),
+        long estimated = serviceFeeMinor(total, percent, fixed);
+        long recipient = covered ? tipMinor : Math.max(0, Math.subtractExact(tipMinor, estimated));
+        if (recipient < MIN_RECIPIENT_MINOR) throw new NoDistributableTipException();
+        return new TipQuote(tipMinor, surcharge, total, "EUR", percent, fixed, recipient,
+                true, estimated,
                 (percent.compareTo(new BigDecimal(DEFAULT_PERCENT)) == 0 && fixed == 25
                     ? "Stripe-DE-Referenz für internationale Karten (20.10.2026); " : "Konfigurierte Tarifschätzung; ")
                     + "Karte und Zahlungsmethode stehen erst bei Stripe fest. Abweichungen trägt Gratilo.");

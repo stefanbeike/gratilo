@@ -22,6 +22,15 @@ class PoolSourceSettlementTest {
         assertTrue(f.rows.stream().allMatch(r->r.getStatus().equals("TRANSFERRED")));
         assertEquals(-43,f.chargeAmount-f.actualFee-2500); // Platform deficit, never a reduced member share.
     }
+    @Test void newNetSnapshotSettlesBothFrozenSharesWithoutSubtractingAnotherFeePerMember()throws Exception {
+        var f=new Fixture(1198,1198);f.tx.setAmountMinor(2500);f.chargeAmount=2500;f.actualFee=114;
+        var quote=TipPricing.quote(2500,false,new java.math.BigDecimal("3.15"),25);
+        f.tx.setMetadata(JsonMapper.createDefault().writeValueAsString(TipPricingSnapshot.metadata(quote,false)));
+        f.failSecond=true;f.worker.settle();f.worker.settle();f.worker.settle();
+        assertEquals(2,f.remote.size());assertEquals(2396,f.remote.values().stream().mapToLong(r->((Number)r.get("amount")).longValue()).sum());
+        assertTrue(f.posts.stream().allMatch(p->"1198".equals(p.get("amount"))));
+        assertEquals(3,f.posts.size());assertEquals(2396,TipPricingSnapshot.from(f.tx).recipientMinor());
+    }
     @Test void threeDifferentSharesAreFrozenAndPaidOnce() {
         var f=new Fixture(500,750,1250);f.worker.settle();f.worker.settle();
         assertEquals(List.of("500","750","1250"),f.posts.stream().map(p->p.get("amount")).toList());

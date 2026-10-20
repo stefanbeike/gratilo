@@ -15,6 +15,21 @@ class StripeFeeAuditTest {
   assertEquals(43L,f.audit.getUncoveredMinor());assertEquals(2457L,f.audit.getActualNetMinor());
   assertEquals(2500,f.tx.getAmountMinor());assertEquals("DIFFERENCE",f.audit.getStatus());
  }
+ @Test void newNetPaymentAuditsHigherAndLowerActualCostsWithoutChangingRecipient()throws Exception{
+  for(long actual:new long[]{94,114}){
+   var f=new Fixture(false,2500);var quote=TipPricing.quote(2500,false,new java.math.BigDecimal("3.15"),25);
+   f.tx.setMetadata(JsonMapper.createDefault().writeValueAsString(TipPricingSnapshot.metadata(quote,false)));
+   f.audit.setEstimatedFeeMinor(104);f.audit.setEstimatePercent(3.15);f.actualFee=actual;f.service.reconcile();
+   var report=f.service.report(f.tx.getId()).orElseThrow();
+   assertEquals(2396L,report.recipientAmountMinor());assertEquals(2500L,report.selectedAmountMinor());assertEquals(false,report.feeCovered());
+   assertEquals(104L,report.platformRetainedMinor());assertEquals(104-actual,report.platformResultMinor());
+   assertEquals(actual-104,f.audit.getUncoveredMinor());assertEquals(2396,TipPricingSnapshot.from(f.tx).recipientMinor());
+  }
+ }
+ @Test void historicalUncoveredPaymentRetainsOriginalFullRecipientAndAuditMeaning()throws Exception{
+  var f=new Fixture(false);f.tx.setMetadata("{\"totalAmountMinor\":1000,\"feeCovered\":false}");f.service.reconcile();
+  assertEquals(58L,f.audit.getUncoveredMinor());assertEquals(1000L,f.service.report(f.tx.getId()).orElseThrow().recipientAmountMinor());
+ }
  @Test void recordsActualFeeAndDifferenceWithoutChangingPaidAmountOrTip()throws Exception{
   var f=new Fixture(true);f.service.reconcile();
   assertEquals("DIFFERENCE",f.audit.getStatus());assertEquals(41,f.audit.getEstimatedFeeMinor());assertEquals(58L,f.audit.getActualFeeMinor());assertEquals(17L,f.audit.getDifferenceMinor());assertEquals(17L,f.audit.getUncoveredMinor());
@@ -22,7 +37,7 @@ class StripeFeeAuditTest {
   f.service.reconcile();assertEquals(1,f.completedUpdates); // finalized audits are not resubmitted
  }
  @Test void disabledCoverageChargesNoSurchargeAndStillRecordsRealCosts()throws Exception{
-  var f=new Fixture(false);f.service.reconcile();assertEquals(0,f.audit.getSurchargeMinor());assertEquals(1000,f.audit.getChargedMinor());assertEquals(58L,f.audit.getUncoveredMinor());
+  var f=new Fixture(false);f.service.reconcile();assertEquals(0,f.audit.getSurchargeMinor());assertEquals(1000,f.audit.getChargedMinor());assertEquals(18L,f.audit.getUncoveredMinor());
  }
  @Test void asynchronousBalanceIsRetriedAndLiveOrMismatchedSourcesAreNeverRecorded()throws Exception{
   var f=new Fixture(true);f.noBalance=true;f.service.reconcile();assertEquals("PENDING",f.audit.getStatus());assertEquals("WAITING_BALANCE_TRANSACTION",f.audit.getLastError());
@@ -74,7 +89,10 @@ class StripeFeeAuditTest {
      if(!noBalance){var details=new ArrayList<Map<String,Object>>();details.add(Map.of("type","stripe_fee","amount",actualFee-applicationFee,"currency","eur"));if(applicationFee>0)details.add(Map.of("type","application_fee","amount",applicationFee,"currency","eur"));charge.put("balance_transaction",Map.of("id","txn_audit","currency","eur","amount",audit.getChargedMinor(),"fee",actualFee,"net",audit.getChargedMinor()-actualFee,"fee_details",emptyDetails?List.of():details));}
      return mapper.writeValueAsString(Map.of("livemode",false,"status","succeeded","latest_charge",charge));
     }
-   };service.snapshot(tx,TipPricing.quote(tip,covered,new java.math.BigDecimal("1.5"),25));
+   };
+   var quote=TipPricing.quote(tip,covered,new java.math.BigDecimal("1.5"),25);
+   try{tx.setMetadata(JsonMapper.createDefault().writeValueAsString(TipPricingSnapshot.metadata(quote,covered)));}catch(Exception e){throw new RuntimeException(e);}
+   service.snapshot(tx,quote);
   }
  }
  @SuppressWarnings("unchecked")static<T>T proxy(Class<T> type,java.lang.reflect.InvocationHandler h){return(T)Proxy.newProxyInstance(type.getClassLoader(),new Class[]{type},h);}

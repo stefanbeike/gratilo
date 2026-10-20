@@ -13,9 +13,9 @@ public class TransactionService {
     public List<TransactionResponse> list(UUID userId) { return repository.findByAccountUserIdOrderByCreatedAtDesc(userId).stream().map(TransactionResponse::from).toList(); }
     public AccountSummary summary(UUID userId) {
         var all = repository.findByAccountUserIdOrderByCreatedAtDesc(userId);
-        long balance = all.stream().filter(t -> t.getStatus() == TransactionStatus.BOOKED || t.getStatus() == TransactionStatus.COMPLETED).mapToLong(TransactionEntity::getAmountMinor).sum();
-        long received = all.stream().filter(t -> t.getAmountMinor() > 0 && (t.getStatus() == TransactionStatus.BOOKED || t.getStatus() == TransactionStatus.COMPLETED)).mapToLong(TransactionEntity::getAmountMinor).sum();
-        long pending = all.stream().filter(t -> t.getStatus() == TransactionStatus.PENDING || t.getStatus() == TransactionStatus.AUTHORIZED).mapToLong(TransactionEntity::getAmountMinor).sum();
+        long balance = all.stream().filter(t -> t.getStatus() == TransactionStatus.BOOKED || t.getStatus() == TransactionStatus.COMPLETED).mapToLong(TipPricingSnapshot::creditedAmount).sum();
+        long received = all.stream().filter(t -> t.getAmountMinor() > 0 && (t.getStatus() == TransactionStatus.BOOKED || t.getStatus() == TransactionStatus.COMPLETED)).mapToLong(TipPricingSnapshot::creditedAmount).sum();
+        long pending = all.stream().filter(t -> t.getStatus() == TransactionStatus.PENDING || t.getStatus() == TransactionStatus.AUTHORIZED).mapToLong(TipPricingSnapshot::creditedAmount).sum();
         return new AccountSummary(balance, received, pending, all.size(), all.isEmpty() ? "EUR" : all.getFirst().getCurrency());
     }
     public Optional<TransactionResponse> get(UUID userId, UUID id) { return repository.findByIdAndAccountUserId(id, userId).map(TransactionResponse::from); }

@@ -442,3 +442,181 @@ Amazon-Pay-Zahlungen gelten Kartenpreise. Diese Beispiele erklären, weshalb ein
 vor der Methodenauswahl festgelegtes Modell trotz korrektem Gross-up keine exakte
 Ist-Gebühr garantieren kann. Es wird weder ein landesunabhängiger Höchstsatz
 behauptet noch eine unbekannte Monats-/Connect-Gebühr in den Kartenaufschlag gemischt.
+
+== Neue Geschäftsregel: Gebührenübernahme und Nettoverteilung (20.10.2026)
+
+Dieser Abschnitt ersetzt für NEUE Zahlungen die frühere Regel, wonach Gratilo auch
+bei abgewählter Gebührenübernahme den vollständigen gewählten Betrag weitergibt.
+Bestehende Transaktionen und Allokationen werden nicht neu berechnet.
+
+[cols="1,1,1",options="header"]
+|===
+|Betrag in EUR, Referenz 3,15 % + 25 Cent |Übernahme an |Übernahme aus
+|Gewählter Betrag |25,00 |25,00
+|Geschätzte Stripe-Gebühr |1,07 |1,04
+|Zusätzlicher Gästeaufschlag |1,07 |0,00
+|Stripe-Checkout-Belastung |26,07 |25,00
+|Festgelegter Empfänger-/Poolbetrag |25,00 |23,96
+|Pool mit 50/50 |12,50 + 12,50 |11,98 + 11,98
+|Pool mit 20/30/50 |5,00 + 7,50 + 12,50 |4,79 + 7,19 + 11,98
+|===
+
+`TipPricing.quote` bleibt die einzige Berechnung für Quote, Einzel- und Pool-
+Checkout. `serviceFeeMinor` bezeichnet weiterhin ausschließlich den zusätzlichen
+Aufschlag; `estimatedStripeFeeMinor` bezeichnet die auf die gesamte Belastung
+berechnete Gebührenreferenz. `recipientAmountMinor` ist die verbindlich eingefrorene
+Verteilung. Ohne Übernahme gilt `max(0, gewählter Betrag - geschätzte Gebühr)`;
+mit Übernahme gilt weiterhin `gewählter Betrag`. Die Gross-up-Suche bleibt erhalten.
+Die Schätzung selbst ist nicht verbindlich: Einmal bestätigte Gäste- und
+Empfängerbeträge werden bei späterer Gebührenabweichung nicht mehr verändert.
+
+=== Mindestregel und Rundung
+
+Der bisherige Mindestbetrag für die Gästeauswahl bleibt 100 Cent. Der gesamte
+Empfängerbetrag muss nach Gebühren mindestens einen Cent betragen. Jeder aktive,
+für die eingefrorene Verteilung vorgesehene Pool-Teilnehmer muss außerdem mindestens
+einen Cent erhalten. Eine sonst auf null Cent gerundete Allokation wird nicht
+still übersprungen: Der gesamte neue Pool-Checkout wird mit
+`TIP_TOO_SMALL_AFTER_FEES` / HTTP 400 abgelehnt. Die Meldung empfiehlt einen höheren
+Betrag oder Gebührenübernahme. Der öffentliche Quote-Endpunkt prüft den gesamten
+Nettobetrag, der Pool-Checkout zusätzlich die konkreten Mitgliedergewichte.
+Bei der Referenz bleiben aus 1,00 EUR ohne Übernahme 0,72 EUR übrig.
+
+`PoolAllocation.split` verteilt ausschließlich den einmal bestimmten Nettobetrag
+über die eingefrorenen Gewichte. Größter Rest und stabile UUID-Reihenfolge halten
+die Summe centgenau. Es gibt keinen weiteren Gebührenabzug je Mitglied.
+
+=== Speicherung, API und Abwärtskompatibilität
+
+Keine neue Datenbankmigration ist erforderlich. Das bestehende JSONB-Metadatenfeld
+speichert für neue Checkouts den unveränderlichen `pricingVersion=2`-Snapshot:
+`tipAmountMinor`, `feeCovered`, `feeSurchargeMinor`, `estimatedStripeFeeMinor`,
+`totalAmountMinor` und `recipientAmountMinor`. Pool-ID/-Name und eingefrorene
+Allokationen bleiben wie bisher gespeichert. `transactions.amount_minor` behält
+seine bisherige Bedeutung als gewählter Betrag. `TipPricingSnapshot` liest die
+neue Struktur strikt; unbekannte Versionen oder widersprüchliche Beträge führen
+zu keiner Transferfreigabe.
+
+Ohne Versionsfeld gilt die bisherige Semantik: Der volle gewählte Betrag war für
+den Empfänger bestimmt. Alte Allokationen, gebuchte Transaktionen, Gebühren-Audits
+und Idempotenzschlüssel werden nicht umgeschrieben. Ein alter offener Checkout,
+dessen gespeicherte Verteilung nicht zur neuen Quote passt, liefert einen sicheren
+Konflikt; er wird nicht mit geänderten Parametern erneut erzeugt.
+
+Die bisherigen Quote-Felder und Checkout-Requests bleiben gültig. Additiv enthalten
+neue Checkout-Antworten die berechnete `quote`, Confirm-Antworten den festgelegten
+`recipientAmountMinor` und Transaktionsantworten den Empfängerbetrag neben dem
+unveränderten ausgewählten `amountMinor`. Frontend, Kontozusammenfassung und
+simulierter Einzel-Trinkgeldsaldo verwenden den Empfängerbetrag. Diese Kontozahlen
+ersetzen nicht den tatsächlichen Connected-Account-Stripe-Saldo für reale
+Bankauszahlungen; bestehende Pool-Historien werden weiterhin separat über
+Pool-Allokationen angezeigt.
+
+Der neue Client sendet zusätzlich `expectedRecipientAmountMinor` neben
+`expectedTotalAmountMinor`. Beide werden serverseitig mit der neuen Quote
+verglichen; sie setzen niemals Transferbeträge. So wird eine Änderung des
+Nettoempfängerbetrags trotz unverändertem Gäste-Gesamtbetrag mit `QUOTE_CHANGED`
+/ HTTP 409 abgefangen. Für alte API-Clients bleiben diese Erwartungsfelder optional;
+bei eigenen Clients muss vor dem Checkout eine aktuelle Quote angezeigt werden.
+
+=== Stripe-Transfer und Audit
+
+Einzelzahlungen setzen `payment_intent_data[transfer_data][amount]` ausschließlich
+auf `quote.recipientAmountMinor()`. Der Checkout belastet ausschließlich
+`quote.totalAmountMinor()`. Auch Stripe-Metadaten enthalten die eingefrorenen
+Empfänger- und Gebührenreferenzbeträge. Stripe belastet die Plattform weiterhin
+mit Zahlungsbearbeitungsgebühren. Der auf der Plattform verbleibende Betrag ist
+bei abgewählter Übernahme die einmal geschätzte Gebühr und bei Übernahme der
+Gross-up-Aufschlag. Es wird keine zusätzliche Gratilo-Anwendungsgebühr eingeführt.
+Siehe https://docs.stripe.com/connect/destination-charges[Destination Charges].
+
+Der Pool-Worker validiert die Allokationssumme gegen den eingefrorenen
+Empfängerbetrag statt gegen den ausgewählten Bruttobetrag. Source-Transaction,
+Charge-Bruttolimit, Empfängerprüfung, Locking, vollständiger Stripe-Abgleich,
+Retry- und Idempotenzschutz bleiben erhalten. Er verwendet weder aktuelle Tarife
+noch spätere Pool-Gewichte zur Neuberechnung bestehender Allokationen.
+
+Der Fee-Audit bleibt GET-basiert und erfasst die tatsächlich verfügbaren Stripe-
+Abrechnungsdaten. Sein Bericht ergänzt ausgewählten Betrag, festgelegten
+Empfängerbetrag, Gebührenauswahl, `platformRetainedMinor` und `platformResultMinor`.
+Für neue und alte Zahlungen gilt entsprechend ihrem eingefrorenen Empfängerbetrag:
+
+----
+platformRetainedMinor = chargedMinor - recipientAmountMinor
+uncoveredMinor = actualStripeFeeMinor - platformRetainedMinor
+platformResultMinor = platformRetainedMinor - actualStripeFeeMinor
+----
+
+Positives `uncoveredMinor` trägt Gratilo. Positives `platformResultMinor` verbleibt
+bei Gratilo. `differenceMinor` bleibt tatsächliche Gebühr minus Schätzung.
+Es gibt keine nachträgliche Gäste-Nachbelastung, Empfängerkürzung oder automatische
+Erstattung einer Überdeckung. Connect-Konto-, Transfer- und Bankauszahlungskosten
+bleiben davon getrennt und sind nicht vollständig durch die Charge-Balance-
+Transaction abgedeckt. Geänderte Capabilities, negative Plattformbilanzen oder
+Stripes Einschränkungen können Transfers weiterhin verzögern oder ablehnen.
+
+Die bestehende Konfiguration `STRIPE_FEE_PERCENT=3.15` und
+`STRIPE_FEE_FIXED_MINOR=25` bleibt unverändert. Ohne Auswahl der Methode vor dem
+gehosteten Checkout gibt es weiterhin keine garantiert exakte Vorabgebühr.
+
+=== Oberfläche
+
+Die Gebührenseite und Zusammenfassung zeigen gewählten Betrag, geschätzten
+Aufschlag beziehungsweise geschätzten Gebührenabzug, Gäste-Gesamtbetrag und
+festgelegten bzw. voraussichtlichen Nettobetrag. Ohne Übernahme erklärt ein Hinweis
+ausdrücklich den Abzug. Der Gast erhält nach Bestätigung keine nachträgliche
+Betragsänderung. Einzel-/Pool-QR-Routen verwenden dieselbe bestehende Komponente,
+Light-Design, Tastaturbedienung und responsive Darstellung. Kleine unbrauchbare
+Beträge bleiben mit einer verständlichen Fehlermeldung vor dem Checkout gesperrt.
+
+=== Validierung der Netto-Regel
+
+* Payment-Service: 130 Tests erfolgreich; neue und historische Pricing-Snapshots,
+  HTTP-400 bei unbrauchbarem Netto, Quote-/Checkout-Konsistenz, einzelne Destination
+  Charges, zwei/ drei Poolmitglieder, unveränderliche Netto-Allokationen, Retry
+  ohne doppelten ersten Transfer, Gebührenunter-/überdeckung und Nettosalden geprüft.
+* Frontend: alle 70 Tests erfolgreich; API-basierte Werte für beide Zahlungsarten
+  und beide Gebührenentscheidungen, Fehlermeldung und Nettobetrag-Validierung.
+* TypeScript und Vite-Produktionsbuild erfolgreich, Testzahlungen explizit aktiviert
+  und nur ein Publishable-Testschlüssel-Platzhalter verwendet.
+* Echter Chromium-Browser mit vollständig gemockten GET-Endpunkten: Einzel- und
+  Pool-QR-Routen bei 390x844 und 1440x1000, Übernahme an/aus, exakte Nettoanzeige,
+  keine horizontalen Überläufe und keine Checkout-POSTs. Acht Screenshots unter
+  `/tmp/gratilo-net-<mobile|desktop>-<single|pool>-<covered|deducted>.png`.
+* `git diff --check` erfolgreich. Kein eigenständiger Frontend-Linter konfiguriert.
+* Es wurden keine realen Stripe-Zahlungen, Transfers oder historischen Auszahlungen
+  manuell erzeugt. Die bisherigen Transfer-Sicherheitsprüfungen bleiben aktiv.
+
+Der Benutzer hat nachträglich Push und Deployment ausdrücklich freigegeben und
+bestätigt, dass alte Sandbox-Zahlungen den Rollout nicht blockieren. Ein bestehender
+Scheduler kann im Rahmen des freigegebenen Test-Rollouts bereits genehmigte offene
+Allokationen automatisch weiterverarbeiten. Es erfolgt kein manueller Backfill,
+kein Status-Reset und keine manuelle Freigabe historischer Allokationen.
+
+=== Dateien der Netto-Regel
+
+* `backend/payment-service/src/main/java/com/gratilo/payment/api/CheckoutResponse.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/api/CheckoutStatus.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/api/TipPaymentRequest.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/api/TransactionResponse.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/controller/TipController.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/PoolTransferSettlementService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeCheckoutService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeFeeAuditService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripePayoutService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/TipPricing.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/TipPricingSnapshot.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/TransactionService.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/GuestCheckoutHttpTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/NetSandboxPayoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolCheckoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolSourceSettlementTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeCheckoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeFeeAuditTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/TipPricingSnapshotTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/TipPricingTest.java`
+* `docs/stripe-fees-and-pool-members.adoc`
+* `frontend/src/Dashboard.tsx`
+* `frontend/src/PublicTipCheckout.tsx`
+* `frontend/src/StripePayment.test.tsx`
+* `frontend/src/dashboard.css`

@@ -30,13 +30,26 @@ class StripeCheckoutTest {
             f.service(decimal).create(f.recipient,new TipPaymentRequest(tip,"Danke","unique",covered));
             var expected=TipPricing.quote(tip,covered,decimal,25);
             assertEquals(expected,f.savedQuote);
-            assertTrue(f.form.contains("transfer_data][amount]="+tip+"&"));
+            assertTrue(f.form.contains("transfer_data][amount]="+expected.recipientAmountMinor()+"&"));
             assertTrue(f.form.contains("unit_amount]="+expected.totalAmountMinor()+"&"));
             assertFalse(f.form.contains("application_fee_amount"));
             assertEquals(tip,f.stored.getAmountMinor());assertEquals("Danke",f.stored.getDescription());
         }
     }
 
+    @Test void staleNetAmountIsRejectedEvenWhenGuestTotalHasNotChanged() throws Exception {
+        var f=new StripeCheckoutTest();
+        assertThrows(StripeCheckoutService.QuoteChangedException.class,()->f.service(new java.math.BigDecimal("3.15")).create(f.recipient,
+            new TipPaymentRequest(2500L,"Danke","stale-net",false,2500L,2400L)));
+        assertEquals(0,f.creates);assertNull(f.stored);
+    }
+    @Test void historicUncoveredSessionCannotBeRepricedOrReusedUnderNewRule() throws Exception {
+        var f=new StripeCheckoutTest();var service=f.service();
+        service.create(f.recipient,new TipPaymentRequest(2500L,null,"old-net",false));
+        f.stored.setMetadata("{\"totalAmountMinor\":2500,\"feeCovered\":false}");
+        assertThrows(StripeCheckoutService.CheckoutConflictException.class,()->service.create(f.recipient,new TipPaymentRequest(2500L,null,"old-net",false)));
+        assertEquals(1,f.creates);assertEquals(2500,TipPricingSnapshot.from(f.stored).recipientMinor());
+    }
     @Test void stripeApiDiagnosticContainsOnlyHttpStatus() {
         var failure = StripeCheckoutService.StripeApiException.from(400,
                 "{\"error\":{\"type\":\"invalid_request_error\",\"code\":\"parameter_unknown\",\"param\":\"payment_intent_data[test]\",\"message\":\"contains secret and account data\"}}",

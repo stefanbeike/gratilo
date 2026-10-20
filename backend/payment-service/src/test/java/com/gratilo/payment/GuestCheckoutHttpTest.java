@@ -25,6 +25,17 @@ class GuestCheckoutHttpTest {
         }
     }
 
+    @Test void unusableNetQuoteHasAnActionableBadRequestInsteadOfAGatewayError()throws Exception{
+        var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("99"),25,null);
+        var props=new HashMap<String,Object>();props.put("payments.enabled",true);props.put("stripe.fee-percent","99");props.put("stripe.secret-key","sk_test_fixture");props.put("stripe.webhook-secret","whsec_fixture");props.put("micronaut.server.port",-1);
+        props.put("datasources.default.enabled",false);props.put("jpa.default.enabled",false);props.put("liquibase.enabled",false);props.put("liquibase.datasources.default.enabled",false);
+        try(var context=ApplicationContext.builder().properties(props).environments("test").build()){
+            context.registerSingleton(StripeCheckoutService.class,service);context.start();var server=context.getBean(EmbeddedServer.class).start();
+            var result=HttpClient.newHttpClient().send(HttpRequest.newBuilder(server.getURI().resolve("/payment-service/tips/"+UUID.randomUUID()+"/quote?amountMinor=100&feeCovered=false")).GET().build(),HttpResponse.BodyHandlers.ofString());
+            assertEquals(400,result.statusCode());assertTrue(result.body().contains("TIP_TOO_SMALL_AFTER_FEES"));assertTrue(result.body().contains("0,01"));
+        }
+    }
+
     @Test void anonymousGuestCanUseCheckoutWithoutCustomerRegistrationOutsideTheAwsTestGate() throws Exception {
         var service = new StripeCheckoutService(null, null, null, "sk_test_fixture", "http://localhost/success", "http://localhost/cancel", new java.math.BigDecimal("1.5"), 25, null) {
             @Override public boolean canReceiveTips(UUID user) { return true; }
@@ -57,6 +68,9 @@ class GuestCheckoutHttpTest {
             assertEquals(200, eligibility.statusCode());
             assertTrue(eligibility.body().contains("true"));
             assertEquals("no-store", eligibility.headers().firstValue("Cache-Control").orElseThrow());
+            var quote=client.send(HttpRequest.newBuilder(java.net.URI.create(uri+"/quote?amountMinor=2500&feeCovered=false")).GET().build(),HttpResponse.BodyHandlers.ofString());
+            assertEquals(200,quote.statusCode());assertTrue(quote.body().contains("\"recipientAmountMinor\":2396"));
+            assertTrue(quote.body().contains("\"estimatedStripeFeeMinor\":104"));
         }
     }
 }

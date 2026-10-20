@@ -71,7 +71,7 @@ public class StripeCheckoutService {
         long amountPaid = session.get("amount_total") instanceof Number amount ? amount.longValue() : tx.getAmountMinor();
         String checkoutUrl = "PENDING".equals(status) && "open".equals(session.get("status")) && session.get("url") instanceof String url ? url : null;
         return new CheckoutStatus(status, "PAID".equals(status), tx.getId().toString(), tx.getAmountMinor(), amountPaid,
-                tx.getAccountUserId().toString(), checkoutUrl);
+                tx.getAccountUserId().toString(), checkoutUrl, TipPricingSnapshot.from(tx).recipientMinor());
     }
     public Optional<CheckoutResponse> create(UUID recipient, TipPaymentRequest request) throws Exception {
         if (request.tipAmountMinor() == null || request.tipAmountMinor() < 100 || request.tipAmountMinor() > 1000000
@@ -81,23 +81,25 @@ public class StripeCheckoutService {
         var account = eligibleAccount(recipient);
         String accountId = account.getStripeAccountId();
         var quote = TipPricing.quote(request.tipAmountMinor(), request.feeCovered(), feePercent, fixedFeeMinor);
-        if (request.expectedTotalAmountMinor() != null && request.expectedTotalAmountMinor() != quote.totalAmountMinor()) throw new QuoteChangedException();
+        validateQuote(request, quote);
         long fee = quote.serviceFeeMinor(), total = quote.totalAmountMinor();
         String key = request.idempotencyKey();
         if (key == null || key.isBlank()) throw new InvalidCheckoutRequestException();
         var existing = transactions.findByAccountUserIdAndIdempotencyKey(recipient, key);
         var tx = existing.orElseGet(TransactionEntity::new);
-        String pricing = "{\"totalAmountMinor\":" + total + ",\"feeCovered\":" + request.feeCovered() + "}";
+        String pricing = io.micronaut.json.JsonMapper.createDefault().writeValueAsString(TipPricingSnapshot.metadata(quote,request.feeCovered()));
         if (existing.isPresent()) {
             var savedPricing = json(tx.getMetadata());
-            if (!"STRIPE".equals(tx.getProvider()) || tx.getAmountMinor() != request.tipAmountMinor()
+            if (!"STRIPE".equals(tx.getProvider()) || savedPricing.containsKey("poolId") || tx.getAmountMinor() != request.tipAmountMinor()
                     || !Objects.equals(tx.getDescription(), request.message()) || !(savedPricing.get("totalAmountMinor") instanceof Number savedTotal) || savedTotal.longValue() != total
-                    || !Boolean.valueOf(request.feeCovered()).equals(savedPricing.get("feeCovered")))
+                    || !Boolean.valueOf(request.feeCovered()).equals(savedPricing.get("feeCovered"))
+                    || TipPricingSnapshot.from(tx).recipientMinor() != quote.recipientAmountMinor()
+                    || tx.getProviderReference() == null && TipPricingSnapshot.from(tx).version() != 2)
                 throw new CheckoutConflictException("CHECKOUT_DETAILS_CONFLICT", tx);
             if (tx.getStatus() != TransactionStatus.PENDING) throw new CheckoutConflictException("CHECKOUT_ALREADY_PROCESSED", tx);
             if (tx.getProviderReference() != null) {
                 var session = json(stripeRequest("/v1/checkout/sessions/" + enc(tx.getProviderReference()), null, null));
-                return Optional.of(new CheckoutResponse((String) session.get("url"), tx.getId().toString(), false));
+                return Optional.of(new CheckoutResponse((String) session.get("url"), tx.getId().toString(), false, quote));
             }
         } else {
             tx.setAccountUserId(recipient); tx.setAmountMinor(request.tipAmountMinor()); tx.setCurrency("EUR");
@@ -116,13 +118,17 @@ public class StripeCheckoutService {
                 + param("metadata[tip_amount_minor]", Long.toString(request.tipAmountMinor()))
                 + param("metadata[fee_covered]", Boolean.toString(request.feeCovered()))
                 + param("metadata[fee_surcharge_minor]", Long.toString(fee))
+                + param("metadata[recipient_amount_minor]",Long.toString(quote.recipientAmountMinor()))
+                + param("metadata[estimated_stripe_fee_minor]",Long.toString(quote.estimatedStripeFeeMinor()))
                 + param("payment_intent_data[transfer_data][destination]", accountId)
                 + param("payment_intent_data[metadata][transaction_id]", tx.getId().toString())
+                + param("payment_intent_data[metadata][recipient_amount_minor]",Long.toString(quote.recipientAmountMinor()))
+                + param("payment_intent_data[metadata][estimated_stripe_fee_minor]",Long.toString(quote.estimatedStripeFeeMinor()))
                 + param("payment_intent_data[metadata][tip_amount_minor]", Long.toString(request.tipAmountMinor()))
                 + param("payment_intent_data[metadata][fee_covered]", Boolean.toString(request.feeCovered()))
                 + param("payment_intent_data[metadata][fee_surcharge_minor]", Long.toString(fee))
                 + param("payment_intent_data[metadata][amount_charged_minor]", Long.toString(total))
-                + param("payment_intent_data[transfer_data][amount]", Long.toString(request.tipAmountMinor()))
+                + param("payment_intent_data[transfer_data][amount]", Long.toString(quote.recipientAmountMinor()))
                 + param("success_url", successUrl) + param("cancel_url", cancelUrl);
         // Scope Stripe's key to our immutable transaction UUID, never the public caller key.
         var session = json(stripeRequest("/v1/checkout/sessions", form, "checkout-" + tx.getId()));
@@ -130,7 +136,7 @@ public class StripeCheckoutService {
         if (!Boolean.FALSE.equals(session.get("livemode")) || id == null || !id.startsWith("cs_test_") || url == null)
             throw new IllegalStateException("Invalid Stripe test Checkout response");
         tx.setProviderReference(id); tx.setPaymentMethod("card"); transactions.update(tx);
-        return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false));
+        return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false, quote));
     }
 
     /** A team QR is charged once to Gratilo, then settled as separate transfers after funds are available. */
@@ -154,10 +160,11 @@ public class StripeCheckoutService {
         }
         if (eligible.isEmpty()) throw new PoolNotReadyException();
         var quote = TipPricing.quote(request.tipAmountMinor(), request.feeCovered(), feePercent, fixedFeeMinor);
-        if (request.expectedTotalAmountMinor() != null && request.expectedTotalAmountMinor() != quote.totalAmountMinor()) throw new QuoteChangedException();
+        validateQuote(request, quote);
         long fee = quote.serviceFeeMinor(), total = quote.totalAmountMinor();
         var weights = eligible.stream().map(e -> new PoolAllocation.Weight(e.userId(), e.sharePercent())).toList();
-        var shares = PoolAllocation.split(request.tipAmountMinor(), weights);
+        var shares = PoolAllocation.split(quote.recipientAmountMinor(), weights);
+        if (shares.stream().anyMatch(share -> share.amountMinor() < TipPricing.MIN_RECIPIENT_MINOR)) throw new TipPricing.NoDistributableTipException();
         var idempotency = request.idempotencyKey();
         var existing = transactions.findByAccountUserIdAndIdempotencyKey(owner, idempotency);
         TransactionEntity tx;
@@ -167,18 +174,22 @@ public class StripeCheckoutService {
             if (!"STRIPE".equals(tx.getProvider()) || tx.getType() != TransactionType.TIP || tx.getAmountMinor() != request.tipAmountMinor()
                     || !Objects.equals(tx.getDescription(), request.message()) || !pool.poolId().toString().equals(prior.get("poolId"))
                     || !(prior.get("totalAmountMinor") instanceof Number saved) || saved.longValue() != total
-                    || !Boolean.valueOf(request.feeCovered()).equals(prior.get("feeCovered")))
+                    || !Boolean.valueOf(request.feeCovered()).equals(prior.get("feeCovered"))
+                    || TipPricingSnapshot.from(tx).recipientMinor() != quote.recipientAmountMinor()
+                    || tx.getProviderReference() == null && TipPricingSnapshot.from(tx).version() != 2)
                 throw new CheckoutConflictException("CHECKOUT_DETAILS_CONFLICT", tx);
             if (tx.getStatus() != TransactionStatus.PENDING) throw new CheckoutConflictException("CHECKOUT_ALREADY_PROCESSED", tx);
             if (tx.getProviderReference() != null) {
                 var session = json(stripeRequest("/v1/checkout/sessions/" + enc(tx.getProviderReference()), null, null));
-                return Optional.of(new CheckoutResponse((String) session.get("url"), tx.getId().toString(), false));
+                return Optional.of(new CheckoutResponse((String) session.get("url"), tx.getId().toString(), false, quote));
             }
         } else {
             tx = new TransactionEntity(); tx.setAccountUserId(owner); tx.setAmountMinor(request.tipAmountMinor()); tx.setCurrency("EUR");
             tx.setType(TransactionType.TIP); tx.setStatus(TransactionStatus.PENDING); tx.setDescription(request.message());
             tx.setIdempotencyKey(idempotency); tx.setProvider("STRIPE");
-            tx.setMetadata("{\"poolId\":\"" + pool.poolId() + "\",\"poolName\":\"" + jsonEscape(pool.poolName()) + "\",\"totalAmountMinor\":" + total + ",\"feeCovered\":" + request.feeCovered() + ",\"feeSurchargeMinor\":" + fee + "}");
+            var pricing = TipPricingSnapshot.metadata(quote,request.feeCovered());
+            pricing.put("poolId",pool.poolId().toString()); pricing.put("poolName",pool.poolName());
+            tx.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(pricing));
             tx = transactions.save(tx);
             if (feeAudit != null) feeAudit.snapshot(tx, quote);
             var eligibleById = new HashMap<UUID, PoolEligible>(); eligible.forEach(e -> eligibleById.put(e.userId(), e));
@@ -200,8 +211,12 @@ public class StripeCheckoutService {
                 + param("line_items[0][price_data][product_data][name]", "Trinkgeld für " + pool.poolName())
                 + param("line_items[0][quantity]", "1") + param("metadata[transaction_id]", tx.getId().toString())
                 + param("metadata[pool_id]", pool.poolId().toString()) + param("metadata[fee_covered]", Boolean.toString(request.feeCovered()))
-                + param("metadata[fee_surcharge_minor]", Long.toString(fee)) + param("payment_intent_data[transfer_group]", group)
+                + param("metadata[fee_surcharge_minor]", Long.toString(fee))
+                + param("metadata[recipient_amount_minor]",Long.toString(quote.recipientAmountMinor()))
+                + param("metadata[estimated_stripe_fee_minor]",Long.toString(quote.estimatedStripeFeeMinor())) + param("payment_intent_data[transfer_group]", group)
                 + param("payment_intent_data[metadata][transaction_id]", tx.getId().toString())
+                + param("payment_intent_data[metadata][recipient_amount_minor]",Long.toString(quote.recipientAmountMinor()))
+                + param("payment_intent_data[metadata][estimated_stripe_fee_minor]",Long.toString(quote.estimatedStripeFeeMinor()))
                 + param("payment_intent_data[metadata][pool_id]", pool.poolId().toString())
                 + param("success_url", successUrl) + param("cancel_url", cancelUrl);
         var session = json(stripeRequest("/v1/checkout/sessions", form, "checkout-" + tx.getId()));
@@ -209,7 +224,13 @@ public class StripeCheckoutService {
         if (!Boolean.FALSE.equals(session.get("livemode")) || id == null || !id.startsWith("cs_test_") || url == null)
             throw new IllegalStateException("Invalid Stripe test Checkout response");
         tx.setProviderReference(id); tx.setPaymentMethod("card"); transactions.update(tx);
-        return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false));
+        return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false, quote));
+    }
+
+    private static void validateQuote(TipPaymentRequest request, com.gratilo.payment.api.TipQuote quote) {
+        if (request.expectedTotalAmountMinor() != null && request.expectedTotalAmountMinor() != quote.totalAmountMinor()
+                || request.expectedRecipientAmountMinor() != null && request.expectedRecipientAmountMinor() != quote.recipientAmountMinor())
+            throw new QuoteChangedException();
     }
 
     private void validateRequest(TipPaymentRequest request) {

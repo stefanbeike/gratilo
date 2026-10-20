@@ -18,7 +18,7 @@ interface Pool { id: string; name: string; ownerId: string; members: PoolMember[
 const normalizePool = (value: Pool | null | undefined): Pool | null => value ? { ...value, members: Array.isArray(value.members) ? value.members : [] } : null
 type PoolAllocation = { poolId?: string; poolName: string; sharePercent?: number; allocatedAmountMinor?: number; grossAmountMinor?: number; members?: Array<{ name?: string; email?: string; sharePercent?: number; amountMinor?: number; status?: string }> }
 type Transaction = { id: string; date: string; name: string; note: string; amount: number; status: 'Gebucht' | 'Ausstehend' | 'Fehlgeschlagen' | 'Erstattet'; type: 'Trinkgeld' | 'Auszahlung' | 'Erstattung'; paymentMethod?: string | null; pool?: PoolAllocation }
-type ApiTransaction = { id: string; amountMinor: number; type: string; status: string; description?: string | null; reference?: string | null; paymentMethod?: string | null; createdAt?: string; metadata?: string | null }
+type ApiTransaction = { id: string; amountMinor: number; recipientAmountMinor?: number; type: string; status: string; description?: string | null; reference?: string | null; paymentMethod?: string | null; createdAt?: string; metadata?: string | null }
 type ApiPoolTransfer = { id: string; transactionId: string; poolName: string; amountMinor: number; reversedAmountMinor: number; status: string; createdAt: string; settlementReason?: string; fundsAvailableAt?: string }
 const poolMetadata = (value?: string | null): PoolAllocation | undefined => { try { const parsed = value ? JSON.parse(value) : null; return parsed?.poolName ? parsed as PoolAllocation : undefined } catch { return undefined } }
 export const transactions: Transaction[] = [
@@ -124,7 +124,7 @@ export function Dashboard({ session, profile, onProfile, onLogout }: { session: 
             date: item.createdAt || new Date().toISOString(),
             name: item.type === 'PAYOUT' ? 'Auszahlung auf dein Bankkonto' : item.type === 'REFUND' ? 'Erstattung' : 'Trinkgeld',
             note: item.description || item.reference || '',
-            amount: item.amountMinor / 100,
+            amount: (item.recipientAmountMinor ?? item.amountMinor) / 100,
             status: (item.status === 'BOOKED' || item.status === 'COMPLETED' ? 'Gebucht' : item.status === 'REFUNDED' ? 'Erstattet' : item.status === 'FAILED' || item.status === 'CANCELLED' ? 'Fehlgeschlagen' : 'Ausstehend') as Transaction['status'],
             type: (item.type === 'PAYOUT' ? 'Auszahlung' : item.type === 'REFUND' ? 'Erstattung' : 'Trinkgeld') as Transaction['type'],
             paymentMethod: item.paymentMethod,

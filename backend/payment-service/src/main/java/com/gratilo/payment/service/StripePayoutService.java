@@ -43,10 +43,10 @@ public class StripePayoutService {
         var all = transactions.findByAccountUserIdOrderByCreatedAtDesc(userId);
         long balance = all.stream()
                 .filter(t -> t.getAmountMinor() > 0 && t.getStatus() == TransactionStatus.BOOKED)
-                .mapToLong(TransactionEntity::getAmountMinor).sum();
+                .mapToLong(TipPricingSnapshot::creditedAmount).sum();
         balance += all.stream()
                 .filter(t -> t.getAmountMinor() < 0 && t.getType() == TransactionType.PAYOUT && t.getStatus() != TransactionStatus.FAILED && t.getStatus() != TransactionStatus.CANCELLED)
-                .mapToLong(TransactionEntity::getAmountMinor).sum();
+                .mapToLong(TipPricingSnapshot::creditedAmount).sum();
         if (balance <= 0 && secret.startsWith("sk_test_") && accountId != null && !accountId.isBlank() && !accountId.startsWith("acct_demo_")) {
             balance = amount(request("https://api.stripe.com/v1/balance", null, accountId, null), "available", "eur");
         }
