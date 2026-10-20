@@ -70,7 +70,9 @@ services:
     image: stripe/stripe-cli:latest
     container_name: gratilo-stripe-cli
     profiles: ["stripe"]
-    command: listen --api-key ${STRIPE_SECRET_KEY:-} --forward-to http://host.docker.internal:8082/payment-service/webhooks/stripe
+    environment:
+      STRIPE_API_KEY: ${STRIPE_SECRET_KEY:-}
+    command: listen --events checkout.session.completed,checkout.session.expired,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,charge.refunded,charge.dispute.created,charge.dispute.closed,payout.paid,payout.failed,payout.canceled,account.updated --forward-to http://host.docker.internal:8082/payment-service/webhooks/stripe --forward-connect-to http://host.docker.internal:8082/payment-service/webhooks/stripe
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

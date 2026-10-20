@@ -18,9 +18,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 1001 appuser
 
-RUN curl --fail --silent --show-error --location \
+ARG INCLUDE_RDS_CA=true
+RUN if [ "$INCLUDE_RDS_CA" = "true" ]; then curl --fail --silent --show-error --location \
     https://truststore.pki.rds.amazonaws.com/eu-central-1/eu-central-1-bundle.pem \
-    --output /app/rds-ca-bundle.pem
+    --output /app/rds-ca-bundle.pem; fi
 
 COPY --from=build --chown=appuser:appuser \
   /home/gradle/project/backend/payment-service/build/install/payment-service/lib/ /app/lib/

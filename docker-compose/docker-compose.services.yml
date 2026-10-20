@@ -54,6 +54,8 @@ services:
       STRIPE_DEMO_ENABLED: "false"
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      PAYMENTS_TEST_ACTIVATION_CODE: ${PAYMENTS_TEST_ACTIVATION_CODE:-}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
       STRIPE_SUCCESS_URL: ${STRIPE_SUCCESS_URL:-http://localhost:3000/pay/success?session_id={CHECKOUT_SESSION_ID}}
       STRIPE_CANCEL_URL: ${STRIPE_CANCEL_URL:-http://localhost:3000/pay/cancelled}
     ports:
@@ -69,6 +71,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_PAYMENTS_ENABLED: ${VITE_PAYMENTS_ENABLED:-false}
+        VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY:-${STRIPE_PUBLISHABLE_KEY:-}}
     depends_on:
       user-service:
         condition: service_healthy

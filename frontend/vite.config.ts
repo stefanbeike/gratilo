@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
       // When Vite runs inside WSL and Micronaut runs from Windows/IntelliJ,
       // localhost points at different network namespaces. Override this with
       // PAYMENT_SERVICE_PROXY_TARGET when the WSL host address changes.
-      '/payment-service': env.PAYMENT_SERVICE_PROXY_TARGET || 'http://172.21.112.1:8082',
+      '/payment-service': env.PAYMENT_SERVICE_PROXY_TARGET || 'http://localhost:8082',
     },
   },
   test: {

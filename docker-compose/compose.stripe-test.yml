@@ -1,0 +1,110 @@
+# Standalone local sandbox; do not combine with the production task definitions.
+name: gratilo-stripe-test
+
+x-backend-env: &backend-env
+  MICRONAUT_ENVIRONMENTS: docker
+  DATASOURCES_DEFAULT_URL: jdbc:postgresql://postgres:5432/gratilodb
+  DATASOURCES_DEFAULT_USERNAME: postgres
+  DATASOURCES_DEFAULT_PASSWORD: ${LOCAL_POSTGRES_PASSWORD:?Run stripe_test.py init}
+  JWT_SECRET: ${JWT_SECRET:?Run stripe_test.py init}
+  INTERNAL_API_KEY: ${INTERNAL_API_KEY:?Run stripe_test.py init}
+  FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3001}
+  FEATURE_TIP_POOLS_ENABLED: ${FEATURE_TIP_POOLS_ENABLED:-false}
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: gratilodb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LOCAL_POSTGRES_PASSWORD:?Run stripe_test.py init}
+    volumes:
+      - stripe-postgres:/var/lib/postgresql/data
+      - ./postgres/init-schemas.sql:/docker-entrypoint-initdb.d/001-init-schemas.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d gratilodb"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports: ["127.0.0.1:18025:8025"]
+
+  user-service:
+    build:
+      context: ..
+      dockerfile: backend/user-service/Dockerfile
+      args:
+        INCLUDE_RDS_CA: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *backend-env
+      MAIL_HOST: mailhog
+      MAIL_PORT: "1025"
+      MAIL_SMTP_AUTH: "false"
+      MAIL_SMTP_STARTTLS_ENABLE: "false"
+      MAIL_SMTP_STARTTLS_REQUIRED: "false"
+      MAIL_FROM_EMAIL: noreply@gratilo.local
+      MAIL_GENERAL_FROM_EMAIL: info@gratilo.local
+
+  payment-service:
+    build:
+      context: ..
+      dockerfile: backend/payment-service/Dockerfile
+      args:
+        INCLUDE_RDS_CA: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    environment:
+      <<: *backend-env
+      USER_SERVICE_URL: http://user-service:8081
+      PAYMENTS_ENABLED: "true"
+      STRIPE_TEST_ONLY: "true"
+      STRIPE_SANDBOX_PAYOUTS: "true"
+      STRIPE_DEMO_ENABLED: "false"
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?Set a local Stripe sandbox key}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?Run stripe_test.py webhook-secret}
+      PAYMENTS_TEST_ACTIVATION_CODE: ${PAYMENTS_TEST_ACTIVATION_CODE:?Run stripe_test.py init}
+      STRIPE_SUCCESS_URL: "${FRONTEND_BASE_URL:-http://localhost:3001}/pay/success?session_id={CHECKOUT_SESSION_ID}"
+      STRIPE_CANCEL_URL: "${FRONTEND_BASE_URL:-http://localhost:3001}/pay/cancelled?session_id={CHECKOUT_SESSION_ID}"
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_PAYMENTS_ENABLED: "true"
+        VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY:?Set the sandbox publishable key}
+    depends_on:
+      user-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    ports: ["127.0.0.1:3001:80"]
+
+  stripe-cli:
+    image: stripe/stripe-cli:latest
+    profiles: [webhooks]
+    environment:
+      STRIPE_API_KEY: ${STRIPE_SECRET_KEY:?Set a local Stripe sandbox key}
+      STRIPE_DEVICE_NAME: gratilo-local-sandbox
+    command:
+      - listen
+      - --events
+      - checkout.session.completed,checkout.session.expired,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,charge.refunded,charge.dispute.created,charge.dispute.closed,payout.paid,payout.failed,payout.canceled,account.updated
+      - --forward-to
+      - http://payment-service:8082/payment-service/webhooks/stripe
+      - --forward-connect-to
+      - http://payment-service:8082/payment-service/webhooks/stripe
+    depends_on:
+      payment-service:
+        condition: service_healthy
+
+volumes:
+  stripe-postgres:

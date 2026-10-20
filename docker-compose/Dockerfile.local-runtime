@@ -1,0 +1,18 @@
+# Optional WSL-built distribution; no Maven download or AWS dependency in Docker.
+FROM eclipse-temurin:21-jre-jammy AS runtime
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y curl ca-certificates libssl3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 1001 appuser
+
+ARG MAIN_CLASS
+ARG SERVICE_PORT
+ENV GRATILO_MAIN_CLASS=$MAIN_CLASS \
+    GRATILO_SERVICE_PORT=$SERVICE_PORT
+COPY --from=distribution --chown=appuser:appuser /lib/ /app/lib/
+USER appuser
+HEALTHCHECK --interval=10s --timeout=3s --retries=5 \
+  CMD curl --fail --silent "http://localhost:${GRATILO_SERVICE_PORT}/health" || exit 1
+ENTRYPOINT ["sh", "-c", "exec java -cp '/app/lib/*' \"$GRATILO_MAIN_CLASS\""]

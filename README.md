@@ -77,6 +77,240 @@ Alternativ starten die Gradle-Tasks `:backend:user-service:run` und
 
 ## Docker Compose
 
+### Lokaler Stripe-Sandbox-Stack (Windows 11 / WSL2)
+
+Dieser eigenständige Stack verwendet `docker-compose/compose.stripe-test.yml`,
+Projekt `gratilo-stripe-test`, ein eigenes Netzwerk und das Volume
+`gratilo-stripe-test_stripe-postgres`. Er nutzt keine AWS-Secrets oder RDS und
+keine vorhandene Gratilo-Datenbank. Produktionsdateien und produktive Redirects
+bleiben unverändert. Befehle im Repository-Stamm in **WSL Bash** ausführen;
+Docker Desktop muss für diese WSL-Distribution erreichbar sein. Den Browser
+unter Windows öffnen. Java und Node auf dem Host sind zum Compose-Start nicht nötig.
+
+Gefundene Integrationslücken vor dieser Erweiterung:
+
+- Der normale Compose-Stack deaktiviert Zahlungen und Frontend-Checkout standardmäßig.
+  Der Publishable Key fehlte in den Compose-Buildargumenten; ein Aktivierungscode
+  wurde dem Payment-Service nicht übergeben.
+- In der vorhandenen lokalen Root-`.env` fehlten die für den Service-Start
+  erforderlichen JWT-/Internal-API-Schlüssel. Der neue Initialisierer erzeugt
+  dafür unabhängige lokale Werte, ohne die bestehende Datei zu überschreiben.
+- Nur der User-Service bekam `FRONTEND_BASE_URL`; Connect-Onboarding im Payment-Service
+  konnte dadurch zu einem anderen Host zurückleiten als Checkout und Registrierung.
+- Der optionale Listener verwendete den Secret Key als Kommandozeilenargument,
+  keinen expliziten Connect-Forwarder und keine gemeinsame Einrichtung des Listener-
+  Signatursecrets mit dem Payment-Service.
+  Das hier vorhandene aktuelle CLI-Image verlangt außerdem eine ausdrückliche
+  Ereignisauswahl; beide Listener-Konfigurationen enthalten jetzt `--events`.
+- Vite hatte eine feste WSL-IP für den Payment-Proxy. Der Default ist jetzt localhost;
+  der bestehende `PAYMENT_SERVICE_PROXY_TARGET` bleibt für IDE-Mischbetrieb nutzbar.
+- Die Backend-Dockerfiles laden standardmäßig das öffentliche RDS-CA-Bundle.
+  Der lokale Stripe-Stack überspringt das über `INCLUDE_RDS_CA=false`; der
+  Produktionsdefault bleibt `true`.
+- Die frühere Anleitung behauptete einen generellen Startabbruch bei aktivierten
+  Pools. Pooling ist inzwischen implementiert und kann lokal ausdrücklich aktiviert werden.
+- Die Services verwenden **Micronaut**, nicht Spring Boot. Die `prd`-Profile
+  enthalten bewusst `https://gratilo.eu`; der neue Stack aktiviert nur `docker`.
+
+**Einrichtung und Start:**
+
+```bash
+python3 docker-compose/stripe_test.py init
+# .env.stripe-test lokal prüfen/bearbeiten, z.B. mit nano .env.stripe-test
+python3 docker-compose/stripe_test.py check-stripe
+python3 docker-compose/stripe_test.py webhook-secret
+python3 docker-compose/stripe_test.py check
+python3 docker-compose/stripe_test.py up
+```
+
+Falls Docker Paketdownloads mit TLS-Handshake-Abbrüchen nicht abschließen kann,
+ist ein optionaler **WSL-Hostbuild** vorhanden. Dafür JDK 21 in WSL installieren
+und bei Bedarf `JAVA_HOME` auf dessen Installationsverzeichnis setzen:
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
+  python3 docker-compose/stripe_test.py up --host-build
+```
+
+Dieser Weg verwendet zusätzlich `compose.stripe-test.host-build.yml`, baut
+die beiden `installDist`-Artefakte mit Gradle in WSL und kopiert ausschließlich
+deren Runtime-Libraries in `Dockerfile.local-runtime`. Compose mit Unterstützung
+für `additional_contexts` (ab 2.17) ist erforderlich. Netzwerk, PostgreSQL,
+Secrets und Sicherheitsprüfungen sind identisch. Es wird kein TLS-Check umgangen.
+Nach Änderungen für diesen Weg wieder denselben `--host-build`-Befehl verwenden.
+
+`init` erstellt die von Git ignorierte `.env.stripe-test`. Bereits vorhandene
+`sk_test_`- und `pk_test_`-Schlüssel aus der ignorierten Root-`.env` können übernommen
+werden. Datenbankpasswort, JWT-Schlüssel, interner API-Schlüssel und Aktivierungscode
+werden unabhängig zufällig erzeugt. Ein vorhandenes Webhook-Secret wird ausdrücklich
+**nicht** übernommen. Eine existierende `.env.stripe-test` wird nicht überschrieben.
+Auf Windows schützt zusätzlich die ACL des Benutzerverzeichnisses die Datei;
+WSL-Dateimodi auf `/mnt/c` hängen von den DrvFS-Mountoptionen ab.
+
+| Variable in `.env.stripe-test` | Bedeutung |
+| --- | --- |
+| `STRIPE_SECRET_KEY` | privater API-Key der dedizierten Stripe-Sandbox; ausschließlich Testschlüssel |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | öffentlicher Testkey derselben Sandbox; wird als Frontend-Buildargument übergeben |
+| `STRIPE_WEBHOOK_SECRET` | vom **lokalen Listener** ermitteltes Signatursecret |
+| `LOCAL_POSTGRES_PASSWORD` | separat generiertes lokales PostgreSQL-Passwort |
+| `JWT_SECRET` | separat generierter JWT-Schlüssel |
+| `INTERNAL_API_KEY` | separat generierter Schlüssel zwischen den lokalen Services |
+| `PAYMENTS_TEST_ACTIVATION_CODE` | privater lokaler Aktivierungscode; niemals `VITE_` oder in QR-/Zahlungslinks |
+| `FRONTEND_BASE_URL` | standardmäßig `http://localhost:3001`; optional eigene HTTPS-Entwicklungs-Tunnel-URL |
+| `FEATURE_TIP_POOLS_ENABLED` | standardmäßig `false`; für Team-/Pooltests ausdrücklich `true` setzen und `up` erneut ausführen |
+
+Der Stack setzt `PAYMENTS_ENABLED=true`, `STRIPE_TEST_ONLY=true`,
+`STRIPE_SANDBOX_PAYOUTS=true`, `STRIPE_DEMO_ENABLED=false` und beim Frontend-Build
+`VITE_PAYMENTS_ENABLED=true` fest. Live-Keys und fehlende Signatursecrets werden
+abgelehnt. Das Frontend verwendet den bereits implementierten Stripe-hosted Checkout
+und Stripe-hosted Onboarding; der Publishable Key wird dafür derzeit nicht zur
+Laufzeit benötigt. Sein Testpräfix wird trotzdem geprüft und er wird wie angefordert
+beim lokalen Build bereitgestellt. Die Zuordnung beider Keys zur selben Sandbox
+im Stripe-Dashboard prüfen. `check-stripe` bestätigt nur den Secret Key mit einer
+lesenden Balance-Abfrage und `livemode=false`; es führt keine Zahlung aus.
+
+**URLs und lokale Daten:**
+
+- Frontend und API-Proxy: `http://localhost:3001`.
+- E-Mail-Bestätigung / Passwortreset: lokale Testmails unter `http://localhost:18025`.
+- Checkout-Erfolg: `http://localhost:3001/pay/success?session_id={CHECKOUT_SESSION_ID}`.
+- Checkout-Abbruch: `http://localhost:3001/pay/cancelled?session_id={CHECKOUT_SESSION_ID}`.
+- Connect-Rückkehr: `http://localhost:3001/account?stripe_onboarding=return`,
+  Refresh: dieselbe Route mit `stripe_onboarding=refresh`.
+- PostgreSQL und beide Backends sind nur im eigenen Docker-Netz erreichbar.
+  Die Datenbank besitzt die vorhandenen Schemas `user_mgmt` und `payment_mgmt`;
+  Liquibase führt beide bestehenden Changelogs aus. Keine RDS-/AWS-Zugangsdaten mounten.
+- MinIO ist für diesen Ablauf nicht erforderlich: Profilbilder werden derzeit als
+  Data-URLs gespeichert. Der bestehende Standardstack wird nicht gestoppt oder gelöscht.
+
+**Stripe CLI und Webhooks:**
+
+Die [Stripe CLI](https://docs.stripe.com/stripe-cli) in WSL installieren.
+Optional `stripe login` ausführen und im Browser die gewünschte Sandbox auswählen.
+Die automatisierte Einrichtung verwendet danach ausdrücklich den Testkey aus
+`.env.stripe-test` über `STRIPE_API_KEY`, nicht irgendein angemeldetes Live-Profil.
+`webhook-secret` ruft `stripe listen --print-secret` mit diesem Key auf und schreibt
+das Ergebnis verdeckt in die lokale Datei. `up` startet einen Docker-Listener mit
+demselben Key und Gerätenamen; die Signaturprüfung im Payment-Service bleibt aktiv.
+
+Der Listener führt im eigenen Docker-Netz aus:
+
+```bash
+stripe listen \
+  --events checkout.session.completed,checkout.session.expired,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,charge.refunded,charge.dispute.created,charge.dispute.closed,payout.paid,payout.failed,payout.canceled,account.updated \
+  --forward-to http://payment-service:8082/payment-service/webhooks/stripe \
+  --forward-connect-to http://payment-service:8082/payment-service/webhooks/stripe
+```
+
+Eine gleichwertige manuelle Variante über den Frontend-Proxy in WSL ist:
+
+```bash
+stripe login
+stripe listen \
+  --events checkout.session.completed,checkout.session.expired,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,charge.refunded,charge.dispute.created,charge.dispute.closed,payout.paid,payout.failed,payout.canceled,account.updated \
+  --forward-to http://localhost:3001/payment-service/webhooks/stripe \
+  --forward-connect-to http://localhost:3001/payment-service/webhooks/stripe
+```
+
+Bei dieser Variante den automatisch gestarteten Containerlistener zuerst stoppen,
+das vom manuellen Listener ausgegebene Secret in `.env.stripe-test` eintragen und
+den Payment-Service ohne erneutes Starten des Containerlisteners neu erzeugen:
+
+```bash
+docker compose --env-file .env.stripe-test -f docker-compose/compose.stripe-test.yml --profile webhooks stop stripe-cli
+# STRIPE_WEBHOOK_SECRET in .env.stripe-test lokal aktualisieren
+docker compose --env-file .env.stripe-test -f docker-compose/compose.stripe-test.yml up -d payment-service
+```
+
+Nie ein produktives Endpoint-Secret dafür verwenden. Ein Listener liefert für
+Plattform- und Connect-**Snapshot**-Events dasselbe lokale Signatursecret und
+kann beide an denselben Handler senden. Destination Charges und Separate Charges
+and Transfers erzeugen ihre Zahlungsevents auf der Plattform; Connect-Weiterleitung
+deckt zusätzliche Ereignisse verbundener Konten ab. Der vorhandene Handler verarbeitet
+Zahlungsstatus, Erstattungen und Disputes, aber keine Accounts-v2-**Thin**-Events;
+diese werden abgelehnt. Accountstatus wird über die vorhandene API-Synchronisation
+aktualisiert. Kein zweites Thin-Event-Ziel oder Signatursecret wurde hinzugefügt.
+Siehe [CLI-Flags](https://docs.stripe.com/cli/listen) und
+[Connect-Ereignisquellen](https://docs.stripe.com/connect/webhooks).
+
+**Manueller Zahlungsablauf in einer dedizierten Sandbox:**
+
+1. Lokal registrieren, Mail in MailHog öffnen, E-Mail bestätigen und anmelden.
+2. Im Profil Stripe-Test-Onboarding starten. Testkonten und Testdaten verwenden,
+   erforderliche Capabilities vervollständigen und Accountstatus synchronisieren.
+   Ein Rücksprung allein ist noch keine Freischaltung. Die vorhandenen Prüfungen
+   für ausstehende Anforderungen, `card_payments`, Transfers und Empfängerstatus bleiben aktiv.
+3. Im lokalen `docker`-Profil ist die produktive Teilnehmerbeschränkung nicht aktiv.
+   Der Code liegt lokal vor und die vorhandenen Aktivierungsendpunkte bleiben nutzbar;
+   der zusätzliche Freigabeschritt des `prd`-Profils ist hier nicht notwendig.
+4. Den lokalen Mitarbeiter-Zahlungslink aus dem Profil in einem privaten Browserfenster
+   öffnen. Es gibt keine neu erfundene öffentliche Mitarbeiter-Suchliste.
+   Vordefinierten oder freien Betrag wählen (bestehende Grenze 1,00–10.000,00 EUR),
+   optional Nachricht bis 500 Zeichen eingeben, Gebührenausgleich wählen und Zusammenfassung prüfen.
+   Ein separater steuerlicher **Freibetrag ist nicht implementiert**; die UI benennt
+   dies bereits. Freie Betragwahl und Freibetrag sind unterschiedliche Funktionen.
+5. Zu Stripe Checkout gehen. [Testkarte](https://docs.stripe.com/testing)
+   `4242 4242 4242 4242`, zukünftiges Ablaufdatum und beliebige dreistellige CVC verwenden.
+   Keine echten Kartendaten eingeben. Nach Rückkehr wird Erfolg erst nach serverseitiger
+   Stripe-Statusbestätigung angezeigt; die Redirect-URL allein bestätigt keine Zahlung.
+6. Lokale Transaktion im Mitarbeiter-Dashboard und Webhook-Zustellung prüfen.
+   `4000 0000 0000 9995` simuliert unzureichende Deckung. Eine Ablehnung ist noch keine
+   bezahlte Session; beim Wiederholen müssen Betrag und Idempotenzverhalten stimmen.
+   Ein geschlossenes Stripe-Fenster muss ohne Bestätigung ausstehend bleiben.
+7. Optional Pools aktivieren, mehrere lokal registrierte und bei Stripe berechtigte
+   Testempfänger einladen, per MailHog bestätigen, die vorhandenen Anteile konfigurieren
+   und den lokalen Team-Link `/pay/team/<owner-id>` aus dem Dashboard verwenden.
+   Separate Charges and Transfers und deren verzögerte Abrechnung sind implementiert.
+   Transfers können bis zur Verfügbarkeit des Stripe-Testguthabens ausstehen.
+   Auszahlungen bleiben simulierte lokale Buchungen; echte Bankauszahlungen werden nicht getestet.
+
+Stripe erlaubt HTTP-Return-/Refresh-URLs im Testbetrieb:
+[Hosted Onboarding](https://docs.stripe.com/connect/hosted-onboarding).
+Falls die konkrete Sandbox für öffentliche Geschäftsprofil-URLs einen erreichbaren
+Host verlangt, optional einen HTTPS-Tunnel ausschließlich auf Port 3001 einrichten,
+`FRONTEND_BASE_URL` auf dessen eigene HTTPS-URL setzen und `up` erneut ausführen.
+Beispiel nach Installation von Cloudflare Tunnel: `cloudflared tunnel --url http://localhost:3001`.
+TLS- und Webhook-Signaturprüfungen bleiben aktiv. Keine produktive Domain oder
+produktiven Stripe-Einstellungen ändern. Die lokale Business-URL wird bewusst nicht
+als öffentliches Stripe-Geschäftsprofil eingetragen.
+
+**Betrieb und automatisierte Tests:**
+
+```bash
+python3 docker-compose/stripe_test.py status
+python3 docker-compose/test_stripe_local.py # nur nach erfolgreichem up
+python3 docker-compose/stripe_test.py down  # lokale Daten bleiben erhalten
+python3 -m unittest discover -s deployment/tests -p test_local_stripe_compose.py -v
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 bash ./gradlew \
+  --project-cache-dir /tmp/gratilo-local-stripe-gradle-cache \
+  :backend:user-service:test :backend:payment-service:test --no-daemon
+(cd frontend && npm test)
+```
+
+Compose-Tests rendern mit Fakes und prüfen Netzwerk-/Datenbanktrennung, lokale
+Redirects, Buildargumente, beide Webhook-Ziele und Ablehnung von Livekonfiguration.
+Die vorhandenen Java-/Frontend-Tests verwenden kontrollierte Stripe-Fakes für
+Checkout, Gebühren/Nachrichten, bestätigte/ausstehende/fehlgeschlagene Zahlung,
+Signaturprüfung, wiederholte und verspätete Webhooks, Connect-Berechtigung,
+Onboarding, Poolaufteilung, Transferabrechnung und Rückabwicklung. Neue Tests prüfen
+die lokalen Redirects inklusive Stripe-Platzhalter und lokales Connect-Onboarding.
+Das ersetzt keinen manuellen Sandbox-Kartentest mit einem vollständig freigegebenen
+Connect-Testkonto. Keine erfolgreiche echte Sandboxzahlung wird aus einem Fake-Test abgeleitet.
+
+Prüfergebnis dieser lokalen Erweiterung (20.10.2026): 90 Backend-Tests,
+41 Frontend-Tests und 136 Python-Tests erfolgreich; Frontend-Build mit aktiviertem
+Zahlungsmodus und lokalem Test-Publishable-Key erfolgreich. Der Standard-Dockerbuild
+scheiterte hier an TLS-Handshake-Abbrüchen bei Gradle-/Micronaut-Paketdownloads.
+Der dokumentierte Hostbuild war erfolgreich; PostgreSQL, beide Backends, Frontend,
+MailHog und Stripe-Listener wurden lokal gestartet. Frontend und MailHog antworteten
+auch unter Windows mit HTTP 200. Der lokale Smoke-Test bestätigte angewendete
+Migrationen in beiden Schemas, geschützte Transaktions-API, Feature-Flags,
+Signaturprüfung und Ablehnung von Live-Ereignissen sowie das passende Listener-Secret.
+Der bestehende Secret Key wurde ausschließlich lesend als Sandbox-Key bestätigt.
+Keine Kartenzahlung, kein Connect-Onboarding und kein Transfer gegen echte
+Stripe-Sandbox-Objekte wurde automatisch durchgeführt; dafür die manuellen Schritte
+oben mit eigenen lokalen Testbenutzern und einer dedizierten Sandbox ausführen.
+
 ### Stripe-Testmodus konfigurieren
 
 Lege im Repository-Stamm eine lokale Datei `.env` an (die Datei ist per
@@ -89,8 +323,9 @@ Zahlungen bleiben zunächst ausgeschaltet. Für einen lokalen Testlauf explizit
 `PAYMENTS_ENABLED=true` und `VITE_PAYMENTS_ENABLED=true` setzen; das passende
 `sk_test_…` und `whsec_…` verwenden.
 `STRIPE_TEST_ONLY=true`, `STRIPE_SANDBOX_PAYOUTS=true` und
-`FEATURE_TIP_POOLS_ENABLED=false` müssen erhalten bleiben. Die Anwendung bricht
-bei Live-Schlüsseln oder aktivierten Pools den Start ab.
+`FEATURE_TIP_POOLS_ENABLED=false` sind die sicheren Standardwerte des normalen
+Stacks. Für ausdrücklich gewählte lokale Pooltests kann das letzte Flag aktiviert werden.
+Die Anwendung bricht bei Live-Schlüsseln oder unzulässiger Auszahlungskonfiguration ab.
 Danach den Stack mit `--build` neu bauen:
 
 ```shell
@@ -156,12 +391,12 @@ enthält ausschließlich nicht geheime Werte und Platzhalter für Secret-ARNs.
 
 ## Feature-Toggle: Trinkgeld-Pools
 
-Die Gruppenaufteilung bleibt vollständig deaktiviert. Beide Backends verweigern
-bei `FEATURE_TIP_POOLS_ENABLED=true` den Start. Poolverwaltung, Mitgliedschaften
-und Einladungen bleiben ausgeblendet; öffentliche und interne Pool-APIs sind nicht
-registriert. Der Checkout enthält keine Verteilungslogik mehr. Bestehende Pooldaten
-und historische Buchungen bleiben erhalten. Die Bereinigung von Mitgliedschaften
-beim Löschen eines Kontos bleibt aktiv.
+Im Standardbetrieb sind Pools deaktiviert. Beide Backends verwenden dasselbe
+`FEATURE_TIP_POOLS_ENABLED`-Flag. Der isolierte lokale Stripe-Stack kann damit
+Poolverwaltung, Einladungen und Team-Checkout ausdrücklich freischalten.
+Separate Charges and Transfers, verzögerte Abrechnung sowie Rückabwicklung sind
+implementiert. Diese lokale Freischaltung verändert keine Produktionskonfiguration.
+Bestehende Pooldaten und historische Buchungen bleiben erhalten.
 
 ## Stripe Connect: Stand und manuelle Einrichtung
 

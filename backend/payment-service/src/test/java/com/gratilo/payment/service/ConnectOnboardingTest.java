@@ -13,6 +13,21 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ConnectOnboardingTest {
+    @Test void localSandboxOnboardingReturnsToLocalFrontendWithoutPublishingLocalBusinessUrl() throws Exception {
+        var form = new AtomicReference<String>();
+        var accountBody = new AtomicReference<String>();
+        var stripe = new StripeConnectService("sk_test_fixture", "http://localhost:3001") {
+            @Override protected String jsonCall(String url, String json) { accountBody.set(json); return "{}"; }
+            @Override protected String call(String url, String body) { form.set(body); return "{}"; }
+        };
+        stripe.createAccount("local@example.test", stripe.paymentUrl("local-user"));
+        assertFalse(accountBody.get().contains("business_url"));
+        stripe.createOnboardingLink("acct_fixture");
+        var decoded = java.net.URLDecoder.decode(form.get(), java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(decoded.contains("return_url=http://localhost:3001/account?stripe_onboarding=return"));
+        assertTrue(decoded.contains("refresh_url=http://localhost:3001/account?stripe_onboarding=refresh"));
+    }
+
     @Test void putsBusinessUrlInDefaultsProfile() throws Exception {
         var captured = new AtomicReference<String>();
         var stripe = new StripeConnectService("sk_test_fixture", "https://test.example.com") {
