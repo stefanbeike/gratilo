@@ -9,7 +9,9 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PoolCheckoutTest {
-    @Test void chargesOnceOnPlatformAndSnapshotsOnlyConnectEligibleMembers() throws Exception {
+    @Test void coveredChargePreservesPoolTipAndFeeSnapshot() throws Exception { assertPoolCharge(true); }
+    @Test void uncoveredChargePreservesPoolTipWithoutSurcharge() throws Exception { assertPoolCharge(false); }
+    private void assertPoolCharge(boolean covered) throws Exception {
         UUID owner = UUID.randomUUID(), first = UUID.randomUUID(), second = UUID.randomUUID();
         var poolClient = new PoolDistributionClient("http://localhost", "fixture", true) {
             @Override public Optional<Distribution> find(UUID id) { return Optional.of(new Distribution(UUID.randomUUID(), "Team",
@@ -35,23 +37,33 @@ class PoolCheckoutTest {
             case "update" -> a[0];
             default -> defaultValue(m.getReturnType());
         });
+        var auditRows=new HashMap<UUID,PaymentFeeAuditEntity>();
+        var auditRepository=proxy(PaymentFeeAuditRepository.class,(p,m,a)->switch(m.getName()){
+            case "findById" -> Optional.ofNullable(auditRows.get(a[0]));
+            case "save" -> {var row=(PaymentFeeAuditEntity)a[0];auditRows.put(row.getTransactionId(),row);yield row;}
+            default -> throw new AssertionError(m.getName());
+        });
+        var feeAudit=new StripeFeeAuditService(auditRepository,transactionRepo,"sk_test_fixture");
         var calls = new ArrayList<String>();
         var service = new StripeCheckoutService(transactionRepo, accounts, connect, "sk_test_fixture",
                 "https://gratilo.test/pay/success?session_id={CHECKOUT_SESSION_ID}", "https://gratilo.test/pay/cancelled",
-                1.5, 25, recipients, poolClient, transferRepo) {
+                1.5, 25, recipients, poolClient, transferRepo, feeAudit) {
             @Override protected String stripeRequest(String path, String form, String key) {
                 calls.add(path + " " + Objects.toString(form, ""));
                 return "{\"livemode\":false,\"id\":\"cs_test_pool\",\"url\":\"https://checkout.stripe.com/test\"}";
             }
         };
-        var response = service.createPool(owner, new TipPaymentRequest(501L, "Team danke", "pool-key", true)).orElseThrow();
+        var response = service.createPool(owner, new TipPaymentRequest(501L, "Team danke", "pool-key", covered)).orElseThrow();
         assertEquals("https://checkout.stripe.com/test", response.checkoutUrl());
         var form = calls.getFirst();
-        assertTrue(form.contains("line_items%5B0%5D%5Bprice_data%5D%5Bunit_amount%5D=534"));
+        assertTrue(form.contains("line_items%5B0%5D%5Bprice_data%5D%5Bunit_amount%5D="+(covered?534:501)));
         assertTrue(form.contains("payment_intent_data%5Btransfer_group%5D=gratilo_"));
         assertFalse(form.contains("transfer_data%5Bdestination%5D"));
         assertFalse(form.contains("payment_method_types"));
         assertEquals(2, snapshots.size());
+        assertEquals(1,auditRows.size());var audit=auditRows.get(stored.get().getId());
+        assertEquals(covered?534:501,audit.getChargedMinor());assertEquals(covered?33:0,audit.getSurchargeMinor());
+        assertEquals("Team danke",stored.get().getDescription());
         assertTrue(snapshots.stream().allMatch(PoolTransferEntity::isSettlementApproved));
         assertEquals(501, snapshots.stream().mapToLong(PoolTransferEntity::getAmountMinor).sum());
         assertTrue(snapshots.stream().allMatch(item -> item.getStatus().equals("PENDING")));

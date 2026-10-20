@@ -16,3 +16,8 @@ it('does not trust missing or expired status or missing transfer capability', ()
   expect(memberTransferReady({...ready,transfersEnabled:false})).toBe(false)
   expect(memberTransferReady({...ready,checkedAt:'2020-01-01T00:00:00Z'})).toBe(false)
 })
+it('keeps bank payout readiness separate from transfer reception',async()=>{
+ const {memberPayoutReady}=await import('./poolStripeStatus')
+ const status={userId:'user',status:'UNDER_REVIEW',onboardingStatus:'SUBMITTED',transfersEnabled:false,payoutsEnabled:true,checkedAt:new Date().toISOString()}
+ expect(memberTransferReady(status)).toBe(false);expect(memberPayoutReady(status)).toBe(true)
+})

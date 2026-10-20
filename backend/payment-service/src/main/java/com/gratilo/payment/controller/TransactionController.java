@@ -11,7 +11,13 @@ import java.util.UUID;
 @Controller("/payment-service/transactions") @Secured(SecurityRule.IS_AUTHENTICATED)
 public class TransactionController {
     private final TransactionService service;
-    public TransactionController(TransactionService service) { this.service = service; }
+    private final com.gratilo.payment.service.StripeFeeAuditService fees;
+    public TransactionController(TransactionService service) { this(service,null); }
+    @jakarta.inject.Inject public TransactionController(TransactionService service, com.gratilo.payment.service.StripeFeeAuditService fees) { this.service=service;this.fees=fees; }
+    @Get("/{id}/fees") public HttpResponse<?> feeReport(UUID id, Authentication a) {
+        if(service.get(user(a),id).isEmpty()||fees==null)return HttpResponse.notFound();
+        return fees.report(id).map(report->HttpResponse.ok(report).header("Cache-Control","no-store")).orElseGet(HttpResponse::notFound);
+    }
     private UUID user(Authentication a) { return UUID.fromString(a.getName()); }
     @Get public HttpResponse<?> list(Authentication a) { return HttpResponse.ok(service.list(user(a))); }
     @Get("/summary") public HttpResponse<?> summary(Authentication a) { return HttpResponse.ok(service.summary(user(a))); }

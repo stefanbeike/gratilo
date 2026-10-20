@@ -1,0 +1,41 @@
+import { useEffect, useRef, useState } from 'react'
+import { MemberStripeBadge, memberTransferReady, memberPayoutReady, type MemberStripeStatus } from './poolStripeStatus'
+
+export interface PoolParticipant { id:string; userId:string; email:string; name:string; sharePercent:number; effectiveSharePercent?:number; status:string; active:boolean; invitationExpiresAt?:string|null; invitationToken?:string|null }
+type Props={ members:PoolParticipant[]; ownerId:string; stripe:Record<string,MemberStripeStatus>; drafts:Record<string,string>;
+ onDraft:(id:string,value:string)=>void; onToggle:(member:PoolParticipant,active:boolean)=>Promise<void>;
+ onRemove:(member:PoolParticipant)=>Promise<void>; onResend:(member:PoolParticipant)=>Promise<void>; onDistribute:()=>void; onSave:()=>Promise<void> }
+const active=(m:PoolParticipant)=>m.active&&m.status==='ACTIVE'
+const percent=(value:number)=>new Intl.NumberFormat('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2}).format(value)+' %'
+export function PoolMembersPanel({members,ownerId,stripe,drafts,onDraft,onToggle,onRemove,onResend,onDistribute,onSave}:Props){
+ const [confirmation,setConfirmation]=useState<{title:string;description:string;run:()=>Promise<void>}|null>(null)
+ const [busy,setBusy]=useState(false)
+ const dialog=useRef<HTMLDivElement>(null)
+ const panel=useRef<HTMLDivElement>(null)
+ useEffect(()=>{if(!confirmation)return;const previous=document.activeElement as HTMLElement;dialog.current?.querySelector<HTMLButtonElement>('button')?.focus();return()=>{if(previous?.isConnected){previous.focus();return}const key=previous?.getAttribute('data-pool-action');const replacement=Array.from(panel.current?.querySelectorAll<HTMLButtonElement>('button[data-pool-action]')||[]).find(button=>button.getAttribute('data-pool-action')===key);(replacement||panel.current)?.focus()}},[confirmation])
+ const activeMembers=members.filter(active),others=members.filter(m=>!active(m))
+ const notTransferReady=activeMembers.filter(m=>m.sharePercent>0&&!memberTransferReady(stripe[m.userId])).length
+ const notPayoutReady=activeMembers.filter(m=>!memberPayoutReady(stripe[m.userId])).length
+ const basisPoints=activeMembers.reduce((sum,m)=>sum+Math.round((m.effectiveSharePercent||0)*100),0)
+ function ask(title:string,description:string,run:()=>Promise<void>){setConfirmation({title,description,run})}
+ function row(member:PoolParticipant){const owner=member.userId===ownerId,isActive=active(member),expired=member.status==='INVITED'&&!!member.invitationExpiresAt&&new Date(member.invitationExpiresAt)<=new Date()
+  return <li className={`pool-participant-row ${isActive?'':'pool-participant-muted'}`} key={member.id}>
+   <div className="pool-participant-person"><strong>{member.name||member.email}</strong>{owner&&<span className="status-pill owner-badge">★ Poolinhaber</span>}<small>{member.email}</small><span className={`status-pill ${isActive?'booked':'inactive'}`}>{isActive?'● Aktiv':member.status==='INVITED'?(expired?'◷ Einladung abgelaufen':'◷ Einladung offen'):member.status==='DECLINED'?'○ Abgelehnt':'Ⅱ Inaktiv'}</span></div>
+   <div className="pool-participant-share"><span className="participant-field-label">Effektiver Anteil</span><strong>{member.effectiveSharePercent!=null?percent(isActive?member.effectiveSharePercent:0):'Noch nicht ermittelt'}</strong><label>Verteilungsgewicht<input type="number" min="0" max="100" step="0.01" inputMode="decimal" aria-label={`Verteilungsgewicht für ${member.name||member.email}`} value={drafts[member.id]??String(member.sharePercent)} onChange={e=>onDraft(member.id,e.target.value)}/></label></div>
+   <div className="pool-participant-stripe"><MemberStripeBadge status={stripe[member.userId]}/>{isActive&&member.sharePercent>0&&!memberTransferReady(stripe[member.userId])&&<p className="pool-blocking-member">! Verhindert derzeit neue Pool-Zahlungen.</p>}</div>
+   <div className="pool-participant-actions" role="group" aria-label={`Aktionen für ${member.name||member.email}`}>
+    {member.status==='INVITED'&&<button className="text-button" onClick={()=>void onResend(member)}>Einladung erneut senden</button>}
+    {!owner&&member.status==='ACTIVE'&&<button className="outline-button" data-pool-action={`toggle-${member.id}`} onClick={()=>ask(isActive?'Mitglied deaktivieren?':'Mitglied reaktivieren?',`Das gespeicherte Gewicht von ${member.name||member.email} bleibt erhalten. Die effektiven Anteile werden proportional neu berechnet. Bestehende Zahlungen bleiben unverändert.`,()=>onToggle(member,!isActive))}>{isActive?'Deaktivieren':'Reaktivieren'}</button>}
+    {!owner&&<button className="text-button pool-remove-action" onClick={()=>ask('Mitglied entfernen?',`${member.name||member.email} wird aus dem Pool entfernt. Bestehende Zahlungen und Verteilungen bleiben erhalten.`,()=>onRemove(member))}>Entfernen</button>}
+   </div>
+  </li>
+ }
+ return <div className="pool-participants" ref={panel} tabIndex={-1} aria-label="Pool-Teilnehmerübersicht">
+  <div className="pool-participants-summary" aria-label="Teilnehmerzusammenfassung"><div><strong>{members.length}</strong><span>Teilnehmer gesamt</span></div><div><strong>{activeMembers.length}</strong><span>Aktive Teilnehmer</span></div><div><strong>{notPayoutReady}</strong><span>Aktive ohne bestätigte Bankauszahlung</span></div><div><strong>{percent(basisPoints/100)}</strong><span>Effektive Anteile gesamt</span></div></div>
+  <div className="pool-readiness" aria-live="polite"><strong>{members.filter(m=>memberTransferReady(stripe[m.userId])).length} von {members.length} Mitgliedern sind für Stripe bereit.</strong>{notTransferReady>0&&<p>Noch nicht alle Pool-Mitglieder haben ihre Stripe-Einrichtung abgeschlossen. Die fehlenden Mitglieder müssen ihr Stripe-Konto einrichten oder vervollständigen, bevor sie Trinkgeldanteile erhalten können.</p>}<p>{notTransferReady>0?`${notTransferReady} aktive Mitglieder mit Anteil benötigen die Transferfreigabe. Neue Pool-Zahlungen bleiben gesperrt.`:'Alle vorgesehenen Empfänger werden vor jeder neuen Zahlung erneut serverseitig geprüft.'}</p><small>Gewichte bleiben bei Deaktivierung gespeichert. Effektive Anteile gelten für angenommene, aktive Mitglieder mit positivem Gewicht. Bankauszahlungen werden getrennt vom Transferempfang geprüft.</small></div>
+  <h3>Aktive Teilnehmer <span>({activeMembers.length})</span></h3><ul className="pool-participant-list" aria-label="Aktive Teilnehmer">{activeMembers.map(row)}</ul>{activeMembers.length===0&&<p className="muted">Keine aktiven Teilnehmer.</p>}
+  {others.length>0&&<><h3>Inaktiv und Einladungen <span>({others.length})</span></h3><ul className="pool-participant-list" aria-label="Inaktive Teilnehmer und Einladungen">{others.map(row)}</ul></>}
+  <div className="pool-share-actions"><button className="outline-button" onClick={onDistribute} disabled={!members.length}>Gewichte gleichmäßig vorbereiten</button><button className="solid-button" disabled={!members.length} onClick={()=>ask('Verteilungsgewichte speichern?','Die Änderung gilt für neue Zahlungen. Bereits gespeicherte Zahlungssnapshots bleiben unverändert.',onSave)}>Alle Anteile speichern</button></div>
+  {confirmation&&<div className="account-dialog-backdrop"><div className="account-dialog" role="alertdialog" aria-modal="true" aria-labelledby="pool-confirm-title" aria-describedby="pool-confirm-description" ref={dialog} onKeyDown={event=>{if(event.key==='Escape'&&!busy)setConfirmation(null);if(event.key==='Tab'){const buttons=dialog.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');if(!buttons?.length)return;const first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}}}}><h2 id="pool-confirm-title">{confirmation.title}</h2><p id="pool-confirm-description">{confirmation.description}</p><div className="profile-actions"><button className="outline-button" disabled={busy} onClick={()=>setConfirmation(null)}>Abbrechen</button><button className="solid-button" disabled={busy} onClick={async()=>{setBusy(true);try{await confirmation.run();setConfirmation(null)}finally{setBusy(false)}}}>{busy?'Wird gespeichert …':'Bestätigen'}</button></div></div></div>}
+ </div>
+}

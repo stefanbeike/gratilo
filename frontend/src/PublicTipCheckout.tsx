@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useRef } from 'react'
 import type { Session } from './api'
 import { paymentsEnabled } from './stripe'
 
-type Quote = { tipAmountMinor: number; serviceFeeMinor: number; totalAmountMinor: number; currency: string; serviceFeePercent: number; fixedFeeMinor: number; recipientAmountMinor: number }
+type Quote = { tipAmountMinor: number; serviceFeeMinor: number; totalAmountMinor: number; currency: string; serviceFeePercent: number; fixedFeeMinor: number; recipientAmountMinor: number; feeEstimated?: boolean; estimatedStripeFeeMinor?: number; feeEstimateBasis?: string }
 type Recipient = { userId: string; firstName?: string; lastName?: string; organisation?: string; profileImage?: string | null; paymentEnabled?: boolean; personalLinkPaused?: boolean; poolName?: string | null; memberNames?: string[] }
 type SavedFlow = { amount: number; message: string; feeCovered: boolean; step: 1 | 2 | 3; attemptKey?: string; pendingSessionId?: string }
 type CheckoutStatus = { status: 'PAID' | 'PENDING' | 'FAILED'; confirmed: boolean; transactionId?: string; tipAmountMinor?: number; amountPaidMinor?: number; recipientUserId?: string; checkoutUrl?: string }
@@ -108,9 +108,9 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
     const attemptKey = flow.attemptKey || nextKey()
     update({ attemptKey })
     try {
-      const response = await fetch(`/payment-service/tips/${isPool ? `pools/${recipientId}` : recipientId}/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ tipAmountMinor: flow.amount, message: flow.message || null, idempotencyKey: attemptKey, feeCovered: flow.feeCovered }) })
+      const response = await fetch(`/payment-service/tips/${isPool ? `pools/${recipientId}` : recipientId}/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ tipAmountMinor: flow.amount, message: flow.message || null, idempotencyKey: attemptKey, feeCovered: flow.feeCovered, expectedTotalAmountMinor: quote.totalAmountMinor }) })
       const result = await response.json()
-      if (!response.ok) throw new Error(result.message || 'Stripe Checkout konnte nicht gestartet werden.')
+      if (!response.ok) { if(result.code==='QUOTE_CHANGED'){setLoadRevision(value=>value+1);update({step:2})} throw new Error(result.message || 'Stripe Checkout konnte nicht gestartet werden.') }
       if (!result.checkoutUrl) throw new Error('Die sichere Stripe-Zahlungsseite wurde nicht zurückgegeben. Der Versuch bleibt für eine sichere Wiederholung gespeichert.')
       if (result.transactionId) sessionStorage.setItem('gratilo:last-transaction', result.transactionId)
       location.assign(result.checkoutUrl)
@@ -166,18 +166,16 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
     </>}
     {flow.step === 2 && !quote && <p role="status">Gebührenberechnung wird aktualisiert …</p>}
     {flow.step === 2 && quote && <>
-      <p className="tip-intro">Dein Trinkgeld beträgt {money(flow.amount)}. Wenn du möchtest, kannst du die bei Gratilo berücksichtigte Gebühr freiwillig ausgleichen.</p>
+      <p className="tip-intro">Dein Trinkgeld beträgt {money(flow.amount)}. Wenn du möchtest, kannst du die geschätzten Stripe-Zahlungsgebühren freiwillig übernehmen.</p>
       <label className="fee-toggle"><input type="checkbox" checked={flow.feeCovered} onChange={event => update({ feeCovered: event.target.checked })} /><span>Gebührenabzug ausgleichen</span></label>
-      <p className="hint">Die freiwillige Erhöhung deckt die konfigurierte Gratilo-Berechnung möglichst genau ab. Stripe- oder spätere Auszahlungskosten können abweichen und sind nicht garantiert abgedeckt.</p>
+      <p className="hint">Die Gebührenübernahme ist eine Schätzung. Karte und Zahlungsmethode werden erst bei Stripe gewählt; die tatsächlichen Kosten können abweichen. Dein bestätigter Gesamtbetrag wird danach nicht erhöht.</p>
       <div className="tip-breakdown" aria-live="polite">
         <SummaryLine label="Ursprünglich gewähltes Trinkgeld" value={money(quote.tipAmountMinor)} />
-        <SummaryLine label="Freiwillige Erhöhung" value={money(quote.serviceFeeMinor)} />
-        <SummaryLine label="Gesamtes Trinkgeld" value={money(quote.totalAmountMinor)} />
-        <SummaryLine label="Berücksichtigte Gratilo-Gebühr" value={money(quote.serviceFeeMinor)} />
+        <SummaryLine label="Geschätzte Zahlungsgebühren (freiwillig)" value={money(quote.serviceFeeMinor)} />
         <SummaryLine label="Für den Empfänger vorgesehen" value={money(quote.recipientAmountMinor)} />
         <SummaryLine label="Du bezahlst insgesamt" value={money(quote.totalAmountMinor)} total />
       </div>
-      <p className="tip-note">Keine späteren Auszahlungsgebühren oder sonstigen Stripe-Gebühren eingerechnet. Der Empfängerbetrag ist der für den Connect-Transfer vorgesehene Betrag.</p>
+      <p className="tip-note">{quote.serviceFeePercent!=null&&quote.fixedFeeMinor!=null?`Referenzschätzung: ${quote.serviceFeePercent} % des Gesamtbetrags + ${money(quote.fixedFeeMinor)}.`:'Serverseitig berechnete Referenzschätzung.'} {quote.feeEstimateBasis} Keine Gratilo-Plattformgebühr; spätere Connect- und Bankauszahlungskosten sind nicht enthalten.</p>
       {error && <div className="message error" role="alert">{error}</div>}
       <button className="tip-pay" disabled={!quote} onClick={() => update({ step: 3 })}>Weiter zur Zusammenfassung <span aria-hidden="true">→</span></button>
       <button className="text-button result-action" onClick={() => update({ step: 1 })}>← Betrag ändern</button>
@@ -190,13 +188,11 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
         <SummaryLine label="Freibetrag" value="Kein separater Freibetrag · Mindestbetrag 1,00 €" />
         {flow.message.length > 0 && <SummaryLine label="Deine Nachricht" value={flow.message} />}
         <SummaryLine label="Gebührenausgleich" value={flow.feeCovered ? 'Freiwillig ausgewählt' : 'Nicht ausgewählt'} />
-        <SummaryLine label="Freiwillige Erhöhung" value={money(quote.serviceFeeMinor)} />
-        <SummaryLine label="Gesamtes Trinkgeld" value={money(quote.totalAmountMinor)} />
-        <SummaryLine label="Berücksichtigte Gratilo-Gebühr" value={money(quote.serviceFeeMinor)} />
+        <SummaryLine label="Geschätzte Zahlungsgebühren (freiwillig)" value={money(quote.serviceFeeMinor)} />
         <SummaryLine label="Für den Empfänger vorgesehen" value={money(quote.recipientAmountMinor)} />
         <SummaryLine label="Du bezahlst insgesamt" value={money(quote.totalAmountMinor)} total />
       </div>
-      <p className="tip-note">Sichere Zahlungsabwicklung durch Stripe. Als Gast brauchst du kein Gratilo-Konto. Stripe verarbeitet deine Zahlungsdaten; Gratilo erhält keine Kartendaten.</p>
+      <p className="tip-note">Der freiwillige Gebührenaufschlag ist geschätzt. Die tatsächlichen Stripe-Gebühren können abweichen. Dein bestätigter Betrag bleibt unverändert.</p><p className="tip-note">Sichere Zahlungsabwicklung durch Stripe. Als Gast brauchst du kein Gratilo-Konto. Stripe verarbeitet deine Zahlungsdaten; Gratilo erhält keine Kartendaten.</p>
       {error && <div className="message error" role="alert">{error}</div>}
       <button className="tip-pay" disabled={busy || eligibility !== true || !quote} onClick={startCheckout}>{busy ? 'Stripe Checkout wird geöffnet …' : 'Jetzt sicher bezahlen'} <span aria-hidden="true">→</span></button>
       <button className="text-button result-action" disabled={busy} onClick={() => update({ step: 2 })}>← Betrag und Gebührenübernahme ändern</button>

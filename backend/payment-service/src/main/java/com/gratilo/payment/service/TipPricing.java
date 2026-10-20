@@ -1,11 +1,15 @@
 package com.gratilo.payment.service;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import com.gratilo.payment.api.TipQuote;
 public final class TipPricing {
     private TipPricing() {}
     /** The configured percentage applies to the full Checkout amount, not just the base tip. */
     public static long serviceFeeMinor(long chargeMinor, double feePercent, long fixedFeeMinor) {
         if (chargeMinor < 100 || !Double.isFinite(feePercent) || feePercent < 0 || feePercent >= 100 || fixedFeeMinor < 0)
             throw new IllegalArgumentException("Invalid tip pricing configuration");
-        return Math.addExact(Math.round(chargeMinor * feePercent / 100.0), fixedFeeMinor);
+        return BigDecimal.valueOf(chargeMinor).multiply(BigDecimal.valueOf(feePercent)).movePointLeft(2)
+                .setScale(0, RoundingMode.HALF_UP).add(BigDecimal.valueOf(fixedFeeMinor)).longValueExact();
     }
     /** Smallest cent-rounded surcharge whose configured fee is covered by that surcharge. */
     public static long voluntaryIncreaseMinor(long tipMinor, double feePercent, long fixedFeeMinor) {
@@ -23,9 +27,12 @@ public final class TipPricing {
         }
         return lower;
     }
-    public static long serviceFeeMinor(long tipMinor) {
-        if (tipMinor < 100) throw new IllegalArgumentException("Das Mindesttrinkgeld beträgt 1,00 EUR");
-        return 0;
+    public static TipQuote quote(long tipMinor, boolean covered, double percent, long fixed) {
+        if (tipMinor < 100 || tipMinor > 1_000_000) throw new IllegalArgumentException("Invalid tip amount");
+        long surcharge = covered ? voluntaryIncreaseMinor(tipMinor, percent, fixed) : 0;
+        long total = Math.addExact(tipMinor, surcharge);
+        return new TipQuote(tipMinor, surcharge, total, "EUR", percent, fixed, tipMinor,
+                true, serviceFeeMinor(total, percent, fixed),
+                "Konfigurierte Referenzschätzung; Karte und Zahlungsmethode werden erst bei Stripe gewählt.");
     }
-    public static long totalMinor(long tipMinor) { return tipMinor; }
 }

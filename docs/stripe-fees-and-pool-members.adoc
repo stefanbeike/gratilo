@@ -1,0 +1,187 @@
+= Stripe-Gebührenschätzung und Pool-Mitglieder
+
+== Analyse und Tarifgrenzen
+
+Die frühere Formel enthielt bereits eine Brutto-Hochrechnung mit binärer Suche.
+Sie verwendete jedoch Double-Arithmetik für die Gebührenrundung. Im Checkout
+wurden Zahlungsgebühren irreführend als Gratilo-Gebühr und der gesamte belastete
+Betrag als gesamtes Trinkgeld bezeichnet. Ein persistierter Ist-Abgleich fehlte.
+
+Die vorhandenen Umgebungsvariablen bleiben die zentrale Konfiguration:
+`STRIPE_FEE_PERCENT=1.5`, `STRIPE_FEE_FIXED_MINOR=25` (Eurocent).
+Die laufende ECS-Konfiguration enthielt bei der Untersuchung keine Overrides.
+Diese Werte entsprechen einer Referenz für EWR-Standardkarten, keinem für jede
+Zahlungsmethode verbindlichen Gratilo-Vertrag. Individuelle Stripe-Verträge sind
+nicht durch die untersuchten API-Daten feststellbar.
+
+Stripe veröffentlicht unter https://stripe.com/de/pricing/local-payment-methods
+unter anderem 1,5 % + 0,25 EUR für EWR-Standardkarten, 2,8 % + 0,25 EUR für
+EWR-Premiumkarten, 2,5 % + 0,25 EUR für UK-Karten und 3,15 % + 0,25 EUR für
+internationale Karten. Währungsumrechnung und andere Zahlungsmethoden können
+abweichen. Stand der Recherche: 20.10.2026; dies sind Referenzen, keine Tarifzusage.
+Die vorhandenen Sandbox-Zahlungen mit 5,33 EUR / 0,42 EUR Gebühr und
+10,41 EUR / 0,58 EUR Gebühr sind mit 3,15 % + 0,25 EUR vereinbar.
+
+Die Sandbox-Defaultkonfiguration hat dynamische Methoden aktiviert, unter anderem
+Karten, Apple Pay, Link und Klarna. Welche davon tatsächlich angeboten werden,
+entscheidet Stripe anhand der jeweiligen Zahlung. Die Integration behält den
+gehosteten Checkout und seine bestehenden Methoden bei. Gratilo kennt vorher
+weder die ausgewählte Methode noch die konkrete Kartenkategorie. Deshalb ist
+keine verbindliche Vorabgebühr möglich; es wird eine ausdrücklich bezeichnete
+Schätzung verwendet. Das Frontend enthält keine eigene Gebührenformel.
+
+== Neue Berechnung
+
+`TipPricing.quote` ist die gemeinsame serverseitige Berechnung für Quote,
+Einzel-Checkout und Pool-Checkout. Für Trinkgeld T und Aufschlag S gilt:
+
+----
+F(C) = HALF_UP(C * Prozentsatz / 100) + Fixbetrag
+S = kleinster ganzzahliger Centbetrag mit S >= F(T + S)
+Gesamtbetrag = T + S
+----
+
+BigDecimal ersetzt Double-Arithmetik innerhalb der Formel. Die binäre Suche
+berücksichtigt die Cent-Rundung des konfigurierten Modells; eine vereinfachte
+kontinuierliche Gross-up-Formel kann an Rundungsgrenzen einen Cent mehr verlangen.
+Ohne freiwillige Übernahme ist S exakt 0. Der Empfänger-/Poolbetrag bleibt T.
+Beispiele bei 1,5 % + 25 Cent: 5 EUR werden zu 5,33 EUR, 10 EUR zu 10,41 EUR.
+Bei 3,15 % + 25 Cent werden 10 EUR im gerundeten Modell zu 10,58 EUR.
+Nachricht und Poolgewichte werden durch die Gebührenübernahme nicht verändert.
+
+Der neue Frontend-Request sendet zusätzlich `expectedTotalAmountMinor`. Der
+Server berechnet unabhängig davon neu und verweigert einen abweichenden Betrag
+mit HTTP 409 / `QUOTE_CHANGED`. Der Gast muss die aktualisierte Schätzung erneut
+prüfen. Das Feld bleibt für vorhandene API-Clients optional.
+
+== Tatsächliche Kosten nach Zahlung
+
+Migration 010 legt ausschließlich die zusätzliche Tabelle
+`payment_mgmt.payment_fee_audits` an. Es gibt keinen Backfill und keine Änderungen
+an bestehenden Zahlungssnapshots. Nur neu angelegte Checkouts speichern dort
+Betrag, Aufschlag, Schätzung und verwendete Konfiguration.
+
+Ein Worker liest ungefähr jede Minute die bezahlte Test-Session, ihre erfolgreiche
+Charge und deren Balance Transaction. Bei asynchroner Bereitstellung der Balance
+Transaction bleibt der Datensatz offen und wird erneut gelesen. Alle Stripe-Aufrufe
+des Abgleichs sind GET; es werden keine Zahlungen, Transfers oder Refunds ausgelöst.
+Siehe https://docs.stripe.com/expand/use-cases .
+
+Gespeichert werden Gesamtgebühren der Charge, Stripe-Kosten ohne separat
+gekennzeichnete `application_fee`, Nettoerlös, Balance-Transaction-ID und die
+bereinigten Gebührendetails. `differenceMinor` ist Ist minus Schätzung;
+`uncoveredMinor` ist Ist minus freiwillig übernommenem Aufschlag. Positive Werte
+bedeuten Unterdeckung, negative Überdeckung. Der bestätigte Betrag und die
+Verteilung werden niemals nachträglich verändert. `MATCHED` bzw. `DIFFERENCE`
+bezeichnet den Vergleich mit den verfügbaren Abrechnungsdaten, keine Zusage über
+spätere Kosten außerhalb dieser Charge. Eine fehlende Gebührenaufschlüsselung bei
+Nullgebühr wird als `REPORT_REQUIRED` geführt. Insbesondere bei IC+-Verträgen kann
+der Stripe-Payment-Fees-Report erforderlich sein.
+
+Der vorhandene, authentifizierte Transaktionscontroller bietet den Bericht unter
+`GET /payment-service/transactions/{id}/fees` ausschließlich dem Transaktionsinhaber.
+Alte Zahlungen ohne neuen Auditdatensatz liefern 404. Spätere Connect-Konto-, Transfer-
+und Bankauszahlungskosten sind eigenständige Kosten und keine Gratilo-Plattformgebühr.
+Die Anwendung erhebt weiterhin keine zusätzliche eigene Plattformgebühr.
+
+== Pool-Teilnehmerübersicht
+
+Das gespeicherte `sharePercent` bleibt das ursprüngliche Verteilungsgewicht.
+`effectiveSharePercent` wird serverseitig aus angenommenen, aktiven Mitgliedern mit
+positivem Gewicht berechnet. Größter-Rest-Rundung auf 10.000 Basispunkte und
+User-UUID als Tie-Break liefern exakt 100,00 %; ohne positive aktive Gewichte 0 %.
+Inaktive, eingeladene und abgelehnte Teilnehmer erhalten effektiv 0 %. Eine
+Deaktivierung überschreibt kein Gewicht; Reaktivierung stellt die Verhältnisse
+wieder her. Die Payment-Verteilung verwendet weiter die ursprünglichen Gewichte
+und ihre bestehende centgenaue Berechnung, nicht die gerundeten Anzeigeprozente.
+
+Die Übersicht trennt aktive Teilnehmer und inaktive bzw. offene Mitgliedschaften.
+Sie zeigt Rolle, Aktivität, effektiven Anteil, editierbares Gewicht und den
+getrennten Stripe-Status für Transferempfang und Bankauszahlung. Die Zusammenfassung
+enthält Teilnehmerzahl, aktive Teilnehmer, unbestätigte Bankauszahlungen und die
+Summe effektiver Anteile. Ein nicht transferberechtigtes aktives Mitglied mit
+positivem Gewicht wird weiterhin nicht übersprungen; es blockiert neue Zahlungen.
+
+Änderungen der Gewichte, Deaktivierung, Reaktivierung und Entfernen erfordern eine
+Bestätigung. Dialoge unterstützen initialen Fokus, Escape, zyklischen Tastaturfokus
+und Fokus-Rückgabe. Mobile Darstellung verwendet gestapelte Karten; Desktop
+verwendet klar getrennte Spalten. Es entsteht keine neue Seite.
+
+== Validierung und Betrieb
+
+Backendtests umfassen Gross-up, Konfigurationsvarianten, Rundung, Ist-Abgleich,
+Zugriffsschutz, asynchrone Daten, historische Zahlungen, Normalisierung, Deaktivierung,
+Reaktivierung und Entfernung. Der Ist-Bericht ist zusätzlich mit echter lokaler JPA-Persistenz, HTTP-Serialisierung und Eigentümerprüfung geprüft. UI-Tests prüfen Zusammenfassung, getrennte Zustände,
+Bestätigungen, Tastaturbedienung und geschätzte Gebühren. HTTP-Tests sichern zusätzlich
+die indizierte Accounts-v2-Abfrage und idempotente Transfer-Verarbeitung ab.
+
+Es werden ausschließlich Testschlüssel zugelassen. Historische ausstehende
+Verteilungen bleiben gesperrt. Eine echte Sandbox-End-to-End-Zahlung und das
+Bereitstellen verfügbaren EUR-Testguthabens sind manuelle Tests; die automatisierte
+Validierung löst keine realen Stripe-Geldbewegungen aus.
+
+== Lokale Prüfbefehle
+
+----
+JAVA_TOOL_OPTIONS=-Djava.awt.headless=true JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew :backend:user-service:test :backend:payment-service:test :backend:user-service:assemble :backend:payment-service:assemble --no-daemon
+cd frontend
+npm test -- --maxWorkers=2
+npm run build
+cd ..
+python3 -m unittest discover -s deployment/tests
+node --test deployment/tests/oidc_claims.test.cjs
+----
+
+Eine isolierte PostgreSQL-15-Instanz validiert alle zehn Liquibase-Changesets und den
+realen Payment-Service-Start mit Healthstatus UP. Ein zusätzlicher Upgrade-Test von
+009 auf 010 vergleicht eine bestehende gebuchte Zahlung und eine nicht freigegebene
+Pool-Allokation vor/nach der Migration bytegleich. Die Audit-Tabelle bleibt leer.
+Ein eigenständiger Linter ist im Frontend nicht konfiguriert; der Build führt die
+TypeScript-Prüfung aus. `git diff --check` prüft die geänderten Quellen zusätzlich.
+
+== Geänderte Dateien
+
+* `backend/payment-service/src/main/java/com/gratilo/payment/api/TipPaymentRequest.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/api/TipQuote.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/controller/TipController.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/controller/TransactionController.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/domain/PaymentFeeAuditEntity.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/repository/PaymentFeeAuditRepository.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/PoolTransferSettlementService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeCheckoutService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeConnectService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeFeeAuditService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/TipPricing.java`
+* `backend/payment-service/src/main/resources/db/changelog/changelog-master.xml`
+* `backend/payment-service/src/main/resources/db/changelog/payment_mgmt/010_payment_fee_audits.sql`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolCheckoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolSettlementStripeContractTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeAccountStatusTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeCheckoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeFeeAuditTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/TipPricingTest.java`
+* `backend/user-service/src/main/java/com/gratilo/user/api/PoolResponses.java`
+* `backend/user-service/src/main/java/com/gratilo/user/service/PoolService.java`
+* `backend/user-service/src/main/java/com/gratilo/user/service/PoolWeights.java`
+* `backend/user-service/src/test/java/com/gratilo/user/service/PoolWeightsTest.java`
+* `docs/stripe-fees-and-pool-members.adoc`
+* `frontend/src/Dashboard.tsx`
+* `frontend/src/PoolMembersPanel.test.tsx`
+* `frontend/src/PoolMembersPanel.tsx`
+* `frontend/src/PublicTipCheckout.tsx`
+* `frontend/src/StripePayment.test.tsx`
+* `frontend/src/dashboard.css`
+* `frontend/src/poolStripeStatus.test.tsx`
+* `frontend/src/poolStripeStatus.tsx`
+
+== Ergebnis der lokalen Prüfungen
+
+* Payment-Service: 95 Tests erfolgreich.
+* User-Service: 41 Tests erfolgreich.
+* Frontend: vollständiger Lauf mit 58 erfolgreichen Tests; anschließend die erweiterte Teilnehmer-Komponente mit allen sechs Tests erfolgreich (insgesamt 59 Testfälle).
+* TypeScript-Prüfung und Vite-Produktionsbuild erfolgreich.
+* Deployment-Werkzeuge: 136 Python-Tests und sieben Node-Tests erfolgreich.
+* PostgreSQL-Migration, Upgrade-Erhaltung alter Daten und authentifizierter HTTP-Abruf des Gebührenberichts erfolgreich.
+
+Die Tests verwenden kontrollierte Fakes bzw. lokale HTTP-Vertragstests. Es wurde
+keine Stripe-Testzahlung erzeugt und keine bestehende Verteilung freigegeben.

@@ -18,12 +18,21 @@ import jakarta.inject.Inject;
 @Singleton
 public class StripeCheckoutService {
     private final RecipientAvailability recipients; private final TransactionRepository transactions; private final ConnectedAccountRepository accounts; private final StripeConnectService connect; private final String secret, successUrl, cancelUrl; private final double feePercent; private final long fixedFeeMinor;
+    private final StripeFeeAuditService feeAudit;
     private final PoolDistributionClient poolClient; private final PoolTransferRepository poolTransfers;
     public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect, @Value("${stripe.secret-key:}") String secret, @Value("${stripe.success-url}") String successUrl, @Value("${stripe.cancel-url}") String cancelUrl, @Value("${stripe.fee-percent:1.5}") double feePercent, @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor, RecipientAvailability recipients) {
         this(transactions, accounts, connect, secret, successUrl, cancelUrl, feePercent, fixedFeeMinor, recipients, null, null);
     }
-    @Inject
     public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect, @Value("${stripe.secret-key:}") String secret, @Value("${stripe.success-url}") String successUrl, @Value("${stripe.cancel-url}") String cancelUrl, @Value("${stripe.fee-percent:1.5}") double feePercent, @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor, RecipientAvailability recipients, PoolDistributionClient poolClient, PoolTransferRepository poolTransfers) {
+        this(transactions, accounts, connect, secret, successUrl, cancelUrl, feePercent, fixedFeeMinor, recipients, poolClient, poolTransfers, null);
+    }
+    @Inject
+    public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect,
+            @Value("${stripe.secret-key:}") String secret, @Value("${stripe.success-url}") String successUrl,
+            @Value("${stripe.cancel-url}") String cancelUrl, @Value("${stripe.fee-percent:1.5}") double feePercent,
+            @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor, RecipientAvailability recipients,
+            PoolDistributionClient poolClient, PoolTransferRepository poolTransfers, StripeFeeAuditService feeAudit) {
+        this.feeAudit = feeAudit;
         this.recipients=recipients; this.transactions=transactions; this.accounts=accounts; this.connect=connect; this.poolClient=poolClient; this.poolTransfers=poolTransfers; StripeConnectService.requireTestKey(secret); this.secret=secret; this.successUrl=absoluteUrl(successUrl); this.cancelUrl=absoluteUrl(cancelUrl); this.feePercent=feePercent; this.fixedFeeMinor=fixedFeeMinor;
     }
     public boolean isConfigured() { return !secret.isBlank(); }
@@ -71,8 +80,9 @@ public class StripeCheckoutService {
         if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
         var account = eligibleAccount(recipient);
         String accountId = account.getStripeAccountId();
-        long fee = request.feeCovered() ? TipPricing.voluntaryIncreaseMinor(request.tipAmountMinor(), feePercent, fixedFeeMinor) : 0;
-        long total = Math.addExact(request.tipAmountMinor(), fee);
+        var quote = TipPricing.quote(request.tipAmountMinor(), request.feeCovered(), feePercent, fixedFeeMinor);
+        if (request.expectedTotalAmountMinor() != null && request.expectedTotalAmountMinor() != quote.totalAmountMinor()) throw new QuoteChangedException();
+        long fee = quote.serviceFeeMinor(), total = quote.totalAmountMinor();
         String key = request.idempotencyKey();
         if (key == null || key.isBlank()) throw new IllegalArgumentException("An idempotency key is required");
         var existing = transactions.findByAccountUserIdAndIdempotencyKey(recipient, key);
@@ -94,6 +104,7 @@ public class StripeCheckoutService {
             tx.setType(TransactionType.TIP); tx.setStatus(TransactionStatus.PENDING); tx.setDescription(request.message());
             tx.setIdempotencyKey(key); tx.setProvider("STRIPE"); tx.setMetadata(pricing);
             tx = transactions.save(tx);
+            if (feeAudit != null) feeAudit.snapshot(tx, quote);
         }
         // Let Stripe Dashboard dynamic payment-method settings determine Checkout methods.
         String form = param("mode", "payment")
@@ -142,8 +153,9 @@ public class StripeCheckoutService {
             }
         }
         if (eligible.isEmpty()) throw new PoolNotReadyException();
-        long fee = request.feeCovered() ? TipPricing.voluntaryIncreaseMinor(request.tipAmountMinor(), feePercent, fixedFeeMinor) : 0;
-        long total = Math.addExact(request.tipAmountMinor(), fee);
+        var quote = TipPricing.quote(request.tipAmountMinor(), request.feeCovered(), feePercent, fixedFeeMinor);
+        if (request.expectedTotalAmountMinor() != null && request.expectedTotalAmountMinor() != quote.totalAmountMinor()) throw new QuoteChangedException();
+        long fee = quote.serviceFeeMinor(), total = quote.totalAmountMinor();
         var weights = eligible.stream().map(e -> new PoolAllocation.Weight(e.userId(), e.sharePercent())).toList();
         var shares = PoolAllocation.split(request.tipAmountMinor(), weights);
         var idempotency = request.idempotencyKey();
@@ -168,6 +180,7 @@ public class StripeCheckoutService {
             tx.setIdempotencyKey(idempotency); tx.setProvider("STRIPE");
             tx.setMetadata("{\"poolId\":\"" + pool.poolId() + "\",\"poolName\":\"" + jsonEscape(pool.poolName()) + "\",\"totalAmountMinor\":" + total + ",\"feeCovered\":" + request.feeCovered() + ",\"feeSurchargeMinor\":" + fee + "}");
             tx = transactions.save(tx);
+            if (feeAudit != null) feeAudit.snapshot(tx, quote);
             var eligibleById = new HashMap<UUID, PoolEligible>(); eligible.forEach(e -> eligibleById.put(e.userId(), e));
             var now = OffsetDateTime.now();
             for (var share : shares) {
@@ -206,6 +219,7 @@ public class StripeCheckoutService {
     }
 
     private record PoolEligible(UUID userId, String accountId, BigDecimal sharePercent) {}
+    public static class QuoteChangedException extends IllegalStateException { public QuoteChangedException() { super("Die Gebührenschätzung hat sich geändert. Bitte prüfe den neuen Gesamtbetrag."); } }
     public static class PoolNotReadyException extends IllegalStateException { public PoolNotReadyException() { super("Pool requires all participating members to be transfer-ready"); } }
     private static String jsonEscape(String value) { return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\""); }
 

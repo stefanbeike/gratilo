@@ -15,6 +15,7 @@ class StripeCheckoutTest {
     private TransactionEntity stored;
     private String form, stripeKey;
     private int creates;
+    private com.gratilo.payment.api.TipQuote savedQuote;
     private boolean ready = true, available = true, failOnce, providerFailure;
     private boolean accountPresent = true;
     private String accountId = "acct_fixture";
@@ -37,6 +38,12 @@ class StripeCheckoutTest {
         var malformed = StripeCheckoutService.StripeApiException.from(400, "not json", "untrusted request id");
         assertEquals("unknown", malformed.errorType());
         assertEquals("unknown", malformed.requestId());
+    }
+
+    @Test void staleDisplayedTotalCannotCreateAReplacementCheckout() throws Exception {
+        assertThrows(StripeCheckoutService.QuoteChangedException.class, () -> service().create(recipient,
+                new TipPaymentRequest(500L,"Danke","stale-quote",true,532L)));
+        assertEquals(0,creates);assertNull(stored);
     }
 
     @SuppressWarnings("unchecked")
@@ -69,7 +76,10 @@ class StripeCheckoutTest {
         var recipients = new RecipientAvailability("http://localhost") {
             @Override public void requireEnabled(UUID user) { if (!available) throw new IllegalStateException("paused"); }
         };
-        return new StripeCheckoutService(repository, accounts, connect, "sk_test_fixture", "http://localhost/pay/success", "http://localhost/pay/cancelled", 1.5, 25, recipients) {
+        var feeAudit=new StripeFeeAuditService(null,null,"sk_test_fixture") {
+            @Override public void snapshot(TransactionEntity tx,com.gratilo.payment.api.TipQuote quote){savedQuote=quote;}
+        };
+        return new StripeCheckoutService(repository, accounts, connect, "sk_test_fixture", "http://localhost/pay/success", "http://localhost/pay/cancelled", 1.5, 25, recipients,null,null,feeAudit) {
             @Override protected String stripeRequest(String path, String body, String key) {
                 if (body != null) {
                     creates++; form = URLDecoder.decode(body, StandardCharsets.UTF_8); stripeKey = key;
@@ -84,6 +94,7 @@ class StripeCheckoutTest {
         var service = service();
         var request = new TipPaymentRequest(500L, "Danke", "caller-key", true);
         var first = service.create(recipient, request).orElseThrow();
+        assertEquals(533,savedQuote.totalAmountMinor());assertEquals(33,savedQuote.serviceFeeMinor());
         assertTrue(form.contains("unit_amount]=533&"));
         assertTrue(form.contains("transfer_data][amount]=500&"));
         assertTrue(form.contains("transfer_data][destination]=acct_fixture&"));

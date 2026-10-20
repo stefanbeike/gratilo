@@ -29,8 +29,10 @@ class StripeAccountStatusTest {
         stripe.retrieveAccount("acct_fixture");
         String request = java.net.URLDecoder.decode(url.get(), java.nio.charset.StandardCharsets.UTF_8);
         assertTrue(request.startsWith("https://api.stripe.com/v2/core/accounts/acct_fixture?"));
-        for (String include : java.util.List.of("configuration.merchant", "configuration.recipient", "requirements"))
-            assertTrue(request.contains("=" + include));
+        var includes = java.util.List.of("configuration.merchant", "configuration.recipient", "requirements");
+        for (int index = 0; index < includes.size(); index++)
+            assertTrue(request.contains("include[" + index + "]=" + includes.get(index)));
+        assertFalse(request.contains("include[]"));
     }
     @Test void distinguishesTransferEligibilityFromBankPayoutsAndMerchantCharges() throws Exception {
         String json = StripeAccountFixtures.changed("configuration.recipient.capabilities.stripe_balance.payouts.status", "pending", false);

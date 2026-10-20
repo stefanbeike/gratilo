@@ -99,8 +99,7 @@ public class PoolTransferSettlementService {
                 record(allocation, "RECONCILIATION_REQUIRED"); return;
             }
             if (availableEurMinor() < amount) { record(allocation, "WAITING_PLATFORM_BALANCE"); return; }
-            String account = request("/v2/core/accounts/" + enc(allocation.getStripeAccountId())
-                    + "?include%5B%5D=configuration.merchant&include%5B%5D=configuration.recipient&include%5B%5D=requirements", null, null);
+            String account = request(StripeConnectService.accountRetrievalPath(allocation.getStripeAccountId()), null, null);
             if (!StripeAccountStatus.parse(allocation.getStripeAccountId(), account).canReceiveTransfers()) {
                 record(allocation, "RECIPIENT_NOT_READY"); return;
             }
@@ -242,11 +241,15 @@ public class PoolTransferSettlementService {
         var builder = HttpRequest.newBuilder(URI.create("https://api.stripe.com" + path)).timeout(Duration.ofSeconds(20))
                 .header("Authorization", "Bearer " + secret).header("Stripe-Version", "2026-09-30.endive");
         if (key != null) builder.header("Idempotency-Key", key);
-        var response = HttpClient.newHttpClient().send(body == null ? builder.GET().build()
-                : builder.header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+        var response = send(body == null ? builder.GET().build()
+                : builder.header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(body)).build());
         if (response.statusCode() >= 300)
             throw StripeCheckoutService.StripeApiException.from(response.statusCode(), response.body(), response.headers().firstValue("Request-Id").orElse(""));
         return response.body();
+    }
+
+    protected HttpResponse<String> send(HttpRequest request) throws Exception {
+        return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     private static long number(Object value) { return value instanceof Number n ? n.longValue() : 0; }

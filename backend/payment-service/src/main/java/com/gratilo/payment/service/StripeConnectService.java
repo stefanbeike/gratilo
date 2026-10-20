@@ -62,8 +62,12 @@ public class StripeConnectService {
         jsonCall("https://api.stripe.com/v2/core/accounts/" + enc(accountId), json);
     }
     public String retrieveEvent(String id) throws Exception { return get("https://api.stripe.com/v2/core/events/" + enc(id)); }
-    public String retrieveAccount(String accountId) throws Exception { return get("https://api.stripe.com/v2/core/accounts/" + enc(accountId)
-            + "?include%5B0%5D=configuration.merchant&include%5B1%5D=configuration.recipient&include%5B2%5D=requirements"); }
+    public String retrieveAccount(String accountId) throws Exception { return get("https://api.stripe.com" + accountRetrievalPath(accountId)); }
+    /** Shared by checkout/status checks and settlement: Accounts v2 requires indexed query arrays. */
+    static String accountRetrievalPath(String accountId) {
+        return "/v2/core/accounts/" + enc(accountId)
+                + "?include%5B0%5D=configuration.merchant&include%5B1%5D=configuration.recipient&include%5B2%5D=requirements";
+    }
     protected String call(String url, String form) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30)).header("Authorization", "Bearer "+secret).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form)).build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned "+response.statusCode()); return response.body(); }
     protected String jsonCall(String url, String json) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30)).header("Authorization", "Bearer " + secret).header("Stripe-Version", "2026-09-30.endive").header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json)).build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned " + response.statusCode() ); return response.body(); }
     public static String field(String json, String name) { var m=Pattern.compile("\\\""+name+"\\\"\\s*:\\s*\\\"([^\\\"]+)").matcher(json == null ? "" : json); return m.find()?m.group(1):null; }

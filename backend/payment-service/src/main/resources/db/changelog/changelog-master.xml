@@ -12,4 +12,5 @@
     <include file="payment_mgmt/007_stripe_payment_refs.sql" relativeToChangelogFile="true"/>
     <include file="payment_mgmt/008_pool_settlement_safety.sql" relativeToChangelogFile="true"/>
     <include file="payment_mgmt/009_connect_status.sql" relativeToChangelogFile="true"/>
+    <include file="payment_mgmt/010_payment_fee_audits.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>

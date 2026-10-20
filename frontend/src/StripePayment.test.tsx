@@ -167,3 +167,13 @@ for (const pool of [false,true]) it(`returns a confirmed ${pool?'pool':'individu
   expect(location.pathname).toBe(`/pay/${pool?'team/':''}${user}`)
   expect(JSON.parse(sessionStorage.getItem(`gratilo:checkout:${user}`)||'{}')).toEqual({amount:500,message:'',feeCovered:false,step:1})
 })
+it('labels the voluntary fee as an estimate and does not invent a Gratilo platform fee',async()=>{
+ const fetch=installGuest();history.replaceState({},'',`/pay/${user}`);render(<DemoPayment />)
+ const next=await screen.findByRole('button',{name:/Weiter/});await waitFor(()=>expect(next).toBeEnabled());fireEvent.click(next)
+ expect(await screen.findByText(/Die Gebührenübernahme ist eine Schätzung/)).toBeInTheDocument()
+ expect(screen.queryByText('Berücksichtigte Gratilo-Gebühr')).not.toBeInTheDocument()
+ fireEvent.click(screen.getByRole('checkbox',{name:/Gebührenabzug ausgleichen/}));fireEvent.click(await screen.findByRole('button',{name:/Weiter zur Zusammenfassung/}))
+ await waitFor(()=>expect(screen.getByRole('button',{name:/Jetzt sicher bezahlen/})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:/Jetzt sicher bezahlen/}))
+ await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url.includes('/checkout'))).toBe(true))
+ const call=fetch.mock.calls.find(([url])=>url.includes('/checkout'));expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({expectedTotalAmountMinor:533,feeCovered:true})
+})

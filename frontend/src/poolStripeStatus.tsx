@@ -17,10 +17,13 @@ export function stripeDisplay(status?: MemberStripeStatus) {
 export function memberTransferReady(status?: MemberStripeStatus) {
   return stripeDisplay(status)[2] === 'booked' && status?.transfersEnabled === true
 }
+export function memberPayoutReady(status?:MemberStripeStatus) {
+  return !!status?.checkedAt && Date.now()-Date.parse(status.checkedAt)<120000 && status.status!=='UNAVAILABLE' && status.payoutsEnabled===true
+}
 export function MemberStripeBadge({ status }: { status?: MemberStripeStatus }) {
   const [label, explanation, tone] = stripeDisplay(status)
   return <div className="member-stripe-status"><span className={`status-pill ${tone}`}>{label}</span><small>{explanation}</small>
-    <small>Transferempfang: {memberTransferReady(status) ? 'Freigegeben' : 'Nicht freigegeben'} · Bankauszahlung: {status?.payoutsEnabled && memberTransferReady(status) ? 'Freigegeben' : 'Nicht bestätigt'}</small>
+    <small>Transferempfang: {memberTransferReady(status) ? 'Freigegeben' : 'Nicht freigegeben'} · Bankauszahlung: {memberPayoutReady(status) ? 'Freigegeben' : 'Nicht bestätigt'}</small>
     {status?.checkedAt && <small>Zuletzt geprüft: {new Date(status.checkedAt).toLocaleString('de-DE')}</small>}
   </div>
 }
