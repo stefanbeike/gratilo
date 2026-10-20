@@ -55,6 +55,20 @@ class EcsDeploymentTest(unittest.TestCase):
         self.assertEqual(expected, actual)
         self.assertEqual(original, self.response)
 
+    def test_repairs_inherited_stripe_redirects_to_fixed_gratilo_urls(self):
+        response = copy.deepcopy(self.response)
+        payment = response["taskDefinition"]["containerDefinitions"][2]
+        for entry in payment["environment"]:
+            if entry["name"] == "STRIPE_SUCCESS_URL":
+                entry["value"] = "https://old.example/success"
+            elif entry["name"] == "STRIPE_CANCEL_URL":
+                entry["value"] = "https://old.example/cancel"
+        rendered = renderer.render(response, self.images, self.config)
+        env = {entry["name"]: entry["value"] for entry in rendered["containerDefinitions"][2]["environment"]}
+        self.assertEqual("https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}", env["STRIPE_SUCCESS_URL"])
+        self.assertEqual("https://gratilo.eu/pay/cancelled?session_id={CHECKOUT_SESSION_ID}", env["STRIPE_CANCEL_URL"])
+        self.assertEqual("https://old.example/cancel", next(entry["value"] for entry in payment["environment"] if entry["name"] == "STRIPE_CANCEL_URL"))
+
     def test_rejects_missing_container_and_foreign_role(self):
         for mutate in [lambda t: t["containerDefinitions"].pop(),
                        lambda t: t.update(executionRoleArn="arn:aws:iam::123456789012:role/other")]:

@@ -120,8 +120,16 @@ def render(response, images, config):
                 else:
                     require(not sandbox_payouts and not demo_enabled, "Payments and simulated payouts must remain disabled")
                     require(not payments_enabled, "Payments must remain disabled")
-                for key, expected in [("STRIPE_SUCCESS_URL", "https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}"), ("STRIPE_CANCEL_URL", "https://gratilo.eu/pay/cancelled?session_id={CHECKOUT_SESSION_ID}")]:
-                    require(env.get(key, expected) == expected, "Wrong Stripe redirect: " + key)
+                # Always replace inherited redirects in the rendered candidate. This
+                # safely repairs older task definitions while never accepting a
+                # caller-controlled or cross-domain Stripe return URL.
+                redirects = {
+                    "STRIPE_SUCCESS_URL": "https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}",
+                    "STRIPE_CANCEL_URL": "https://gratilo.eu/pay/cancelled?session_id={CHECKOUT_SESSION_ID}",
+                }
+                for key, expected in redirects.items():
+                    env[key] = expected
+                container["environment"] = [{"name": key, "value": value} for key, value in env.items()]
             require(required.issubset(secret), "Required Secrets Manager references missing: " + name)
             require(all(secret[key].startswith(prefix) for key in required), "Secrets must reference Secrets Manager in deployment account/region")
         container["image"] = images[name]
