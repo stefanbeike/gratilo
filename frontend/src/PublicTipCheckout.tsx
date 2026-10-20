@@ -177,8 +177,8 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
     {flow.step === 2 && !quote && <p role="status">Gebührenberechnung wird aktualisiert …</p>}
     {flow.step === 2 && quote && <>
       <p className="tip-intro">Dein Trinkgeld beträgt {money(flow.amount)}. Wenn du möchtest, kannst du die geschätzten Stripe-Zahlungsgebühren freiwillig übernehmen.</p>
-      <label className="fee-toggle"><input type="checkbox" checked={flow.feeCovered} onChange={event => update({ feeCovered: event.target.checked })} /><span>Gebührenabzug ausgleichen</span></label>
-      <p className="hint">Die Gebührenübernahme ist eine Schätzung. Karte und Zahlungsmethode werden erst bei Stripe gewählt; die tatsächlichen Kosten können abweichen. Dein bestätigter Gesamtbetrag wird danach nicht erhöht.</p>
+      <label className="fee-toggle"><input type="checkbox" checked={flow.feeCovered} onChange={event => update({ feeCovered: event.target.checked })} /><span>Zahlungsgebühren freiwillig übernehmen</span></label>
+      <p className="hint">Die Gebührenübernahme ist eine Schätzung. Karte und Zahlungsmethode werden erst bei Stripe gewählt; die tatsächlichen Kosten können abweichen. Mehrkosten trägt Gratilo. Dein bestätigter Gesamtbetrag und das zugesagte Trinkgeld bleiben unverändert.</p>
       <div className="tip-breakdown" aria-live="polite">
         <SummaryLine label="Ursprünglich gewähltes Trinkgeld" value={money(quote.tipAmountMinor)} />
         <SummaryLine label="Geschätzte Zahlungsgebühren (freiwillig)" value={money(quote.serviceFeeMinor)} />

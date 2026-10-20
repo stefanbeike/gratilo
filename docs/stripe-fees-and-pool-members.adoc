@@ -7,7 +7,7 @@ Sie verwendete jedoch Double-Arithmetik für die Gebührenrundung. Im Checkout
 wurden Zahlungsgebühren irreführend als Gratilo-Gebühr und der gesamte belastete
 Betrag als gesamtes Trinkgeld bezeichnet. Ein persistierter Ist-Abgleich fehlte.
 
-Die vorhandenen Umgebungsvariablen bleiben die zentrale Konfiguration:
+Vor der unten dokumentierten Source-Transfer-Korrektur war die Referenz:
 `STRIPE_FEE_PERCENT=1.5`, `STRIPE_FEE_FIXED_MINOR=25` (Eurocent).
 Die laufende ECS-Konfiguration enthielt bei der Untersuchung keine Overrides.
 Diese Werte entsprechen einer Referenz für EWR-Standardkarten, keinem für jede
@@ -220,3 +220,225 @@ Altfälle sowie die Trennung ihrer Zustände. Es wurden keine bestehenden Zahlun
 oder Transfers ausgeführt oder freigegeben.
 
 Hotfix-Prüfung: 99 Payment-Service-Tests und alle 18 Checkout-Frontend-Tests erfolgreich. Der TypeScript-/Vite-Build mit explizit aktivierten Testzahlungen und einem Testschlüssel-Platzhalter ist erfolgreich. Die vollständige CI prüft zusätzlich sämtliche anderen Frontend- und Backendtests.
+
+== Korrektur: source-gebundene Pool-Transfers und Gebührenreferenz (20.10.2026)
+
+=== Verifizierter Fehlerfall
+
+Die Transaktion `bdb0617a-af1f-4724-b9f1-c8e0dfaf40e2` wurde ausschließlich
+lesend untersucht. Der gespeicherte Fee-Audit und ein erneuter Stripe-GET der
+Charge samt Balance Transaction stimmen überein: 2.563 Cent Belastung,
+106 Cent `stripe_fee`, 2.457 Cent Netto, 63 Cent geschätzter Aufschlag,
+43 Cent Unterdeckung. Verwendet wurde eine US-Kreditkarte. Es war keine
+separat ausgewiesene `application_fee` enthalten. Die Beobachtung entspricht
+`HALF_UP(2563 * 3,15 / 100) + 25 = 106` Cent; sie belegt keinen individuellen
+Stripe-Vertrag und keine zusätzlichen Connect-Kosten.
+
+Die bisherige Referenz 1,5 % + 25 Cent war für eine EWR-Standardkarte angesetzt.
+Die Gross-up-Mathematik war bereits korrekt, die Tarifannahme passte nicht zur
+verwendeten Karte. Quote-Endpunkte und beide Checkout-Arten verwenden weiterhin
+ausschließlich `TipPricing.quote`. Die Konfiguration wird jetzt als `BigDecimal`
+eingelesen und an die Berechnung weitergegeben. `TipQuote` serialisiert den
+Prozentsatz weiterhin als JSON-Zahl. Nur der vorhandene historische Audit-
+Prozentsatz bleibt im bestehenden Double-Datenbankfeld als Berichtswert;
+er wird niemals zur Berechnung von Geldbeträgen verwendet.
+
+=== Konfiguration und Grenzen
+
+Der neue Standard lautet `STRIPE_FEE_PERCENT=3.15` und
+`STRIPE_FEE_FIXED_MINOR=25`. Begründung: veröffentlichter deutscher Stripe-
+Referenztarif für internationale Karten und Übereinstimmung mit der konkret
+beobachteten Sandbox-Gebühr. Beide lokalen Compose-Varianten reichen diese
+bestehenden Variablen jetzt weiter; vorher fehlte diese Übergabe.
+`.env.example` und `docker-compose/.env.example` enthalten die Referenzwerte.
+Bestehende explizite Overrides bleiben gültig und müssen gegebenenfalls bewusst
+angepasst werden; lokale Konfigurationen werden nicht automatisch überschrieben.
+
+[cols="1,1,1,1",options="header"]
+|===
+|Trinkgeld |Referenz |Freiwilliger Aufschlag |Gesamt
+|10,00 EUR |1,5 % + 0,25 EUR |0,41 EUR |10,41 EUR
+|25,00 EUR |1,5 % + 0,25 EUR |0,63 EUR |25,63 EUR
+|10,00 EUR |3,15 % + 0,25 EUR |0,58 EUR |10,58 EUR
+|25,00 EUR |3,15 % + 0,25 EUR |1,07 EUR |26,07 EUR
+|===
+
+Ohne Gebührenübernahme ist der Aufschlag immer null. Der zugesagte Trinkgeldbetrag
+und die eingefrorenen Anteile bleiben in beiden Varianten unverändert.
+Negative/ungültige Konfiguration, Überlauf und eine nicht als EUR-Checkout
+abbildbare Gesamtsumme werden abgewiesen.
+
+Die tatsächliche Methode/Kartenart wird weiterhin erst im gehosteten Checkout
+gewählt. Dynamische Methoden bleiben unverändert aktiv; insbesondere Klarna,
+Währungsumrechnung, Sonderverträge und spätere Gebühren können andere Kosten
+verursachen. 3,15 % ist kein garantierter Höchstsatz für alle Methoden. Der Checkout
+bezeichnet den Betrag als Schätzung und erklärt, dass Gratilo Mehrkosten trägt.
+Kein nachträglicher Gästeaufschlag und keine Kürzung der Mitarbeiteranteile.
+Der bestehende GET-basierte Fee-Audit dokumentiert die Differenz dauerhaft.
+Zusätzliche Connect-Konto-/Bankauszahlungskosten sind separat zu betrachten und
+werden nicht als vermeintlich gleiche Kartenbearbeitungsgebühr verrechnet.
+
+=== Neue Verarbeitung der Pool-Allokationen
+
+Die bisherigen Prüfungen `WAITING_SOURCE_FUNDS` und `WAITING_PLATFORM_BALANCE`
+vor einem source-gebundenen Transfer entfallen. Der Worker erstellt ausschließlich
+Transfers mit `source_transaction`; ein Transfer ohne Charge-Verknüpfung wird hier
+nicht angeboten. Ohne `source_transaction` wäre verfügbares Plattformguthaben
+maßgeblich. Bei einer noch nicht abgerechneten Source-Charge kann Stripe den
+verknüpften Transfer schon annehmen und dessen Verfügbarkeit selbst terminieren.
+Eine bestätigte Zahlung ist weiterhin erforderlich; bloß ausstehende bzw.
+autorisierte Zahlungen reichen niemals aus.
+
+Vor einem neuen Transfer gelten unter anderem:
+
+* Testmodus, bezahlte abgeschlossene Session, erfolgreicher PaymentIntent,
+  bezahlte und erfasste EUR-Charge, passende Transaktions-Transfergruppe,
+  kein Destination-Charge und keine aktive Dispute-Markierung.
+* Alle eingefrorenen Allokationen sind positiv, die Empfänger eindeutig und die
+  Allokationssumme entspricht exakt dem zugesagten Trinkgeld. Sie überschreitet
+  den Charge-Bruttobetrag nicht. Gebühren werden nicht vom Trinkgeld abgezogen.
+* Alle Seiten der Stripe-Transfergruppe werden gelesen. Bereits übertragene
+  Bruttobeträge plus verbleibende Allokationen dürfen den Source-Betrag nicht
+  überschreiten. Rückabwicklungen setzen das Source-Limit konservativ nicht
+  zurück. Unbekannte, doppelte, widersprüchliche oder nicht eindeutig zuordenbare
+  Transfers blockieren einen weiteren POST zur Abstimmung.
+* Vor der ersten Übertragung werden die aktuellen Stripe-Freigaben aller noch
+  vorgesehenen Empfänger geprüft, um vorhersehbare Teilverteilungen zu vermeiden.
+  Nach begonnener Verteilung wird jeder weitere Empfänger frisch geprüft;
+  ein einzelner Fehler führt zu keiner Umverteilung und blockiert andere
+  berechtigte Allokationen nicht dauerhaft.
+
+Ein `PESSIMISTIC_WRITE`-Lock der übergeordneten Zahlung serialisiert auch Worker
+für unterschiedliche Mitglieder derselben Source-Charge. Danach wird die
+Allokation unter ihrem bisherigen Schreiblock neu geladen. Der Versionsschutz
+und die vorhandenen Unique-Constraints für Zahlung/Empfänger und Transfer-ID
+bleiben erhalten; keine neue Tabelle oder Migration ist erforderlich.
+
+Der stabile Schlüssel bleibt `pool-transfer-<Allokations-UUID>`. Gespeicherte
+Transfer-IDs werden nicht erneut übertragen. Bei verlorenem Commit, Timeout oder
+unklarer Antwort wird zuerst remote abgeglichen; ein gefundener Transfer wird
+übernommen. Abweichende Beträge werden nicht als vermeintliche Rückerstattung
+akzeptiert. Nach 23 Stunden seit einem unklaren ersten Versuch bleibt nur der
+lesende Abgleich erlaubt; kein blinder neuer POST nach Ablauf von Stripes
+mindestens 24-stündiger Idempotenz-Retention.
+
+Ein tatsächlicher Stripe-Fehler `balance_insufficient` / `insufficient_funds`
+erscheint als `STRIPE_INSUFFICIENT_FUNDS`. Der Scheduler prüft nach ungefähr
+60 Sekunden erneut mit demselben Schlüssel und den unveränderten Parametern.
+Andere HTTP-/Timeoutfehler bleiben nachvollziehbar protokolliert. Ein bei Stripe
+gecachtes Fehlerresultat kann mit demselben Schlüssel bestehen bleiben; es wird
+nicht durch neue Schlüssel umgangen. Nach Ablauf des sicheren Zeitfensters ist
+manuelle Abstimmung erforderlich. Der Worker kann weder Stripes Finanzierungs-
+und Risikoprüfungen noch negative Plattformbilanzen außer Kraft setzen.
+
+=== Wirtschaftliche Verantwortung und historische Zahlung
+
+Bei Destination Charges wird unverändert `transfer_data[amount]` auf den
+zugesagten Trinkgeldbetrag gesetzt. Pool-Transfers verwenden dieselbe wirtschaftliche
+Grundlage und ihre eingefrorenen Beträge. Stripe-Bearbeitungsgebühren belasten
+bei beiden Zahlungsarten die Plattform. Source-Verknüpfung erzeugt jedoch kein
+zusätzliches Geld: ohne freiwillige Gebührenübernahme oder bei Unterdeckung
+trägt Gratilo den Fehlbetrag. Beliebig vollständige Verteilung bei jeder
+negativen Bilanz ohne irgendeine Plattformfinanzierung lässt sich nicht seriös
+garantieren. Stripe entscheidet, ob ein konkreter Transfer zulässig ist.
+Mehrere Transfers sind keine atomare Operation; ein Fehler nach dem ersten
+Transfer kann weiterhin vorübergehend eine Teilverteilung verursachen.
+
+ACHTUNG: Nach einem separat freigegebenen späteren Deployment würde der Scheduler
+die bereits freigegebene offene Allokation `423aff66-9000-43b9-b934-efe124c44a76`
+der historischen Zahlung wieder prüfen und gegebenenfalls automatisch 12,50 EUR
+übertragen. Der gespeicherte erfolgreiche Transfer
+`tr_3USdJ6JnhDgmiMAM1Fh8JP66` wird nicht erneut erstellt. Keine historische
+Allokation wurde hier geändert oder freigegeben. Nicht freigegebene alte
+Allokationen bleiben `APPROVAL_REQUIRED`. Dieses Deployment benötigt deshalb
+eine separate ausdrückliche Freigabe. Es wurde nicht ausgeführt.
+
+=== Quellen
+
+* https://stripe.com/de/pricing[Stripe DE: Zahlungsbearbeitungsgebühren], abgerufen 20.10.2026.
+* https://stripe.com/de/connect/pricing[Stripe Connect: gesonderte Konten- und Auszahlungskosten].
+* https://docs.stripe.com/connect/separate-charges-and-transfers?platform=web&integration=checkout&ui=stripe-hosted[Separate Charges and Transfers: Source-Bindung, mehrere Transfers, Grenzen und Plattformverantwortung].
+* https://docs.stripe.com/api/idempotent_requests[Stripe-Idempotenz: gecachte Fehler und mindestens 24 Stunden Retention].
+
+=== Dateien dieser Korrektur
+
+* `.env.example`
+* `backend/payment-service/src/main/java/com/gratilo/payment/api/TipQuote.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/controller/TipController.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/PoolSettlementLock.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/PoolTransferSettlementService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeCheckoutService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeFeeAuditService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/TipPricing.java`
+* `backend/payment-service/src/main/resources/application.yml`
+* `backend/payment-service/src/test/java/com/gratilo/payment/GuestCheckoutHttpTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/ProductionPaymentTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/MultiMemberSettlementTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolCheckoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolSettlementLockTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolSettlementStripeContractTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolSourceSettlementTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolTransferSettlementServiceTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/SelfActivationFlowHttpTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeCheckoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeFeeAuditTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/TipPricingTest.java`
+* `docker-compose/.env.example`
+* `docker-compose/compose.stripe-test.yml`
+* `docker-compose/docker-compose.services.yml`
+* `docs/stripe-fees-and-pool-members.adoc`
+* `frontend/src/Dashboard.tsx`
+* `frontend/src/PublicTipCheckout.tsx`
+* `frontend/src/StripePayment.test.tsx`
+
+Der vorhandene Datenbank-Lock bleibt JPA-gestützt. Paralleltests verwenden einen
+kontrollierten gemeinsamen Lock-Fake; ein zusätzlicher Unit-Test prüft die
+konkrete EntityManager-Lock-Reihenfolge. Ein Mehrknoten-Test gegen RDS wurde nicht
+ausgeführt. Transfer-Abgleiche umfassen die Gratilo-Transfergruppe. Außerhalb der
+Anwendung manuell angelegte Transfers mit anderer Gruppe bleiben zusätzlich
+Stripes Source-Limit-Prüfung unterworfen; sie werden nicht durch einen erfundenen
+Source-Filter der List-API abgefragt.
+
+=== Abschließende lokale Validierung
+
+* Payment-Service: 116 Tests erfolgreich, null Fehler und keine übersprungenen Tests.
+* Darunter 13 neue Source-Settlement-Tests: 50/50, drei Anteile, source-gebundene
+  Transfers ohne allgemeine Guthabenabfrage, Ablehnung/Retry des zweiten Transfers,
+  keine Wiederholung des ersten, Timeout mit Remote-Erfolg, Retention-Sperre,
+  gesperrte Empfänger, Charge-/Währungsfehler, Summenfehler, unbekannte Transfers,
+  mehrseitiger Abgleich, abweichende Beträge und konkurrierende Worker.
+* Fee-Tests sichern 10/25 EUR, mehrere Tarife, Gebührenübernahme an/aus,
+  Gross-up-Minimalität, tatsächliche Unterdeckung und unveränderte Empfängerbeträge
+  bei Einzel- und Pool-Checkouts ab.
+* Payment-Service-Tests und `assemble` erfolgreich mit Java 21.
+* Frontend: alle 67 Tests erfolgreich, einschließlich beider Zahlungsarten mit
+  serverseitiger 3,15-%-Referenz und unverändertem Trinkgeld.
+* TypeScript und Vite-Produktionsbuild mit explizit aktivierten Testzahlungen und
+  ausschließlich einem Testschlüssel-Platzhalter erfolgreich.
+* Beide Compose-Konfigurationen mit `docker compose config` und ausschließlich
+  Platzhaltern validiert; Gebührenparameter und Testmodus geprüft.
+* `git diff --check` erfolgreich. Kein eigenständiger Frontend-Linter konfiguriert.
+
+Die neuen Transfer-Tests verwenden ausschließlich kontrollierte Stripe-Fakes bzw.
+einen Loopback-HTTP-Server. Kein realer Stripe-POST, keine Testzahlung und kein
+historischer Transfer wurden ausgelöst. Kein laufender lokaler Stack wurde neu
+gebaut oder neu gestartet. Kein AWS-Schreibzugriff, keine produktive Datenänderung,
+kein Push und kein Deployment. Vorhandene fremde Änderungen im Arbeitsverzeichnis
+bleiben erhalten.
+
+Ein abschließender Stripe-GET bestätigt Plattformland DE und die aktive
+Default-Zahlungsmethodenkonfiguration: `amazon_pay`, `apple_pay`, `bancontact`,
+`blik`, `card`, `eps`, `kakao_pay`, `klarna`, `link`, `mb_way`, `naver_pay`,
+`payco`, `pix`, `samsung_pay`, `satispay`. Stripe entscheidet zusätzlich anhand
+von EUR, Connect, Gast und Land, was im einzelnen Checkout tatsächlich erscheint.
+Diese Auswahl wird nicht stillschweigend auf Karten beschränkt. Deshalb bleibt
+die Kartenreferenz auch nach dieser Korrektur ausdrücklich eine Schätzung.
+
+Die öffentliche https://stripe.com/de/pricing/local-payment-methods[Methodenpreisliste]
+nennt beispielsweise Bancontact 1,4 % + 25 Cent, BLIK/EPS 1,6 % + 25 Cent,
+Amazon Pay ohne Kartenzahlung 1,5 % + 25 Cent und Klarna für DE unter anderem
+2,99 % + 35 Cent; andere Klarna-Länder haben andere Referenzen. Für kartenbasierte
+Amazon-Pay-Zahlungen gelten Kartenpreise. Diese Beispiele erklären, weshalb ein
+vor der Methodenauswahl festgelegtes Modell trotz korrektem Gross-up keine exakte
+Ist-Gebühr garantieren kann. Es wird weder ein landesunabhängiger Höchstsatz
+behauptet noch eine unbekannte Monats-/Connect-Gebühr in den Kartenaufschlag gemischt.

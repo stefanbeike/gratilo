@@ -28,7 +28,7 @@ public class StripeFeeAuditService {
         if(audits.findById(tx.getId()).isPresent())return;
         var audit=new PaymentFeeAuditEntity();audit.setTransactionId(tx.getId());audit.setChargedMinor(quote.totalAmountMinor());
         audit.setSurchargeMinor(quote.serviceFeeMinor());audit.setEstimatedFeeMinor(quote.estimatedStripeFeeMinor());
-        audit.setEstimatePercent(quote.serviceFeePercent());audit.setEstimateFixedMinor(quote.fixedFeeMinor());audit.setEstimateBasis(quote.feeEstimateBasis());
+        audit.setEstimatePercent(quote.serviceFeePercent().doubleValue());audit.setEstimateFixedMinor(quote.fixedFeeMinor());audit.setEstimateBasis(quote.feeEstimateBasis());
         audits.save(audit);
     }
     @Scheduled(fixedDelay="PT60S") public void reconcile() {
@@ -80,7 +80,8 @@ public class StripeFeeAuditService {
         audit.setActualTotalFeeMinor(totalFee);audit.setActualFeeMinor(actual);audit.setActualNetMinor(net);audit.setDifferenceMinor(actual-audit.getEstimatedFeeMinor());
         audit.setUncoveredMinor(actual-audit.getSurchargeMinor());audit.setBalanceTransactionId(balanceId);audit.setFeeDetails(JsonMapper.createDefault().writeValueAsString(details));
         audit.setStatus(actual==audit.getEstimatedFeeMinor()?"MATCHED":"DIFFERENCE");audit.setLastError(null);audit.setCheckedAt(OffsetDateTime.now());audits.update(audit);
-        LoggerFactory.getLogger(getClass()).info("Stripe fee audit transaction={} estimatedMinor={} actualMinor={} differenceMinor={}",audit.getTransactionId(),audit.getEstimatedFeeMinor(),actual,audit.getDifferenceMinor());
+        LoggerFactory.getLogger(getClass()).info("Stripe fee audit transaction={} chargedMinor={} surchargeMinor={} estimatedMinor={} actualMinor={} differenceMinor={} uncoveredMinor={} status={}",
+                audit.getTransactionId(),audit.getChargedMinor(),audit.getSurchargeMinor(),audit.getEstimatedFeeMinor(),actual,audit.getDifferenceMinor(),audit.getUncoveredMinor(),audit.getStatus());
     }
     @Serdeable public record Report(UUID transactionId,String status,long chargedMinor,long surchargeMinor,long estimatedFeeMinor,
             Long actualFeeMinor,Long actualTotalFeeMinor,Long actualNetMinor,Long differenceMinor,Long uncoveredMinor,String balanceTransactionId,

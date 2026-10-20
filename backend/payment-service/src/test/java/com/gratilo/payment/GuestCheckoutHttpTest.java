@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class GuestCheckoutHttpTest {
     @Test void oldPoolAttemptIsAConflictAndNeverAnUpstreamGatewayFailure() throws Exception {
         var tx=new com.gratilo.payment.domain.TransactionEntity();tx.setId(UUID.randomUUID());tx.setProviderReference("cs_test_prior");
-        var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",1.5,25,null) {
+        var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("1.5"),25,null) {
             @Override public Optional<CheckoutResponse> createPool(UUID user,TipPaymentRequest request){throw new CheckoutConflictException("CHECKOUT_ALREADY_PROCESSED",tx);}
         };
         var props=new HashMap<String,Object>();props.put("payments.enabled",true);props.put("features.tip-pools-enabled",true);props.put("stripe.secret-key","sk_test_fixture");props.put("stripe.webhook-secret","whsec_fixture");props.put("micronaut.server.port",-1);
@@ -26,7 +26,7 @@ class GuestCheckoutHttpTest {
     }
 
     @Test void anonymousGuestCanUseCheckoutWithoutCustomerRegistrationOutsideTheAwsTestGate() throws Exception {
-        var service = new StripeCheckoutService(null, null, null, "sk_test_fixture", "http://localhost/success", "http://localhost/cancel", 1.5, 25, null) {
+        var service = new StripeCheckoutService(null, null, null, "sk_test_fixture", "http://localhost/success", "http://localhost/cancel", new java.math.BigDecimal("1.5"), 25, null) {
             @Override public boolean canReceiveTips(UUID user) { return true; }
             @Override public Optional<CheckoutResponse> create(UUID user, TipPaymentRequest request) {
                 return Optional.of(new CheckoutResponse("https://checkout.stripe.com/test", UUID.randomUUID().toString(), false));

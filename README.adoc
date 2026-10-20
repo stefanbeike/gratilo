@@ -1,0 +1,222 @@
+= Gratilo – Architektur und README
+:toc: left
+:toclevels: 3
+:sectnums:
+:source-highlighter: rouge
+
+Dieses Dokument beschreibt die im GitHub-Repository `stefanbeike/gratilo`
+nachvollziehbare Architektur. Diagramme verwenden Mermaid innerhalb von AsciiDoc.
+Ein AsciiDoc-Renderer mit Mermaid-Erweiterung ist zur Darstellung erforderlich.
+
+== Projektübersicht
+
+Gratilo ist eine Webplattform für digitale Trinkgelder per QR-Code.
+Gäste benötigen kein Gratilo-Konto.
+
+[cols="1,2,1",options="header"]
+|===
+|Komponente |Technologie und Zweck |Port lokal
+|Frontend |React, TypeScript, Vite, Nginx |3000 / Sandbox 3001
+|User-Service |Java 21, Micronaut, Benutzer und Poolverwaltung |8081
+|Payment-Service |Java 21, Micronaut, Stripe Checkout und Connect |8082
+|PostgreSQL |PostgreSQL 15, Schemas `user_mgmt` und `payment_mgmt` |5432 (Standardstack)
+|MailHog |Lokaler Test-Mailserver |8025 / Sandbox 18025
+|===
+
+== Systemarchitektur
+
+[mermaid]
+....
+flowchart LR
+    Guest["Gast per QR-Code"] --> FE["React Frontend"]
+    User["Mitarbeiter / Poolinhaber"] --> FE
+    FE --> US["Micronaut User-Service"]
+    FE --> PS["Micronaut Payment-Service"]
+    US --> DB[("PostgreSQL")]
+    PS --> DB
+    PS --> SC["Stripe Checkout / Connect"]
+    SC -->|signierter Webhook| PS
+    US --> MAIL["SMTP / MailHog"]
+....
+
+== Lokale Docker-Compose-Architektur
+
+=== Standardstack
+
+[mermaid]
+....
+flowchart TB
+    Browser["Browser :3000"] --> NGINX["Frontend / Nginx"]
+    NGINX -->|/user-service/| U["User-Service :8081"]
+    NGINX -->|/payment-service/| P["Payment-Service :8082"]
+    P -->|interne API| U
+    U --> PG[("PostgreSQL 15")]
+    P --> PG
+    U --> MH["MailHog"]
+    U -.-> MINIO["MinIO (optional)"]
+....
+
+* `docker-compose/docker-compose.infra.yml`: PostgreSQL, MailHog, MinIO, optional Stripe CLI.
+* `docker-compose/docker-compose.services.yml`: Frontend und zwei Backends.
+* `frontend/nginx.conf`: API-Proxy und SPA-Routing.
+
+=== Isolierter Stripe-Teststack
+
+[mermaid]
+....
+flowchart LR
+    B["Browser localhost:3001"] --> F["Frontend"]
+    F --> U["User-Service"]
+    F --> P["Payment-Service"]
+    U --> DB[("Separate lokale PostgreSQL")]
+    P --> DB
+    P -->|sk_test_| STRIPE["Stripe Sandbox"]
+    STRIPE --> CLI["Stripe CLI"]
+    CLI -->|Webhook| P
+    U --> MAIL["MailHog :18025"]
+....
+
+Der Stack `docker-compose/compose.stripe-test.yml` verwendet das separate
+Compose-Projekt `gratilo-stripe-test` und eigene Datenbankdaten.
+Pooling ist hier standardmäßig deaktiviert (`FEATURE_TIP_POOLS_ENABLED=false`).
+
+[source,bash]
+----
+python3 docker-compose/stripe_test.py init
+# .env.stripe-test lokal mit Testschlüsseln konfigurieren
+python3 docker-compose/stripe_test.py check-stripe
+python3 docker-compose/stripe_test.py webhook-secret
+python3 docker-compose/stripe_test.py check
+python3 docker-compose/stripe_test.py up
+----
+
+== Trinkgeld-Checkout
+
+[mermaid]
+....
+sequenceDiagram
+    actor Gast
+    participant UI as Gratilo Frontend
+    participant API as Payment-Service
+    participant Stripe as Stripe Checkout
+    participant DB as PostgreSQL
+    Gast->>UI: QR-Code öffnen
+    Gast->>UI: Betrag und Nachricht
+    Gast->>UI: Gebührenübernahme und Zusammenfassung
+    UI->>API: Checkout-Session anfordern
+    API->>API: Empfänger und Betrag prüfen
+    API->>Stripe: Checkout-Session erstellen
+    Gast->>Stripe: Testzahlung ausführen
+    Stripe-->>API: Signierter Webhook
+    API->>DB: Zahlungsstatus speichern
+    UI->>API: Status abrufen
+    API-->>UI: Erfolgreich / ausstehend / fehlgeschlagen
+....
+
+Die Rückkehr aus Stripe Checkout allein bestätigt noch keine Zahlung.
+Der Status muss serverseitig verifiziert werden.
+
+== Pooling und Verteilung
+
+[mermaid]
+....
+flowchart TD
+    A["Pool-Checkout"] --> B{"Zahlung bestätigt?"}
+    B -->|Nein| X["Warten / Fehlerstatus"]
+    B -->|Ja| S["Gespeicherte Pool-Verteilung"]
+    S --> E{"Stripe-Transferberechtigung?"}
+    E -->|Nein| H["Transfers zurückhalten"]
+    E -->|Ja| T["Cent-genaue Transferaufteilung"]
+    T --> C["Stripe Connect Transfers"]
+    C --> R["Transfer-IDs dokumentieren"]
+....
+
+IMPORTANT: Dieses Diagramm beschreibt den fachlich gewünschten Ablauf.
+Es ist kein Nachweis, dass ausstehende Poolzahlungen im aktuell deployten
+System automatisch verteilt werden. Altzahlungen dürfen nicht ohne Prüfung
+erneut transferiert werden.
+
+== AWS-Produktionsarchitektur
+
+[mermaid]
+....
+flowchart TB
+    GH["GitHub Actions"] --> CI["CI & Security"]
+    CI --> BUILD["Docker Build & Scan"]
+    BUILD --> ECR["Amazon ECR"]
+    ECR --> ECS["Amazon ECS: gratilo-prd-app"]
+    ALB["Application Load Balancer / HTTPS"] --> ECS
+    ECS --> FE["Frontend"]
+    ECS --> US["User-Service"]
+    ECS --> PS["Payment-Service"]
+    PS --> SEC["AWS Secrets Manager"]
+    PS --> RDS[("PostgreSQL / RDS")]
+    US --> RDS
+    PS --> STRIPE["Stripe API"]
+....
+
+Der manuelle Release-Workflow liegt unter `.github/workflows/release.yml`.
+Das Deployment-Skript ist `deployment/scripts/deploy_ecs.sh`.
+ECR-Repositories: `gratilo/frontend`, `gratilo/user-service`,
+`gratilo/payment-service`.
+
+Die konkrete aktuelle VPC-/Subnetz-/RDS-Topologie muss gegen AWS geprüft werden.
+
+== Sicherheit
+
+* Stripe-Test- und Live-Schlüssel strikt trennen.
+* Im lokalen Sandbox-Stack `PAYMENTS_ENABLED=true` und `STRIPE_TEST_ONLY=true`.
+* `VITE_PAYMENTS_ENABLED` und `VITE_STRIPE_PUBLISHABLE_KEY` sind Frontend-Buildparameter.
+* Stripe Secret Keys und Webhook-Secrets ausschließlich serverseitig halten.
+* Webhooks signaturprüfen und idempotent verarbeiten.
+* Stripe-Connect-Berechtigungen vor Transfers prüfen.
+* Keine produktive Datenbank für lokale Tests verwenden.
+* Ein separater steuerlicher Freibetrag ist laut geprüftem Repository-README
+  nicht implementiert; freie Betragseingabe ist davon zu unterscheiden.
+
+== Entwicklerbefehle
+
+[source,bash]
+----
+./gradlew build
+./gradlew :backend:user-service:run
+cd frontend
+npm install
+npm run dev
+----
+
+Gesundheitschecks:
+
+[source,text]
+----
+http://localhost:8081/health
+http://localhost:8082/health
+----
+
+== Fehlerdiagnose
+
+[cols="1,2",options="header"]
+|===
+|Symptom |Prüfung
+|Checkout fehlt |Frontend-Buildargument `VITE_PAYMENTS_ENABLED` prüfen
+|Checkout blockiert |Stripe-Testschlüssel, Feature-Flags, Connect-Status prüfen
+|Zahlung ausstehend |Webhook-Zustellung und Signatur prüfen
+|Pool ohne Transfers |Verteilungs-Snapshot, Transfer-IDs, Logs und Berechtigungen prüfen
+|Lokale Webhooks fehlerhaft |Stripe-CLI-Secret gegen `STRIPE_WEBHOOK_SECRET` prüfen
+|===
+
+== Repository-Referenzen
+
+* `README.md`
+* `frontend/Dockerfile`
+* `frontend/nginx.conf`
+* `docker-compose/compose.stripe-test.yml`
+* `docker-compose/docker-compose.infra.yml`
+* `docker-compose/docker-compose.services.yml`
+* `backend/payment-service/src/main/resources/application-prd.yml`
+* `.github/workflows/release.yml`
+* `deployment/scripts/deploy_ecs.sh`
+
+NOTE: Stand der geprüften Dateien: GitHub-Branch `main` bei Erstellung.
+Nicht sämtliche Controller, Tabellen und die live ausgerollte AWS-Konfiguration
+wurden unabhängig verifiziert.

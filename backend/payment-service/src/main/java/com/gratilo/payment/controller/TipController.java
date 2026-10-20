@@ -5,6 +5,7 @@ import io.micronaut.http.*;
 import io.micronaut.http.annotation.*;
 import jakarta.validation.Valid;
 import java.util.UUID;
+import java.math.BigDecimal;
 import com.gratilo.payment.service.StripeCheckoutService;
 import io.micronaut.context.annotation.Value;
 @Controller("/payment-service/tips")
@@ -12,9 +13,9 @@ import io.micronaut.context.annotation.Value;
 public class TipController {
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(TipController.class);
     private final StripeCheckoutService checkoutService;
-    private final double feePercent;
+    private final BigDecimal feePercent;
     private final long fixedFeeMinor;
-    public TipController(StripeCheckoutService checkoutService, @Value("${stripe.fee-percent:1.5}") double feePercent,
+    public TipController(StripeCheckoutService checkoutService, @Value("${stripe.fee-percent:3.15}") BigDecimal feePercent,
                          @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor) {
         this.checkoutService = checkoutService; this.feePercent = feePercent; this.fixedFeeMinor = fixedFeeMinor;
     }

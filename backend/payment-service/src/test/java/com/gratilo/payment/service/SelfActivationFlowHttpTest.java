@@ -49,7 +49,7 @@ class SelfActivationFlowHttpTest {
             @Override public String retrieveAccount(String id) { return stripeReady.get() ? StripeAccountFixtures.readyJson() : StripeAccountFixtures.readyJson().replace("active", "pending"); }
         };
         var recipient = new RecipientAvailability("http://localhost") { @Override public void requireEnabled(UUID user) { assertEquals(owner, user); } };
-        var checkout = new StripeCheckoutService(transactions, accountRepository, connect, "sk_test_fixture", "http://localhost/success", "http://localhost/cancel", 1.5, 25, recipient) {
+        var checkout = new StripeCheckoutService(transactions, accountRepository, connect, "sk_test_fixture", "http://localhost/success", "http://localhost/cancel", new java.math.BigDecimal("1.5"), 25, recipient) {
             @Override protected String stripeRequest(String path, String form, String idempotency) {
                 assertTrue(java.net.URLDecoder.decode(form, StandardCharsets.UTF_8).contains("transfer_data][destination]=acct_fixture"));
                 return "{\"id\":\"cs_test_flow\",\"url\":\"https://checkout.stripe.com/test\",\"livemode\":false}";

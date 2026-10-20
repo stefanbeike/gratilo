@@ -17,7 +17,7 @@ class MultiMemberSettlementTest {
     @SuppressWarnings("unchecked") static <T>T repo(Class<T> type,java.lang.reflect.InvocationHandler handler){return (T)Proxy.newProxyInstance(type.getClassLoader(),new Class[]{type},handler);}
     @Test void twoMembersReceiveTheirFrozenSharesOnlyOnceAndRepeatedRefundsReverseOnlyOnce()throws Exception {
         var mapper=JsonMapper.createDefault();
-        var tx=new TransactionEntity();tx.setId(UUID.randomUUID());tx.setStatus(TransactionStatus.BOOKED);tx.setProvider("STRIPE");tx.setProviderReference("cs_test_fixture");tx.setType(TransactionType.TIP);
+        var tx=new TransactionEntity();tx.setAmountMinor(1000);tx.setCurrency("EUR");tx.setId(UUID.randomUUID());tx.setStatus(TransactionStatus.BOOKED);tx.setProvider("STRIPE");tx.setProviderReference("cs_test_fixture");tx.setType(TransactionType.TIP);
         var rows=new ArrayList<PoolTransferEntity>();
         for(int i=1;i<=2;i++){
             var row=new PoolTransferEntity();row.setId(UUID.randomUUID());row.setTransactionId(tx.getId());row.setRecipientUserId(new UUID(0,i));row.setStripeAccountId("acct_member"+i);row.setSharePercent(new java.math.BigDecimal("50"));row.setAmountMinor(500);row.setStatus("PENDING");row.setSettlementApproved(true);row.setCreatedAt(OffsetDateTime.now());row.setUpdatedAt(OffsetDateTime.now());rows.add(row);
@@ -30,7 +30,7 @@ class MultiMemberSettlementTest {
         var worker=new PoolTransferSettlementService(transfers,txs,"sk_test_fixture",true){
             @Override protected String request(String path,String body,String key)throws Exception {
                 if(path.startsWith("/v1/checkout/"))return "{\"livemode\":false,\"status\":\"complete\",\"payment_status\":\"paid\",\"payment_intent\":\"pi_fixture\"}";
-                if(path.startsWith("/v1/payment_intents/"))return "{\"livemode\":false,\"status\":\"succeeded\",\"latest_charge\":{\"id\":\"ch_fixture\",\"livemode\":false,\"paid\":true,\"captured\":true,\"currency\":\"eur\",\"balance_transaction\":{\"currency\":\"eur\",\"status\":\"available\"}}}";
+                if(path.startsWith("/v1/payment_intents/"))return "{\"livemode\":false,\"status\":\"succeeded\",\"latest_charge\":{\"id\":\"ch_fixture\",\"amount\":1041,\"transfer_group\":\"gratilo_"+tx.getId()+"\",\"livemode\":false,\"paid\":true,\"captured\":true,\"currency\":\"eur\",\"balance_transaction\":{\"currency\":\"eur\",\"status\":\"available\"}}}";
                 if(path.equals("/v1/balance"))return "{\"livemode\":false,\"available\":[{\"currency\":\"eur\",\"amount\":"+funds[0]+"}]}";
                 if(path.startsWith("/v2/core/accounts/")){String id=path.substring("/v2/core/accounts/".length()).split("\\?")[0];return StripeAccountFixtures.readyJson().replace("acct_fixture",id);}
                 if(path.startsWith("/v1/transfers?"))return mapper.writeValueAsString(Map.of("data",remote.values(),"has_more",false));

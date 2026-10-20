@@ -273,7 +273,7 @@ soll dafür nicht verwendet werden. Es wurde nicht ausgeführt und bleibt durch
 `.dockerignore` vom Image-Build ausgeschlossen.
 
 Aktueller Integrationsstand und Anleitung für einen separat genehmigten
-Stripe-Testbetrieb: [README: Stripe Connect](../README.md#stripe-connect-stand-und-manuelle-einrichtung).
+Stripe-Testbetrieb: [README: Stripe Connect](../README.adoc#stripe-connect-stand-und-manuelle-einrichtung).
 Die dort beschriebenen Startprüfungen gelten für alle Umgebungen. Pooling darf
 nicht aktiviert werden. Bestehende ECS-Vorlagen und Release-Builds bleiben auf
 deaktivierten Zahlungen; zum genehmigten Aktivieren sind die dort genannten

@@ -17,12 +17,14 @@ class ProductionPaymentTest {
             assertTrue(env.getRequiredProperty("stripe.sandbox-payouts", Boolean.class));
             assertFalse(env.getRequiredProperty("payments.enabled", Boolean.class));
             assertTrue(env.getRequiredProperty("stripe.test-only", Boolean.class));
+            assertEquals(new java.math.BigDecimal("3.15"), env.getRequiredProperty("stripe.fee-percent", java.math.BigDecimal.class));
+            assertEquals(25L, env.getRequiredProperty("stripe.fee-fixed-minor", Long.class));
         }
     }
 
     @Test
     void demoParameterCannotReachPaymentServicesWhenDisabled() {
-        var controller = new TipController(null, 1.5, 25);
+        var controller = new TipController(null, new java.math.BigDecimal("1.5"), 25);
         for (String demo : new String[]{"1", "true", "TRUE"}) {
             assertEquals(HttpStatus.BAD_REQUEST, controller.checkout(UUID.randomUUID(), demo,
                     new TipPaymentRequest(500L, null, "test-only")).getStatus());

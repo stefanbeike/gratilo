@@ -16,7 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.*;
 import java.util.*;
 
-/** Settles frozen, approved allocations after confirmed payment and source-fund availability. */
+/** Settles frozen, approved allocations from their confirmed source charge (never unbacked balance transfers). */
 @Singleton
 public class PoolTransferSettlementService {
     private static final Logger LOG = LoggerFactory.getLogger(PoolTransferSettlementService.class);
@@ -89,7 +89,9 @@ public class PoolTransferSettlementService {
                 allocation.setReversedAmountMinor(allocation.getAmountMinor());
                 allocation.setStatus("REVERSED"); record(allocation, null); return;
             }
-            if (!source.available()) { record(allocation, "WAITING_SOURCE_FUNDS"); return; }
+            // source_transaction lets Stripe schedule the transfer against pending source funds.
+            // Never substitute a check of the platform's general available balance or source net.
+            validateDistribution(allocation, tx, source);
             if (source.refunded() > 0 && desired == 0) { record(allocation, "REFUND_RECONCILIATION_REQUIRED"); return; }
             long amount = allocation.getAmountMinor() - desired;
             if (allocation.getAttemptedAmountMinor() != null && allocation.getAttemptedAmountMinor() != amount) {
@@ -98,9 +100,14 @@ public class PoolTransferSettlementService {
             if (allocation.getFirstAttemptAt() != null && allocation.getFirstAttemptAt().isBefore(OffsetDateTime.now().minusHours(23))) {
                 record(allocation, "RECONCILIATION_REQUIRED"); return;
             }
-            if (availableEurMinor() < amount) { record(allocation, "WAITING_PLATFORM_BALANCE"); return; }
-            String account = request(StripeConnectService.accountRetrievalPath(allocation.getStripeAccountId()), null, null);
-            if (!StripeAccountStatus.parse(allocation.getStripeAccountId(), account).canReceiveTransfers()) {
+            var frozenRows = transfers.findByTransactionId(tx.getId());
+            // Before the first transfer, avoid a predictable partial distribution to a restricted pool.
+            // Once started, an individual recipient's failure must not prevent other eligible recipients.
+            if (frozenRows.stream().noneMatch(row -> row.getStripeTransferId() != null)) {
+                for (var row : frozenRows) if (row.getReversalAmountMinor() < row.getAmountMinor() && !recipientReady(row)) {
+                    record(allocation, "RECIPIENT_NOT_READY"); return;
+                }
+            } else if (!recipientReady(allocation)) {
                 record(allocation, "RECIPIENT_NOT_READY"); return;
             }
             allocation.setAttemptedAmountMinor(amount);
@@ -117,7 +124,8 @@ public class PoolTransferSettlementService {
         } catch (SettlementProblem problem) {
             record(allocation, problem.code);
         } catch (StripeCheckoutService.StripeApiException failure) {
-            String code = "STRIPE_HTTP_" + failure.statusCode() + "_" + failure.errorCode();
+            String code = "balance_insufficient".equals(failure.errorCode()) || "insufficient_funds".equals(failure.errorCode())
+                    ? "STRIPE_INSUFFICIENT_FUNDS" : "STRIPE_HTTP_" + failure.statusCode() + "_" + failure.errorCode();
             record(allocation, code.substring(0, Math.min(80, code.length())));
             LOG.warn("Pool Stripe request failed allocation={} http={} code={} request={}",
                     allocation.getId(), failure.statusCode(), failure.errorCode(), failure.requestId());
@@ -127,36 +135,86 @@ public class PoolTransferSettlementService {
         }
     }
 
+    private boolean recipientReady(PoolTransferEntity allocation) throws Exception {
+        String account = request(StripeConnectService.accountRetrievalPath(allocation.getStripeAccountId()), null, null);
+        return StripeAccountStatus.parse(allocation.getStripeAccountId(), account).canReceiveTransfers();
+    }
+
     private Map<?, ?> existingTransfer(PoolTransferEntity allocation, TransactionEntity tx, SourceCharge source) throws Exception {
         String cursor = "";
         Map<?, ?> found = null;
+        long transferred = 0;
+        var seen = new HashSet<String>();
+        var allocations = new HashMap<String, PoolTransferEntity>();
+        for (var row : transfers.findByTransactionId(tx.getId())) allocations.put(row.getId().toString(), row);
+        var matched = new HashSet<String>();
         do {
             var page = map(request("/v1/transfers?limit=100&transfer_group=" + enc("gratilo_" + tx.getId()) + cursor, null, null));
             if (!(page.get("data") instanceof List<?> data)) throw new SettlementProblem("TRANSFER_RECONCILIATION_INVALID");
             for (Object value : data) {
                 if (!(value instanceof Map<?, ?> transfer)) continue;
+                if (!Boolean.FALSE.equals(transfer.get("livemode")) || !"eur".equals(transfer.get("currency"))
+                        || !source.chargeId().equals(transfer.get("source_transaction"))
+                        || !(transfer.get("id") instanceof String transferId) || !seen.add(transferId)
+                        || number(transfer.get("amount")) <= 0)
+                    throw new SettlementProblem("TRANSFER_RECONCILIATION_INVALID");
+                transferred = Math.addExact(transferred, number(transfer.get("amount")));
                 var metadata = transfer.get("metadata") instanceof Map<?, ?> m ? m : Map.of();
+                String allocationId = Objects.toString(metadata.get("pool_allocation_id"), "");
+                var frozen = allocations.get(allocationId);
+                if (frozen == null || !matched.add(allocationId)) throw new SettlementProblem("AMBIGUOUS_TRANSFER");
+                validateTransfer(transfer, frozen, source);
+                if (frozen.getStripeTransferId() != null && !frozen.getStripeTransferId().equals(transferId))
+                    throw new SettlementProblem("TRANSFER_RECONCILIATION_MISMATCH");
                 if (allocation.getId().toString().equals(metadata.get("pool_allocation_id"))) {
                     validateTransfer(transfer, allocation, source);
                     if (found != null) throw new SettlementProblem("AMBIGUOUS_TRANSFER");
                     found = transfer;
-                } else if (allocation.getStripeAccountId().equals(transfer.get("destination"))
-                        && source.chargeId().equals(transfer.get("source_transaction"))) {
-                    throw new SettlementProblem("AMBIGUOUS_TRANSFER");
                 }
             }
-            if (!Boolean.TRUE.equals(page.get("has_more"))) return found;
+            if (!Boolean.TRUE.equals(page.get("has_more"))) {
+                // Gross transfers count towards the source limit even if subsequently reversed.
+                long outstanding = 0;
+                for (var row : allocations.values()) if (!matched.contains(row.getId().toString())) {
+                    if (row.getStripeTransferId() != null) throw new SettlementProblem("TRANSFER_RECONCILIATION_MISMATCH");
+                    outstanding = Math.addExact(outstanding, row.getAmountMinor() - row.getReversalAmountMinor());
+                }
+                if (transferred > source.amount() || outstanding < 0 || outstanding > source.amount() - transferred)
+                    throw new SettlementProblem("SOURCE_TRANSFER_LIMIT_EXCEEDED");
+                return found;
+            }
             if (data.isEmpty() || !(data.getLast() instanceof Map<?, ?> last) || !(last.get("id") instanceof String id))
                 throw new SettlementProblem("TRANSFER_RECONCILIATION_INVALID");
             cursor = "&starting_after=" + enc(id);
         } while (true);
     }
 
+    private void validateDistribution(PoolTransferEntity allocation, TransactionEntity tx, SourceCharge source) {
+        var rows = transfers.findByTransactionId(tx.getId());
+        var members = new HashSet<UUID>();
+        long total = 0;
+        boolean containsAllocation = false;
+        for (var row : rows) {
+            if (!tx.getId().equals(row.getTransactionId()) || row.getAmountMinor() <= 0
+                    || row.getReversalAmountMinor() < 0 || row.getReversalAmountMinor() > row.getAmountMinor()
+                    || row.getRecipientUserId() == null || !members.add(row.getRecipientUserId())
+                    || row.getStripeAccountId() == null || !row.getStripeAccountId().startsWith("acct_"))
+                throw new SettlementProblem("INVALID_FROZEN_DISTRIBUTION");
+            containsAllocation |= allocation.getId().equals(row.getId());
+            total = Math.addExact(total, row.getAmountMinor());
+        }
+        if (!containsAllocation || !"EUR".equals(tx.getCurrency()) || total != tx.getAmountMinor()
+                || total > source.amount()) throw new SettlementProblem("SOURCE_ALLOCATION_TOTAL_MISMATCH");
+    }
+
     private void validateTransfer(Map<?, ?> transfer, PoolTransferEntity allocation, SourceCharge source) {
+        long expected = allocation.getAttemptedAmountMinor() != null ? allocation.getAttemptedAmountMinor()
+                : allocation.getAmountMinor() - allocation.getReversalAmountMinor();
         if (!Boolean.FALSE.equals(transfer.get("livemode")) || !(transfer.get("id") instanceof String id) || !id.startsWith("tr_")
                 || !allocation.getStripeAccountId().equals(transfer.get("destination"))
                 || !source.chargeId().equals(transfer.get("source_transaction")) || !"eur".equals(transfer.get("currency"))
                 || number(transfer.get("amount")) <= 0 || number(transfer.get("amount")) > allocation.getAmountMinor()
+                || number(transfer.get("amount")) != expected
                 || number(transfer.get("amount_reversed")) < 0 || number(transfer.get("amount_reversed")) > number(transfer.get("amount")))
             throw new SettlementProblem("TRANSFER_RECONCILIATION_MISMATCH");
     }
@@ -214,19 +272,15 @@ public class PoolTransferSettlementService {
         if (!(value instanceof Map<?, ?> charge) || !(charge.get("id") instanceof String chargeId)
                 || !Boolean.FALSE.equals(charge.get("livemode")) || !Boolean.TRUE.equals(charge.get("paid"))
                 || !Boolean.TRUE.equals(charge.get("captured")) || !"eur".equals(charge.get("currency"))) return null;
+        if (!chargeId.startsWith("ch_") || number(charge.get("amount")) < tx.getAmountMinor()
+                || !Objects.equals("gratilo_" + tx.getId(), charge.get("transfer_group"))
+                || charge.get("transfer_data") != null || Boolean.TRUE.equals(charge.get("disputed")))
+            throw new SettlementProblem("SOURCE_CHARGE_MISMATCH");
         if (!(charge.get("balance_transaction") instanceof Map<?, ?> balance) || !"eur".equals(balance.get("currency"))) return null;
         OffsetDateTime availableAt = balance.get("available_on") instanceof Number epoch
                 ? OffsetDateTime.ofInstant(Instant.ofEpochSecond(epoch.longValue()), ZoneOffset.UTC) : null;
-        return new SourceCharge(chargeId, "available".equals(balance.get("status")), availableAt, number(charge.get("amount_refunded")));
-    }
-
-    private long availableEurMinor() throws Exception {
-        var balance = map(request("/v1/balance", null, null));
-        if (!Boolean.FALSE.equals(balance.get("livemode")) || !(balance.get("available") instanceof List<?> entries)) return 0;
-        long total = 0;
-        for (Object entry : entries)
-            if (entry instanceof Map<?, ?> amount && "eur".equals(amount.get("currency"))) total = Math.addExact(total, number(amount.get("amount")));
-        return total;
+        if (!List.of("pending", "available").contains(Objects.toString(balance.get("status")))) return null;
+        return new SourceCharge(chargeId, number(charge.get("amount")), availableAt, number(charge.get("amount_refunded")));
     }
 
     private void record(PoolTransferEntity allocation, String reason) {
@@ -255,7 +309,7 @@ public class PoolTransferSettlementService {
     private static long number(Object value) { return value instanceof Number n ? n.longValue() : 0; }
     private static Map<?, ?> map(String json) throws Exception { return JsonMapper.createDefault().readValue(json, Map.class); }
     private static String enc(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }
-    private record SourceCharge(String chargeId, boolean available, OffsetDateTime availableAt, long refunded) {}
+    private record SourceCharge(String chargeId, long amount, OffsetDateTime availableAt, long refunded) {}
     private static class SettlementProblem extends IllegalStateException {
         final String code;
         SettlementProblem(String code) { this.code = code; }

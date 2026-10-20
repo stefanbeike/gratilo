@@ -8,6 +8,13 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StripeFeeAuditTest {
+ @Test void observedTwentyFiveEuroPoolChargeRecordsFortyThreeCentPlatformUndercoverage()throws Exception{
+  var f=new Fixture(true,2500);f.actualFee=106;f.service.reconcile();
+  assertEquals(2563,f.audit.getChargedMinor());assertEquals(63,f.audit.getSurchargeMinor());
+  assertEquals(106L,f.audit.getActualFeeMinor());assertEquals(43L,f.audit.getDifferenceMinor());
+  assertEquals(43L,f.audit.getUncoveredMinor());assertEquals(2457L,f.audit.getActualNetMinor());
+  assertEquals(2500,f.tx.getAmountMinor());assertEquals("DIFFERENCE",f.audit.getStatus());
+ }
  @Test void recordsActualFeeAndDifferenceWithoutChangingPaidAmountOrTip()throws Exception{
   var f=new Fixture(true);f.service.reconcile();
   assertEquals("DIFFERENCE",f.audit.getStatus());assertEquals(41,f.audit.getEstimatedFeeMinor());assertEquals(58L,f.audit.getActualFeeMinor());assertEquals(17L,f.audit.getDifferenceMinor());assertEquals(17L,f.audit.getUncoveredMinor());
@@ -30,7 +37,7 @@ class StripeFeeAuditTest {
   var f=new Fixture(true);f.applicationFee=10;f.service.reconcile();assertEquals(48L,f.audit.getActualFeeMinor());assertTrue(f.audit.getFeeDetails().contains("application_fee"));
  }
  @Test void quoteSnapshotIsNotRepricedWhenConfigurationChanges()throws Exception{
-  var f=new Fixture(true);f.service.snapshot(f.tx,TipPricing.quote(1000,true,3.15,25));assertEquals(1041,f.audit.getChargedMinor());assertEquals(1.5,f.audit.getEstimatePercent());
+  var f=new Fixture(true);f.service.snapshot(f.tx,TipPricing.quote(1000,true,new java.math.BigDecimal("3.15"),25));assertEquals(1041,f.audit.getChargedMinor());assertEquals(1.5,f.audit.getEstimatePercent());
  }
  @Test void privateFeeReportRequiresTransactionOwnership(){
   var f=new Fixture(true);UUID owner=UUID.randomUUID();
@@ -52,8 +59,9 @@ class StripeFeeAuditTest {
  static class Fixture{
   final TransactionEntity tx=new TransactionEntity();PaymentFeeAuditEntity audit;int completedUpdates,stripeReads;boolean noBalance,live,mismatch,emptyDetails,expired;long actualFee=58,applicationFee;
   final StripeFeeAuditService service;
-  Fixture(boolean covered){
-   tx.setId(UUID.randomUUID());tx.setAmountMinor(1000);tx.setProvider("STRIPE");tx.setProviderReference("cs_test_audit");tx.setStatus(TransactionStatus.BOOKED);
+  Fixture(boolean covered){this(covered,1000);}
+  Fixture(boolean covered,long tip){
+   tx.setId(UUID.randomUUID());tx.setAmountMinor(tip);tx.setProvider("STRIPE");tx.setProviderReference("cs_test_audit");tx.setStatus(TransactionStatus.BOOKED);
    var repo=proxy(PaymentFeeAuditRepository.class,(p,m,a)->switch(m.getName()){
     case "findById"->Optional.ofNullable(audit);case "findByStatus"->audit!=null&&audit.getStatus().equals(a[0])?List.of(audit):List.of();
     case "save"->{audit=(PaymentFeeAuditEntity)a[0];yield audit;}case "update"->{if(!audit.getStatus().equals("PENDING"))completedUpdates++;yield audit;}default->throw new AssertionError(m.getName());});
@@ -66,7 +74,7 @@ class StripeFeeAuditTest {
      if(!noBalance){var details=new ArrayList<Map<String,Object>>();details.add(Map.of("type","stripe_fee","amount",actualFee-applicationFee,"currency","eur"));if(applicationFee>0)details.add(Map.of("type","application_fee","amount",applicationFee,"currency","eur"));charge.put("balance_transaction",Map.of("id","txn_audit","currency","eur","amount",audit.getChargedMinor(),"fee",actualFee,"net",audit.getChargedMinor()-actualFee,"fee_details",emptyDetails?List.of():details));}
      return mapper.writeValueAsString(Map.of("livemode",false,"status","succeeded","latest_charge",charge));
     }
-   };service.snapshot(tx,TipPricing.quote(1000,covered,1.5,25));
+   };service.snapshot(tx,TipPricing.quote(tip,covered,new java.math.BigDecimal("1.5"),25));
   }
  }
  @SuppressWarnings("unchecked")static<T>T proxy(Class<T> type,java.lang.reflect.InvocationHandler h){return(T)Proxy.newProxyInstance(type.getClassLoader(),new Class[]{type},h);}

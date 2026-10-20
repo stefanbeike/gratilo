@@ -24,6 +24,19 @@ class StripeCheckoutTest {
     private int reads;
     private final String session = "cs_test_fixture";
 
+    @Test void singleDestinationChargeUsesCentralQuoteAndPreservesFullTipAcrossRatesAndCoverage() throws Exception {
+        for(long tip:new long[]{1000,2500})for(String rate:List.of("1.5","2.8","3.15"))for(boolean covered:new boolean[]{true,false}) {
+            var f=new StripeCheckoutTest();var decimal=new java.math.BigDecimal(rate);
+            f.service(decimal).create(f.recipient,new TipPaymentRequest(tip,"Danke","unique",covered));
+            var expected=TipPricing.quote(tip,covered,decimal,25);
+            assertEquals(expected,f.savedQuote);
+            assertTrue(f.form.contains("transfer_data][amount]="+tip+"&"));
+            assertTrue(f.form.contains("unit_amount]="+expected.totalAmountMinor()+"&"));
+            assertFalse(f.form.contains("application_fee_amount"));
+            assertEquals(tip,f.stored.getAmountMinor());assertEquals("Danke",f.stored.getDescription());
+        }
+    }
+
     @Test void stripeApiDiagnosticContainsOnlyHttpStatus() {
         var failure = StripeCheckoutService.StripeApiException.from(400,
                 "{\"error\":{\"type\":\"invalid_request_error\",\"code\":\"parameter_unknown\",\"param\":\"payment_intent_data[test]\",\"message\":\"contains secret and account data\"}}",
@@ -68,7 +81,8 @@ class StripeCheckoutTest {
     private <T> T proxy(Class<T> type, java.lang.reflect.InvocationHandler handler) {
         return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class[]{type}, handler);
     }
-    private StripeCheckoutService service() {
+    private StripeCheckoutService service() { return service(new java.math.BigDecimal("1.5")); }
+    private StripeCheckoutService service(java.math.BigDecimal rate) {
         var repository = proxy(TransactionRepository.class, (p, m, a) -> switch (m.getName()) {
             case "findByAccountUserIdAndIdempotencyKey" -> Optional.ofNullable(stored);
             case "findById" -> Optional.ofNullable(stored);
@@ -97,7 +111,7 @@ class StripeCheckoutTest {
         var feeAudit=new StripeFeeAuditService(null,null,"sk_test_fixture") {
             @Override public void snapshot(TransactionEntity tx,com.gratilo.payment.api.TipQuote quote){savedQuote=quote;}
         };
-        return new StripeCheckoutService(repository, accounts, connect, "sk_test_fixture", "http://localhost/pay/success", "http://localhost/pay/cancelled", 1.5, 25, recipients,null,null,feeAudit) {
+        return new StripeCheckoutService(repository, accounts, connect, "sk_test_fixture", "http://localhost/pay/success", "http://localhost/pay/cancelled", rate, 25, recipients,null,null,feeAudit) {
             @Override protected String stripeRequest(String path, String body, String key) {
                 if (body != null) {
                     creates++; form = URLDecoder.decode(body, StandardCharsets.UTF_8); stripeKey = key;

@@ -54,7 +54,7 @@ stripe:
   # STRIPE_SUCCESS_URL can override this property through Micronaut environment binding.
   success-url: "${frontend.base-url}/pay/success?session_id={CHECKOUT_SESSION_ID}"
   cancel-url: ${STRIPE_CANCEL_URL:`http://localhost:3000/pay/cancelled`}
-  fee-percent: ${STRIPE_FEE_PERCENT:1.5}
+  fee-percent: ${STRIPE_FEE_PERCENT:3.15}
   fee-fixed-minor: ${STRIPE_FEE_FIXED_MINOR:25}
 
 endpoints:

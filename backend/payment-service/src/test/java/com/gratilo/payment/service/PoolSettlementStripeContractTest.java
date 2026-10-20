@@ -42,21 +42,22 @@ class PoolSettlementStripeContractTest {
         }
     }
 
-    @Test void pendingSourceFundsBlockTransfersEvenWhenPlatformBalanceIsSufficient() throws Exception {
+    @Test void pendingConfirmedSourceCanScheduleTransferWithoutWaitingForAvailability() throws Exception {
         try (var fixture = new Fixture()) {
             fixture.sourceState = "pending";
             fixture.worker.settle();
-            assertEquals("WAITING_SOURCE_FUNDS", fixture.allocation.getFailureCode());
-            assertTrue(fixture.transferPosts.isEmpty());
+            assertEquals("TRANSFERRED", fixture.allocation.getStatus());
+            assertEquals(1, fixture.transferPosts.size());
         }
     }
 
-    @Test void availableSourceStillRequiresSufficientPlatformFunds() throws Exception {
+    @Test void sourceLinkedTransferWithZeroPlatformBalanceReachesStripe() throws Exception {
         try (var fixture = new Fixture()) {
-            fixture.balance = 499;
+            fixture.balance = 0;
             fixture.worker.settle();
-            assertEquals("WAITING_PLATFORM_BALANCE", fixture.allocation.getFailureCode());
-            assertTrue(fixture.transferPosts.isEmpty());
+            assertEquals("TRANSFERRED", fixture.allocation.getStatus());
+            assertEquals(1, fixture.transferPosts.size());
+            assertFalse(fixture.calls.stream().anyMatch(c -> c.contains("/v1/balance")));
         }
     }
 
@@ -134,11 +135,12 @@ class PoolSettlementStripeContractTest {
         volatile Map<String, Object> remoteTransfer;
 
         Fixture() throws Exception {
-            tx.setId(UUID.randomUUID()); tx.setProvider("STRIPE"); tx.setProviderReference("cs_test_contract"); tx.setStatus(TransactionStatus.BOOKED);
+            tx.setAmountMinor(500); tx.setCurrency("EUR"); tx.setId(UUID.randomUUID()); tx.setProvider("STRIPE"); tx.setProviderReference("cs_test_contract"); tx.setStatus(TransactionStatus.BOOKED);
             allocation.setId(UUID.randomUUID()); allocation.setTransactionId(tx.getId()); allocation.setRecipientUserId(UUID.randomUUID());
             allocation.setStripeAccountId("acct_fixture"); allocation.setAmountMinor(500); allocation.setStatus("PENDING"); allocation.setSettlementApproved(true);
             var transfers = proxy(PoolTransferRepository.class, (p, m, a) -> switch (m.getName()) {
                 case "findByStatus" -> allocation.getStatus().equals(a[0]) ? List.of(allocation) : List.of();
+                case "findByTransactionId" -> List.of(allocation);
                 case "update" -> a[0]; default -> throw new AssertionError(m.getName());
             });
             var transactions = proxy(TransactionRepository.class, (p, m, a) -> {
@@ -188,7 +190,7 @@ class PoolSettlementStripeContractTest {
                 }
                 if (path.equals("/v1/payment_intents/pi_contract")) {
                     respond(exchange, 200, Map.of("livemode", false, "status", "succeeded", "latest_charge", Map.of(
-                            "id", "ch_contract", "livemode", false, "paid", true, "captured", true, "currency", "eur",
+                            "id", "ch_contract", "amount", 533, "transfer_group", "gratilo_"+tx.getId(), "livemode", false, "paid", true, "captured", true, "currency", "eur",
                             "balance_transaction", Map.of("currency", "eur", "status", sourceState, "available_on", 1793059200)))); return;
                 }
                 if (path.equals("/v1/balance")) {

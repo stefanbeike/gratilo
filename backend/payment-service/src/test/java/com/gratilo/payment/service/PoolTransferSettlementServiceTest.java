@@ -10,11 +10,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PoolTransferSettlementServiceTest {
-    @Test void waitsUntilStripeReportsTheChargeBalanceAvailable() {
+    @Test void schedulesConfirmedPaymentAgainstPendingSourceFunds() {
         var fixture = new Fixture("pending", TransactionStatus.BOOKED, "PENDING", 0);
         fixture.service.settle();
-        assertFalse(fixture.requests.stream().anyMatch(r -> r.startsWith("POST /v1/transfers ")));
-        assertEquals("PENDING", fixture.allocation.getStatus());
+        assertTrue(fixture.requests.stream().anyMatch(r -> r.startsWith("POST /v1/transfers ")));
+        assertEquals("TRANSFERRED", fixture.allocation.getStatus());
     }
 
     @Test void createsOneSourceLinkedTransferAfterFundsAreAvailableAndIsIdempotent() {
@@ -36,11 +36,11 @@ class PoolTransferSettlementServiceTest {
         assertEquals(1, fixture.requests.stream().filter(r -> r.startsWith("POST /v1/transfers/tr_fixture/reversals ")).count());
     }
 
-    @Test void doesNotTransferMoreThanCurrentlyAvailablePlatformBalance() {
-        var fixture = new Fixture("available", TransactionStatus.BOOKED, "PENDING", 0, 499);
+    @Test void sourceLinkedTransferDoesNotDependOnAvailablePlatformBalance() {
+        var fixture = new Fixture("available", TransactionStatus.BOOKED, "PENDING", 0, 0);
         fixture.service.settle();
-        assertEquals("PENDING", fixture.allocation.getStatus());
-        assertFalse(fixture.requests.stream().anyMatch(r -> r.startsWith("POST /v1/transfers ")));
+        assertEquals("TRANSFERRED", fixture.allocation.getStatus());
+        assertFalse(fixture.requests.stream().anyMatch(r -> r.startsWith("GET /v1/balance ")));
     }
 
     @Test void historicPaymentNeedsExplicitApprovalAndNeverCallsStripe() {
@@ -55,15 +55,6 @@ class PoolTransferSettlementServiceTest {
         fixture.service.settle();
         assertEquals("WAITING_CONFIRMED_PAYMENT", fixture.allocation.getFailureCode());
         assertTrue(fixture.requests.isEmpty());
-    }
-    @Test void insufficientBalanceAndPendingFundsHaveVisibleReasons() {
-        var fixture = new Fixture("pending", TransactionStatus.BOOKED, "PENDING", 0);
-        fixture.service.settle();
-        assertEquals("WAITING_SOURCE_FUNDS", fixture.allocation.getFailureCode());
-        fixture = new Fixture("available", TransactionStatus.BOOKED, "PENDING", 0, 499);
-        fixture.service.settle();
-        assertEquals("WAITING_PLATFORM_BALANCE", fixture.allocation.getFailureCode());
-        assertNotNull(fixture.allocation.getLastAttemptAt());
     }
     @Test void uncertainOldAttemptRequiresReconciliationInsteadOfAnotherPost() {
         var fixture = new Fixture("available", TransactionStatus.BOOKED, "PENDING", 0);
@@ -117,7 +108,7 @@ class PoolTransferSettlementServiceTest {
         }
         Fixture(String balanceState, TransactionStatus transactionStatus, String allocationStatus, long reversal, long availableBalance) {
             this.balanceState = balanceState;
-            tx.setId(transactionId); tx.setStatus(transactionStatus); tx.setProvider("STRIPE"); tx.setProviderReference("cs_test_fixture");
+            tx.setAmountMinor(500); tx.setCurrency("EUR"); tx.setId(transactionId); tx.setStatus(transactionStatus); tx.setProvider("STRIPE"); tx.setProviderReference("cs_test_fixture");
             allocation.setId(allocationId); allocation.setTransactionId(transactionId); allocation.setRecipientUserId(UUID.randomUUID());
             allocation.setStripeAccountId("acct_test_fixture"); allocation.setAmountMinor(500); allocation.setReversalAmountMinor(reversal);
             allocation.setSettlementApproved(true); allocation.setReversedAmountMinor(0); allocation.setStatus(allocationStatus); allocation.setCreatedAt(OffsetDateTime.now()); allocation.setUpdatedAt(OffsetDateTime.now());
@@ -127,13 +118,14 @@ class PoolTransferSettlementServiceTest {
                     (p,m,a) -> switch (m.getName()) {
                         case "findByStatus" -> allocation.getStatus().equals(a[0]) ? List.of(allocation) : List.of();
                         case "update" -> allocation;
+                        case "findByTransactionId" -> List.of(allocation);
                         default -> defaultValue(m.getReturnType());
                     });
             service = new PoolTransferSettlementService(transferRepo, txRepo, "sk_test_fixture", true) {
                 @Override protected String request(String path, String body, String key) {
                     requests.add((body == null ? "GET " : "POST ") + path + " " + Objects.toString(body, "") + " KEY=" + Objects.toString(key, ""));
                     if (path.startsWith("/v1/checkout/sessions/")) return "{\"livemode\":false,\"status\":\"complete\",\"payment_status\":\"paid\",\"payment_intent\":\"pi_fixture\"}";
-                    if (path.startsWith("/v1/payment_intents/")) return "{\"livemode\":false,\"status\":\"succeeded\",\"latest_charge\":{\"id\":\"ch_fixture\",\"livemode\":false,\"paid\":true,\"captured\":true,\"currency\":\"eur\",\"balance_transaction\":{\"currency\":\"eur\",\"status\":\"" + balanceState + "\"}}}";
+                    if (path.startsWith("/v1/payment_intents/")) return "{\"livemode\":false,\"status\":\"succeeded\",\"latest_charge\":{\"id\":\"ch_fixture\",\"amount\":533,\"transfer_group\":\"gratilo_" + transactionId + "\",\"livemode\":false,\"paid\":true,\"captured\":true,\"currency\":\"eur\",\"balance_transaction\":{\"currency\":\"eur\",\"status\":\"" + balanceState + "\"}}}";
                     if (path.equals("/v1/balance")) return "{\"livemode\":false,\"available\":[{\"currency\":\"eur\",\"amount\":" + availableBalance + "}]}";
                     if (path.startsWith("/v2/core/accounts/")) return (recipientReady ? StripeAccountFixtures.readyJson() : StripeAccountFixtures.readyJson().replace("active", "restricted")).replace("acct_fixture", "acct_test_fixture");
                     if (path.startsWith("/v1/transfers?")) return "{\"data\":[" + (remoteCreated ? transferJson() : "") + "],\"has_more\":false}";
