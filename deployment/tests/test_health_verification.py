@@ -22,10 +22,13 @@ class HealthVerificationTest(unittest.TestCase):
                                                                   for name in health.CONTAINERS]}]}
         self.targets = {"TargetHealthDescriptions": [{"TargetHealth": {"State": "healthy"}}]}
         self.env = {"ECS_CLUSTER": "cluster", "ECS_SERVICE": "service"}
+        self.definition = {"taskDefinition": {"taskDefinitionArn": "revision", "containerDefinitions": [
+            {"name": name, "environment": [{"name": "FEATURE_TIP_POOLS_ENABLED", "value": "false"}]}
+            for name in ("user-service", "payment-service")]}}
 
     def responses(self, task_arns=None):
         return [{"services": [self.service]}, {"taskArns": ["task"] if task_arns is None else task_arns},
-                *([self.tasks] if task_arns != [] else []), self.targets]
+                *([self.tasks] if task_arns != [] else []), self.targets, self.definition]
 
     def test_iam_errors_name_the_exact_permission_without_echoing_response(self):
         for operation, action in health.ACTIONS.items():
@@ -56,7 +59,7 @@ class HealthVerificationTest(unittest.TestCase):
         with patch.dict(os.environ, self.env), patch.object(health, "aws", side_effect=self.responses()) as aws, \
                 patch.object(health, "curl") as curl, contextlib.redirect_stdout(io.StringIO()):
             health.verify("revision", permissions_only=True)
-        self.assertEqual(list(health.ACTIONS), [call.args[:2] for call in aws.call_args_list])
+        self.assertEqual(list(health.ACTIONS)[:4], [call.args[:2] for call in aws.call_args_list])
         curl.assert_not_called()
 
     def test_empty_baseline_defers_only_describe_tasks_without_creating_a_fake_task(self):
@@ -126,6 +129,39 @@ class HealthVerificationTest(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(0, health.main(["revision"]))
         self.assertEqual(["/", "/user-service/features", "/payment-service/transactions"], [call.args[0] for call in curl.call_args_list])
+
+    def test_stripe_test_features_follow_selected_revision_even_during_rollback(self):
+        for enabled in (True, False):
+            for container in self.definition["taskDefinition"]["containerDefinitions"]:
+                container["environment"][0]["value"] = "true" if enabled else "false"
+            # Workflow mode may differ from the revision being verified after rollback.
+            with self.subTest(enabled=enabled), patch.dict(os.environ, {**self.env, "STRIPE_TEST_MODE": str(not enabled).lower()}), \
+                    patch.object(health, "aws", side_effect=self.responses()), \
+                    patch.object(health, "curl", side_effect=[("html", "200"), (json.dumps({"tipPoolsEnabled": enabled}), "200"), ("", "401")]), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, health.main(["revision"]))
+
+    def test_feature_response_requires_exact_boolean_and_expected_value(self):
+        for value in (True, 0, "false", None):
+            with self.subTest(value=value), patch.dict(os.environ, self.env), \
+                    patch.object(health, "aws", side_effect=self.responses()), \
+                    patch.object(health, "curl", side_effect=[("html", "200"), (json.dumps({"tipPoolsEnabled": value}), "200")]), \
+                    self.assertRaises(health.HealthError) as caught:
+                health.verify("revision")
+            self.assertEqual("BACKEND_RESPONSE", caught.exception.category)
+
+    def test_task_feature_expectations_reject_wrong_revision_and_inconsistent_flags(self):
+        with self.assertRaises(health.HealthError):
+            health.expected_features(self.definition, "different-revision")
+        for value in ("true", "invalid"):
+            self.definition["taskDefinition"]["containerDefinitions"][0]["environment"][0]["value"] = value
+            with self.subTest(value=value), self.assertRaises(health.HealthError):
+                health.expected_features(self.definition, "revision")
+
+    def test_legacy_task_without_pool_flags_uses_disabled_application_default(self):
+        for container in self.definition["taskDefinition"]["containerDefinitions"]:
+            container["environment"] = []
+        self.assertEqual({"tipPoolsEnabled": False}, health.expected_features(self.definition, "revision"))
 
     def test_main_names_access_denied_and_suppresses_unexpected_exception(self):
         for error, category in [(health.HealthError("IAM_ACCESS_DENIED", "ecs:ListTasks denied"), "IAM_ACCESS_DENIED"),

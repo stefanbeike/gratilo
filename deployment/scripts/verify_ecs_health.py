@@ -12,6 +12,7 @@ ACTIONS = {
     ("ecs", "list-tasks"): "ecs:ListTasks",
     ("ecs", "describe-tasks"): "ecs:DescribeTasks",
     ("elbv2", "describe-target-health"): "elasticloadbalancing:DescribeTargetHealth",
+    ("ecs", "describe-task-definition"): "ecs:DescribeTaskDefinition",
 }
 CONTAINERS = ("frontend", "user-service", "payment-service")
 
@@ -73,6 +74,27 @@ def validate_targets(response):
         raise HealthError("ALB_UNHEALTHY", "Frontend target group lacks healthy targets or contains unhealthy/unknown targets.")
 
 
+def expected_features(response, revision):
+    definition = response.get("taskDefinition", {})
+    if definition.get("taskDefinitionArn") != revision:
+        raise HealthError("HEALTH_CONFIGURATION", "Feature expectations must use the selected task revision.")
+    flags = []
+    for name in ("user-service", "payment-service"):
+        containers = [c for c in definition.get("containerDefinitions", []) if c.get("name") == name]
+        if len(containers) != 1:
+            raise HealthError("HEALTH_CONFIGURATION", "Missing or duplicate backend in selected task revision.")
+        values = [e.get("value") for e in containers[0].get("environment", [])
+                  if e.get("name") == "FEATURE_TIP_POOLS_ENABLED"]
+        if not values:
+            values = ["false"]  # Same default as both backend applications.
+        if len(values) != 1 or values[0] not in ("true", "false"):
+            raise HealthError("HEALTH_CONFIGURATION", "Invalid pool feature setting in selected task revision.")
+        flags.append(values[0] == "true")
+    if flags[0] != flags[1]:
+        raise HealthError("HEALTH_CONFIGURATION", "Selected task backends disagree on pool feature configuration.")
+    return {"tipPoolsEnabled": flags[0]}
+
+
 def curl(path):
     # Fixed origin, default CA/hostname verification, no redirects or real transactions.
     result = subprocess.run(["curl", "--silent", "--show-error", "--connect-timeout", "10", "--max-time", "30",
@@ -113,6 +135,7 @@ def verify(revision, permissions_only=False):
     validate_service(details, revision)
     validate_tasks(tasks or {}, revision, details["desiredCount"])
     validate_targets(target_health)
+    expected = expected_features(aws("ecs", "describe-task-definition", "--task-definition", revision), revision)
     if curl("/")[1] != "200":
         raise HealthError("HTTPS_STATUS", "Frontend HTTPS did not return 200.")
     body, status = curl("/user-service/features")
@@ -122,8 +145,9 @@ def verify(revision, permissions_only=False):
         features = json.loads(body)
     except ValueError:
         raise HealthError("BACKEND_RESPONSE", "User-service feature endpoint returned invalid JSON; body suppressed.") from None
-    if features != {"tipPoolsEnabled": False}:
-        raise HealthError("BACKEND_RESPONSE", "User-service feature flags differ from the expected disabled configuration.")
+    if (not isinstance(features, dict) or set(features) != set(expected)
+            or type(features["tipPoolsEnabled"]) is not bool or features != expected):
+        raise HealthError("BACKEND_RESPONSE", "User-service feature flags differ from the selected task revision configuration.")
     if curl("/payment-service/transactions")[1] not in ("401", "403"):
         raise HealthError("HTTPS_STATUS", "Protected payment endpoint did not reject anonymous GET.")
     print("Selected revision: healthy containers, healthy ALB target, HTTPS frontend and both API routes verified.")

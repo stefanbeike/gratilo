@@ -228,11 +228,18 @@ if operation == 'describe-services':
         if os.environ['MOCK_MODE'] == 'foreign-revision':
             data['services'][0]['taskDefinition'] = 'unrelated-revision'
     print(json.dumps(data))
-elif operation == 'describe-task-definition': print((p/'task.json').read_text())
+elif operation == 'describe-task-definition':
+    requested = args[args.index('--task-definition')+1]
+    source = 'registered-task.json' if requested == os.environ['NEW_TASK'] and (p/'registered-task.json').exists() else 'task.json'
+    print((p/source).read_text())
 elif operation == 'describe-images':
     service = args[args.index('--repository-name')+1].split('/')[1]
     print('sha256:'+('f' if os.environ['MOCK_MODE']=='digest-conflict' else str(['frontend','user-service','payment-service'].index(service)+1))*64)
-elif operation == 'register-task-definition': print(os.environ['NEW_TASK'])
+elif operation == 'register-task-definition':
+    candidate = json.loads(pathlib.Path(args[args.index('--cli-input-json')+1].removeprefix('file://')).read_text())
+    candidate['taskDefinitionArn'] = os.environ['NEW_TASK']
+    (p/'registered-task.json').write_text(json.dumps({'taskDefinition':candidate}))
+    print(os.environ['NEW_TASK'])
 elif operation == 'update-service':
     if args[args.index('--task-definition')+1] == os.environ['NEW_TASK']:
         (p/'updated').touch()
@@ -252,11 +259,13 @@ else: sys.exit('Unexpected AWS operation: '+operation)
             mock.chmod(0o755)
             curl = root / "curl"
             curl.write_text('''#!/usr/bin/env python3
-import os, pathlib, sys
+import json, os, pathlib, sys
 new = (pathlib.Path(os.environ['MOCK_DIR'])/'updated').exists()
 if new and os.environ['MOCK_MODE'] == 'https-failure': sys.exit(60)
 url = sys.argv[-1]
-print('false-body\\n401' if url.endswith('/transactions') else '{"tipPoolsEnabled":false}\\n200' if url.endswith('/features') else '<html>Gratilo</html>\\n200', end='')
+enabled = new and os.environ['MOCK_MODE'] != 'rollback' and os.environ['STRIPE_TEST_MODE'] == 'true'
+if new and os.environ['MOCK_MODE'] == 'feature-mismatch': enabled = not enabled
+print('false-body\\n401' if url.endswith('/transactions') else json.dumps({'tipPoolsEnabled':enabled})+'\\n200' if url.endswith('/features') else '<html>Gratilo</html>\\n200', end='')
 ''')
             curl.chmod(0o755)
             environment = {**self.config, "STRIPE_TEST_MODE": "true" if stripe_test else "false",
@@ -282,6 +291,13 @@ print('false-body\\n401' if url.endswith('/transactions') else '{"tipPoolsEnable
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(1, calls.splitlines().count("register-task-definition"))
         self.assertEqual(1, calls.splitlines().count("update-service"))
+
+    def test_stripe_feature_mismatch_rolls_back_and_verifies_previous_disabled_revision(self):
+        result, calls = self.run_mock_deployment("feature-mismatch", stripe_test=True)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("BACKEND_RESPONSE", result.stderr)
+        self.assertIn("Rollback succeeded", result.stderr)
+        self.assertEqual(2, calls.splitlines().count("update-service"))
 
     def test_stripe_test_deployment_requires_its_dedicated_confirmation_before_aws(self):
         result, calls = self.run_mock_deployment("success", stripe_test=True, test_confirmation="RELEASE DEPLOY gratilo-production")

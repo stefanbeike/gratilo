@@ -1,5 +1,30 @@
 # Produktions-Healthcheck: fehlende IAM-Leserechte
 
+## Ergänzung vom 20.10.2026: Feature-Flags im Stripe-Testbetrieb
+
+Revision `gratilo-prd-app:13` erreichte `COMPLETED` mit gesunden Containern.
+Beide Backends hatten im ausdrücklich ausgewählten Stripe-Testmodus
+`FEATURE_TIP_POOLS_ENABLED=true`. Der anschließende HTTP-Check erwartete
+jedoch fest `{"tipPoolsEnabled":false}` und löste deshalb einen Rollback aus.
+Der zuvor behobene RDS-Passwortfehler war hier nicht die Ursache.
+
+`verify_ecs_health.py` liest die erwartete Pool-Konfiguration jetzt mit dem
+bereits erlaubten `ecs:DescribeTaskDefinition` aus der konkret geprüften
+Revision. Beim Rollback wird entsprechend die vorherige Revision geprüft,
+unabhängig vom `STRIPE_TEST_MODE` des fehlgeschlagenen Pipeline-Laufs.
+Beide Backends müssen dieselbe gültige boolesche Einstellung haben; fehlt
+die Umgebungsvariable in einer alten Revision, gilt der Anwendungsdefault
+`false`. Die HTTP-Antwort muss weiterhin exakt den erwarteten booleschen
+Wert liefern. Fehlende/falsche Flags und unerwartete Zusatzfelder führen
+weiterhin zum Fehler. Die Freigabebedingungen für Stripe-Testbetrieb im
+Deployment-Skript und die übrigen Container-/ALB-/HTTPS-Prüfungen bleiben bestehen.
+
+Regressionstests prüfen normale Releases, Stripe-Testreleases mit aktivierten
+Pools und einen absichtlich falschen Feature-Wert mit anschließendem erfolgreich
+verifiziertem Rollback auf eine Revision mit deaktivierten Pools. Die AWS-Mocks
+liefern dafür die tatsächlich registrierte Kandidatenkonfiguration und deren
+HTTP-Flag statt einer pauschal deaktivierten Testantwort.
+
 ## Nachgewiesene Ursache, 18.10.2026
 
 Im [Lauf 39124483685](https://github.com/stefanbeike/gratilo/actions/runs/39124483685)
