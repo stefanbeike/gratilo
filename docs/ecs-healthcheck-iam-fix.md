@@ -1,5 +1,34 @@
 # Produktions-Healthcheck: fehlende IAM-Leserechte
 
+## Ergänzung vom 20.10.2026: Rollout-Status nach dem AWS-Waiter
+
+Revision `gratilo-prd-app:14` hatte einen gesunden Task und genau ein Deployment,
+stand unmittelbar nach `aws ecs wait services-stable` jedoch noch auf
+`IN_PROGRESS`. Das Skript wertete dies sofort als fehlgeschlagenes Deployment
+und startete einen unnötigen Rollback auf Revision 11. AWS bestätigte den
+erfolgreichen Abschluss der Revision 14 um 10:39:43 MESZ; der Rollback wurde
+um 10:39:45 MESZ angelegt. Die drei Container der Revision 14 waren gesund.
+
+Der [AWS-Waiter](https://docs.aws.amazon.com/cli/latest/reference/ecs/wait/services-stable.html)
+prüft nur die Anzahl der Deployments und `runningCount == desiredCount`,
+nicht den `rolloutState`. Das kann vor dem vollständig veröffentlichten
+Rollout-Abschluss erfüllt sein.
+
+`wait_ecs_rollout.py` fragt nach diesem Waiter bis zu weitere 180 Sekunden
+alle fünf Sekunden den Service ab. Erst eine einzige abgeschlossene, ausgewählte
+Revision mit Running=Desired>0 und Pending=0 gilt als fertig. `FAILED`,
+Service-Lookup-Fehler oder ein Wechsel auf eine andere Revision werden sofort
+als Fehler behandelt. Ein dauerhaftes `IN_PROGRESS` endet mit Timeout.
+Danach folgen weiterhin die vollständigen Container-, ALB- und HTTPS-Prüfungen.
+Die zusätzliche Abschlussprüfung gilt auch für Rollbacks; es werden keine
+neuen IAM-Berechtigungen oder AWS-Ressourcen benötigt.
+
+Der Regressionstest bildet den ursprünglichen Fehler nach: Der AWS-Waiter
+kehrt zurück, die nächste Antwort hat stabile Task-Anzahlen und `IN_PROGRESS`,
+erst die folgende Antwort `COMPLETED`. Dieser Fall muss ohne Rollback erfolgreich
+sein. Tests für einen echten Rollback, fremde Revisionen, Fehlerstatus und
+Timeout bleiben erforderlich.
+
 ## Ergänzung vom 20.10.2026: Feature-Flags im Stripe-Testbetrieb
 
 Revision `gratilo-prd-app:13` erreichte `COMPLETED` mit gesunden Containern.

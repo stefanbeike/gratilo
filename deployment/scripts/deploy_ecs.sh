@@ -34,6 +34,7 @@ rollback_deployment() {
       --desired-count "$old_count" --query 'service.serviceArn' --output text || return 1
   fi
   aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" || return 1
+  python3 deployment/scripts/wait_ecs_rollout.py "$old_task" || return 1
   echo "Rollback service stabilized; verifying previous revision: $old_task"
   python3 deployment/scripts/verify_ecs_health.py "$old_task" || return 1
   echo "Rollback verified: $old_task"
@@ -96,18 +97,8 @@ deployment_attempted=true
 aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" --task-definition "$new_task" \
   --desired-count "${ECS_DESIRED_COUNT:-$old_count}" --query 'service.serviceArn' --output text
 aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
-aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" > "$work_dir/result.json"
-python3 - "$work_dir/result.json" "$new_task" <<'PY'
-import json, sys
-service = json.load(open(sys.argv[1]))['services'][0]
-deployments = service.get('deployments', [])
-success = (service['taskDefinition'] == sys.argv[2] and service['desiredCount'] > 0
-           and service['runningCount'] == service['desiredCount'] and len(deployments) == 1
-           and deployments[0]['taskDefinition'] == sys.argv[2]
-           and deployments[0].get('rolloutState') == 'COMPLETED')
-if not success:
-    sys.exit('New revision did not complete successfully; a stable rollback is not a successful deployment.')
-print('All three containers deployed in the requested ECS task revision.')
-PY
+# The AWS waiter checks deployment/task counts, but does not require COMPLETED.
+python3 deployment/scripts/wait_ecs_rollout.py "$new_task"
+echo 'All three containers deployed in the requested ECS task revision.'
 python3 deployment/scripts/verify_ecs_health.py "$new_task"
 [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || echo "SUCCESS — selected revision healthy; HTTPS and both API routes verified." >> "$GITHUB_STEP_SUMMARY"

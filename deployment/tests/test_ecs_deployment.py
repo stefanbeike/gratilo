@@ -227,6 +227,10 @@ if operation == 'describe-services':
         data['services'][0]['deployments'][0]['taskDefinition'] = os.environ['NEW_TASK']
         if os.environ['MOCK_MODE'] == 'foreign-revision':
             data['services'][0]['taskDefinition'] = 'unrelated-revision'
+        if os.environ['MOCK_MODE'] == 'rollout-state-lag':
+            count = int((p/'rollout-polls').read_text()) + 1 if (p/'rollout-polls').exists() else 1
+            (p/'rollout-polls').write_text(str(count))
+            if count == 1: data['services'][0]['deployments'][0]['rolloutState'] = 'IN_PROGRESS'
     print(json.dumps(data))
 elif operation == 'describe-task-definition':
     requested = args[args.index('--task-definition')+1]
@@ -290,6 +294,12 @@ print('false-body\\n401' if url.endswith('/transactions') else json.dumps({'tipP
         result, calls = self.run_mock_deployment("success", stripe_test=True)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(1, calls.splitlines().count("register-task-definition"))
+        self.assertEqual(1, calls.splitlines().count("update-service"))
+
+    def test_waiter_returning_before_rollout_completion_does_not_trigger_rollback(self):
+        result, calls = self.run_mock_deployment("rollout-state-lag", stripe_test=True)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("waiting for the selected revision rollout", result.stdout)
         self.assertEqual(1, calls.splitlines().count("update-service"))
 
     def test_stripe_feature_mismatch_rolls_back_and_verifies_previous_disabled_revision(self):
