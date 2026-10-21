@@ -250,6 +250,37 @@ class ClientSafetyTest(unittest.TestCase):
             self.assertEqual({"ref": "refs/tags/v1.2.4", "sha": tag_sha}, request.call_args_list[1].args[2])
             self.assertTrue(all(call.args[0] in ("POST", "GET") for call in request.call_args_list))
 
+    def test_new_tag_verification_retries_only_reads_after_transient_not_found(self):
+        github=release.GitHub("unit-test-token","stefanbeike/gratilo");tag_sha="b"*40
+        responses=[{"sha":tag_sha},{"ref":"refs/tags/v1.2.4","object":{"sha":tag_sha,"type":"tag"}}]
+        with patch.object(github,"request",side_effect=responses) as request, \
+                patch.object(github,"tag_commit",side_effect=[release.GitHubError(404),COMMIT]) as verify, \
+                patch.object(release.time,"sleep") as sleep:
+            github.create_tag("v1.2.4",COMMIT)
+            self.assertEqual(2,request.call_count)
+            self.assertEqual(["POST","POST"],[c.args[0] for c in request.call_args_list])
+            self.assertNotEqual(verify.call_args_list[0].kwargs["verification"],verify.call_args_list[1].kwargs["verification"])
+            sleep.assert_called_once_with(1)
+
+    def test_new_tag_verification_never_ignores_forbidden_or_a_different_commit(self):
+        for result in [release.GitHubError(403),"c"*40]:
+            github=release.GitHub("unit-test-token","stefanbeike/gratilo");tag_sha="b"*40
+            responses=[{"sha":tag_sha},{"ref":"refs/tags/v1.2.4","object":{"sha":tag_sha,"type":"tag"}}]
+            with patch.object(github,"request",side_effect=responses), \
+                    patch.object(github,"tag_commit",side_effect=[result]) as verify, \
+                    patch.object(release.time,"sleep") as sleep:
+                with self.assertRaises(release.ReleaseError):github.create_tag("v1.2.4",COMMIT)
+                self.assertEqual(1,verify.call_count);sleep.assert_not_called()
+
+    def test_new_tag_not_found_retries_are_bounded_and_never_repeat_create(self):
+        github=release.GitHub("unit-test-token","stefanbeike/gratilo");tag_sha="b"*40
+        responses=[{"sha":tag_sha},{"ref":"refs/tags/v1.2.4","object":{"sha":tag_sha,"type":"tag"}}]
+        with patch.object(github,"request",side_effect=responses) as request, \
+                patch.object(github,"tag_commit",side_effect=release.GitHubError(404)) as verify, \
+                patch.object(release.time,"sleep") as sleep:
+            with self.assertRaises(release.GitHubError):github.create_tag("v1.2.4",COMMIT)
+            self.assertEqual(6,verify.call_count);self.assertEqual(5,sleep.call_count);self.assertEqual(2,request.call_count)
+
     def test_github_errors_do_not_print_token_or_response_body(self):
         github = release.GitHub("secret-unit-test-token", "stefanbeike/gratilo")
         error = HTTPError("https://api.github.com/test", 403, "secret-error-body", {}, io.BytesIO(b"secret-error-body"))

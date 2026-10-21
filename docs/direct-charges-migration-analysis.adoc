@@ -272,9 +272,23 @@ Am vorhandenen Plattform-Sandbox-Webhook wurden Ereignisse ausschließlich
 additiv um Disputes und Application-Fee-Refunds ergänzt. Kein Live-Webhook,
 keine Zahlung, kein Transfer und kein Refund wurde dadurch ausgeführt.
 
-Deployment-Tooling: 138 Tests erfolgreich; OIDC-Prüfungen: 7 Tests erfolgreich;
+Deployment-Tooling: 141 Tests erfolgreich; OIDC-Prüfungen: 7 Tests erfolgreich;
 GitHub-Workflow-Lint erfolgreich. Status des tatsächlichen Deployments wird
 im Abschlussbericht mit konkreter Release-/Workflow-Referenz festgehalten.
+
+== Release-Tag-Prüfung
+
+Der erste freigegebene Rollout-Lauf 39563724747 veröffentlichte die Images und
+den annotierten Tag v0.0.24 für f534ac6. Die unmittelbar folgende lesende
+GitHub-Tag-Bestätigung scheiterte mit HTTP 404; deshalb wurde ECS nicht umgestellt.
+Die anschließende Prüfung bestätigte Tag und Commit. Eine temporär inkonsistente
+oder negativ gecachte Leseantwort ist damit eine mögliche Ursache.
+
+Die Bestätigung neu angelegter Tags verwendet nun eigene Verifikations-URLs
+und höchstens sechs Leseversuche bei HTTP 404. Es werden keine CREATE-Aufrufe
+wiederholt, keine Tags überschrieben und keine Berechtigungsfehler oder fremden
+Commit-Ziele akzeptiert. Drei Regressionstests prüfen genau diese Grenzen.
+Ein neuer vollständiger Release verwendet die nächste unveränderliche Version.
 
 == Geänderte Dateien
 
@@ -323,9 +337,11 @@ im Abschlussbericht mit konkreter Release-/Workflow-Referenz festgehalten.
 * `backend/payment-service/src/test/java/com/gratilo/payment/service/TipPricingSnapshotTest.java`
 * `backend/payment-service/src/test/java/com/gratilo/payment/service/TipPricingTest.java`
 * `deployment/scripts/render_task_definition.py`
+* `deployment/scripts/semver_release.py`
 * `deployment/scripts/test_payment_pricing_postgres.py`
 * `deployment/tests/test_ecs_deployment.py`
 * `deployment/tests/test_local_stripe_compose.py`
+* `deployment/tests/test_semver_release.py`
 * `docker-compose/compose.stripe-test.yml`
 * `docker-compose/docker-compose.infra.yml`
 * `docs/direct-charges-migration-analysis.adoc`

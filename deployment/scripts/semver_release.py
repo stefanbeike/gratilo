@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -87,14 +88,17 @@ class GitHub:
                 return False
             raise
 
-    def tag_commit(self, version):
-        obj = self.request("GET", "git/ref/tags/" + version)["object"]
+    def tag_commit(self, version, verification=None):
+        # A just-created ref may still have a cached negative read from the preflight.
+        # Use a new verification URL after CREATE; no additional writes or forced refs.
+        suffix = "?verification=" + verification if verification else ""
+        obj = self.request("GET", "git/ref/tags/" + version + suffix)["object"]
         for _ in range(16):
             if obj.get("type") == "commit":
                 return obj["sha"]
             if obj.get("type") != "tag" or not re.fullmatch(r"[0-9a-f]{40}", obj.get("sha", "")):
                 raise ReleaseError("Unexpected Git tag object")
-            obj = self.request("GET", "git/tags/" + obj["sha"])["object"]
+            obj = self.request("GET", "git/tags/" + obj["sha"] + suffix)["object"]
         raise ReleaseError("Git tag nesting exceeds safe limit")
 
     def main_commit(self):
@@ -115,9 +119,19 @@ class GitHub:
         response = self.request("POST", "git/refs", {"ref": "refs/tags/" + version, "sha": tag_sha})
         if (response.get("ref") != "refs/tags/" + version
                 or response.get("object", {}).get("sha") != tag_sha
-                or response.get("object", {}).get("type") != "tag"
-                or self.tag_commit(version) != commit):
+                or response.get("object", {}).get("type") != "tag"):
             raise ReleaseError("Annotated Git tag creation was not confirmed")
+        for attempt in range(6):
+            try:
+                confirmed = self.tag_commit(version, verification=tag_sha + "-" + str(attempt))
+            except GitHubError as error:
+                if error.status != 404 or attempt == 5:
+                    raise
+                time.sleep(min(2 ** attempt, 5))
+                continue
+            if confirmed != commit:
+                raise ReleaseError("Annotated Git tag points at another commit")
+            return
 
 
 def check_main(github, commit):
