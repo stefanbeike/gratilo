@@ -175,7 +175,7 @@ class PoolSettlementStripeContractTest {
                     // Accounts-v2 rejects include[]; unlike v1 it needs explicit numeric indexes.
                     var query = parameters(exchange.getRequestURI().getRawQuery());
                     if (!"GET".equals(exchange.getRequestMethod()) || !query.equals(Map.of(
-                            "include[0]", "configuration.merchant", "include[1]", "configuration.recipient", "include[2]", "requirements"))) {
+                            "include[0]", "configuration.merchant", "include[1]", "configuration.recipient", "include[2]", "requirements", "include[3]", "defaults"))) {
                         reject(exchange, "Accounts-v2 requires indexed include parameters"); return;
                     }
                     accountRead = true;

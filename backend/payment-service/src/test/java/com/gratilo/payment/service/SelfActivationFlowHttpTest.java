@@ -50,14 +50,17 @@ class SelfActivationFlowHttpTest {
         };
         var recipient = new RecipientAvailability("http://localhost") { @Override public void requireEnabled(UUID user) { assertEquals(owner, user); } };
         var checkout = new StripeCheckoutService(transactions, accountRepository, connect, "sk_test_fixture", "http://localhost/success", "http://localhost/cancel", new java.math.BigDecimal("1.5"), 25, recipient) {
+            @Override protected String stripeRequest(String path,String form,String idempotency,String account){return stripeRequest(path,form,idempotency);}
             @Override protected String stripeRequest(String path, String form, String idempotency) {
-                assertTrue(java.net.URLDecoder.decode(form, StandardCharsets.UTF_8).contains("transfer_data][destination]=acct_fixture"));
+                assertFalse(java.net.URLDecoder.decode(form, StandardCharsets.UTF_8).contains("transfer_data"));
+                assertTrue(java.net.URLDecoder.decode(form, StandardCharsets.UTF_8).contains("application_fee_amount]="));
                 return "{\"id\":\"cs_test_flow\",\"url\":\"https://checkout.stripe.com/test\",\"livemode\":false}";
             }
         };
         var properties = new HashMap<String,Object>();
         properties.put("payments.enabled", true); properties.put("payments.test-activation-code", CODE);
         properties.put("stripe.secret-key", "sk_test_fixture"); properties.put("stripe.webhook-secret", SIGNING);
+        properties.put("stripe.direct-webhook-secret",SIGNING);
         properties.put("stripe.sandbox-payouts", true); properties.put("internal.api-key", "fixture");
         properties.put("micronaut.security.token.jwt.signatures.secret.validation.secret", JWT);
         properties.put("micronaut.server.port", -1); properties.put("datasources.default.enabled", false);
@@ -66,10 +69,23 @@ class SelfActivationFlowHttpTest {
         properties.put("datasources.default.url", "jdbc:postgresql://127.0.0.1:1/unused");
         properties.put("datasources.default.username", "unused"); properties.put("datasources.default.password", "unused");
         try (var context = ApplicationContext.builder().properties(properties).environments("prd", "test").build()) {
+            // In-memory repositories need a test transaction boundary for the real HTTP interceptor.
+            // SQL transactions/immutability are tested separately against disposable PostgreSQL.
+            var transactionStatus=proxy(io.micronaut.transaction.TransactionStatus.class,(p,m,args)->m.getReturnType()==boolean.class?false:null);
+            var transactionOperations=proxy(io.micronaut.transaction.TransactionOperations.class,(p,m,args)->switch(m.getName()){
+                case "execute" -> ((io.micronaut.transaction.TransactionCallback)args[1]).call(transactionStatus);
+                case "findTransactionStatus" -> Optional.empty();
+                case "hasConnection" -> false;
+                default -> null;
+            });
+            context.registerSingleton(io.micronaut.transaction.TransactionOperations.class,transactionOperations);
             context.registerSingleton(ConnectedAccountRepository.class, accountRepository);
             context.registerSingleton(TransactionRepository.class, transactions);
             context.registerSingleton(StripeConnectService.class, connect);
             context.registerSingleton(StripeCheckoutService.class, checkout);
+            var directWebhook=new com.gratilo.payment.controller.StripeDirectWebhookController(SIGNING,
+                    new StripeWebhookController(transactions,SIGNING,true,JsonMapper.createDefault()));
+            context.registerSingleton(com.gratilo.payment.controller.StripeDirectWebhookController.class,directWebhook);
             context.start();
             var server = context.getBean(EmbeddedServer.class).start();
             URI base = server.getURI(); String token = jwt(owner.toString());
@@ -94,9 +110,13 @@ class SelfActivationFlowHttpTest {
             assertEquals(200, request(base, tip + "/checkout", "POST", null, "{\"tipAmountMinor\":500,\"idempotencyKey\":\"flow\"}").statusCode());
             assertEquals(1, ledger.size()); var tx = ledger.values().iterator().next();
             assertEquals(owner, tx.getAccountUserId()); assertEquals(TransactionStatus.PENDING, tx.getStatus());
-            String payload = "{\"livemode\":false,\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_flow\",\"payment_status\":\"paid\",\"metadata\":{\"transaction_id\":\"" + tx.getId() + "\"}}}}";
-            var webhook = new StripeWebhookController(transactions, SIGNING, true, JsonMapper.createDefault());
-            assertEquals(io.micronaut.http.HttpStatus.OK, webhook.receive(payload, sign(payload)).getStatus());
+            String payload = "{\"account\":\"acct_fixture\",\"livemode\":false,\"type\":\"checkout.session.completed\",\"data\":{\"object\":{\"id\":\"cs_test_flow\",\"payment_status\":\"paid\",\"metadata\":{\"transaction_id\":\"" + tx.getId() + "\"}}}}";
+            assertEquals(401,request(base,"/payment-service/webhooks/stripe-direct","POST",null,payload).statusCode());
+            assertEquals(TransactionStatus.PENDING,tx.getStatus());
+            var webhookResponse=HttpClient.newHttpClient().send(HttpRequest.newBuilder(base.resolve("/payment-service/webhooks/stripe-direct"))
+                    .header("Content-Type","application/json").header("Stripe-Signature",sign(payload))
+                    .POST(HttpRequest.BodyPublishers.ofString(payload)).build(),HttpResponse.BodyHandlers.ofString());
+            assertEquals(200,webhookResponse.statusCode());
             assertEquals(TransactionStatus.BOOKED, tx.getStatus()); assertEquals(owner, tx.getAccountUserId());
             assertEquals(200, request(base, "/payment-service/test-access", "DELETE", token, null).statusCode());
             assertTrue(request(base, tip + "/checkout", "POST", null, "{\"tipAmountMinor\":500,\"idempotencyKey\":\"revoked\"}").statusCode() >= 400);

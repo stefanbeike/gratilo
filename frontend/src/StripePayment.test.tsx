@@ -133,7 +133,7 @@ it('shows pending status and never offers another payment while Stripe is unclea
   vi.stubGlobal('fetch', fetch)
   render(<DemoPayment />)
   expect(await screen.findByRole('heading', { name: 'Bitte noch nicht erneut bezahlen.' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Zahlungsstatus aktualisieren/ })).toBeEnabled()
+  expect(await screen.findByRole('button', { name: /Zahlungsstatus aktualisieren/ })).toBeEnabled()
   expect(screen.queryByRole('button', { name: /Jetzt sicher bezahlen|Erneut versuchen/ })).not.toBeInTheDocument()
 })
 
@@ -269,4 +269,36 @@ it('shows the actionable net-minimum error without allowing checkout', async () 
   expect(await screen.findByRole('alert')).toHaveTextContent('0,01 €')
   expect(screen.getByRole('button', { name: /Weiter/ })).toBeDisabled()
   expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(false)
+})
+
+for (const pool of [false, true]) for (const covered of [false, true]) it(`shows separate commission and frozen net for ${pool ? 'pool' : 'direct'} with coverage=${covered}`, async () => {
+  history.replaceState({}, '', `/pay/${pool ? 'team/' : ''}${user}`)
+  let selectedCoverage = false
+  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+    if (url.includes('/pools/public/')) return response({ ownerId: user, name: 'Team' })
+    if (url.includes('/users/public/')) return response({ userId: user, firstName: 'Alex', paymentEnabled: true })
+    if (url.includes('/eligibility')) return response({ canReceiveTips: true })
+    if (url.includes('/quote')) {
+      selectedCoverage = new URLSearchParams(url.split('?')[1]).get('feeCovered') === 'true'
+      return response({ tipAmountMinor: 2500, serviceFeeMinor: selectedCoverage ? 107 : 0, totalAmountMinor: selectedCoverage ? 2607 : 2500,
+        recipientAmountMinor: 2500 - (pool ? 45 : 170) - (selectedCoverage ? 0 : 104), platformFeeMinor: pool ? 45 : 170,
+        platformFeePercent: pool ? 0 : 5, pricingVersion: pool ? 5 : 4, estimatedStripeFeeMinor: selectedCoverage ? 107 : 104 })
+    }
+    return response({ transactionId: 'fake' })
+  })
+  vi.stubGlobal('fetch', fetch); render(<DemoPayment />)
+  await screen.findByRole('heading', { name: `Trinkgeld für ${pool ? 'Team' : 'Alex'}.` })
+  fireEvent.change(screen.getByLabelText(/Anderer Betrag/), { target: { value: '25,00' } })
+  await waitFor(() => expect(screen.getByRole('button', { name: /Weiter/ })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: /Weiter/ }))
+  if (covered) fireEvent.click(screen.getByRole('checkbox', { name: 'Zahlungsgebühren freiwillig übernehmen' }))
+  await waitFor(() => expect(selectedCoverage).toBe(covered))
+  expect(await screen.findByText(pool ? /Gratilo-Provision \(einmalig/ : /Gratilo-Provision \(0,45/)).toBeInTheDocument()
+  expect(screen.queryByText(/Keine Gratilo-Plattformgebühr/)).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /Weiter zur Zusammenfassung/ }))
+  fireEvent.click(screen.getByRole('button', { name: /Jetzt sicher bezahlen/ }))
+  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(true))
+  const sent = fetch.mock.calls.find(([url]) => url.includes('/checkout'))
+  expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ tipAmountMinor: 2500, feeCovered: covered,
+    expectedTotalAmountMinor: covered ? 2607 : 2500, expectedRecipientAmountMinor: 2500 - (pool ? 45 : 170) - (covered ? 0 : 104) })
 })

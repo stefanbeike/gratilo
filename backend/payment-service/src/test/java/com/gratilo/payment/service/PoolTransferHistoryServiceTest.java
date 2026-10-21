@@ -36,14 +36,14 @@ class PoolTransferHistoryServiceTest {
     }
     @Test void netPoolBudgetIsDistinctFromSelectedTipAndNeverRepriced() throws Exception {
         var f=new Fixture(2500,1198,1198,"50","50");
-        var quote=TipPricing.quote(2500,false,new BigDecimal("3.15"),25);
+        var quote=TipPricing.legacyQuote(2500,false,new BigDecimal("3.15"),25);
         var metadata=TipPricingSnapshot.metadata(quote,false);metadata.put("poolName","testpool");
         f.tx.setMetadata(JsonMapper.createDefault().writeValueAsString(metadata));
         var result=f.history();assertEquals(2396L,result.poolDistributionAmountMinor());
         assertEquals(2500L,result.selectedTipAmountMinor());assertEquals(1198,result.amountMinor());
         assertEquals(1250L,result.personalGrossAmountMinor());assertEquals(52L,result.personalFeeAmountMinor());
         assertEquals(0,new BigDecimal("50").compareTo(result.historicalSharePercent()));
-        TipPricing.quote(2500,false,new BigDecimal("1.5"),25);
+        TipPricing.legacyQuote(2500,false,new BigDecimal("1.5"),25);
         assertEquals(result,f.history());
     }
     @Test void missingOrInvalidFrozenWeightsAreUnknownInsteadOfZeroOrMoneyRatios() {

@@ -28,10 +28,10 @@ public class TipController {
                 .header("Cache-Control", "no-store");
     }
     @Get("/{recipientUserId}/quote") public TipQuote quote(UUID recipientUserId, @QueryValue @jakarta.validation.constraints.Min(100) @jakarta.validation.constraints.Max(1000000) long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) {
-        return TipPricing.quote(amountMinor, feeCovered, feePercent, fixedFeeMinor);
+        return checkoutService==null?TipPricing.quote(amountMinor,feeCovered,feePercent,fixedFeeMinor):checkoutService.quote(amountMinor,feeCovered);
     }
     @Get("/pools/{ownerUserId}/quote") public TipQuote poolQuote(UUID ownerUserId, @QueryValue @jakarta.validation.constraints.Min(100) @jakarta.validation.constraints.Max(1000000) long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) {
-        return TipPricing.quote(amountMinor, feeCovered, feePercent, fixedFeeMinor);
+        return checkoutService==null?TipPricing.poolQuote(amountMinor,feeCovered,feePercent,fixedFeeMinor,45):checkoutService.poolQuote(amountMinor,feeCovered);
     }
     @Get("/checkout/confirm") public HttpResponse<?> confirm(@QueryValue String sessionId) {
         try { return HttpResponse.ok(checkoutService.checkoutStatus(sessionId)).header("Cache-Control", "no-store"); }
@@ -45,6 +45,8 @@ public class TipController {
             var checkout = checkoutService.create(recipientUserId, request);
             if (checkout.isPresent()) return HttpResponse.ok(checkout.get());
             return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("message", "Stripe Checkout ist noch nicht verfügbar."));
+        } catch (StripeCheckoutService.PricingNotReleasedException blocked) {
+            return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("code","PRICING_NOT_RELEASED","message",blocked.getMessage()));
         } catch (TipPricing.NoDistributableTipException small) {
             return tipTooSmall(small);
         } catch (StripeCheckoutService.InvalidCheckoutRequestException invalid) {
@@ -73,6 +75,8 @@ public class TipController {
             var checkout = checkoutService.createPool(ownerUserId, request);
             if (checkout.isPresent()) return HttpResponse.ok(checkout.get());
             return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("message", "Stripe Checkout ist noch nicht verfügbar."));
+        } catch (StripeCheckoutService.PricingNotReleasedException blocked) {
+            return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("code","PRICING_NOT_RELEASED","message",blocked.getMessage()));
         } catch (TipPricing.NoDistributableTipException small) {
             return tipTooSmall(small);
         } catch (StripeCheckoutService.InvalidCheckoutRequestException invalid) {

@@ -6,6 +6,7 @@ public final class TipPricing {
     private TipPricing() {}
     // Stripe DE public international-card tariff, verified 2026-10-20; not a universal price guarantee.
     public static final String DEFAULT_PERCENT = "3.15";
+    public static final BigDecimal DEFAULT_PLATFORM_PERCENT = new BigDecimal("5.00");
     /** Existing guest minimum stays EUR 1; every intended recipient must receive at least one cent. */
     public static final long MIN_RECIPIENT_MINOR = 1;
     public static class NoDistributableTipException extends IllegalArgumentException {
@@ -43,17 +44,30 @@ public final class TipPricing {
         }
         return lower;
     }
-    public static TipQuote quote(long tipMinor, boolean covered, BigDecimal percent, long fixed) {
+    public static TipQuote quote(long tipMinor,boolean covered,BigDecimal percent,long fixed){return quote(tipMinor,covered,percent,fixed,DEFAULT_PLATFORM_PERCENT);}
+    public static TipQuote legacyQuote(long tipMinor,boolean covered,BigDecimal percent,long fixed){return calculate(tipMinor,covered,percent,fixed,BigDecimal.ZERO,0,2);}
+    public static TipQuote quote(long tipMinor,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent){return calculate(tipMinor,covered,percent,fixed,platformPercent,45,4);}
+    /** Pool commission is a provisional fixed rule, charged once before allocation. */
+    public static TipQuote poolQuote(long tip, boolean covered, BigDecimal percent, long fixed, long poolCommission) {
+        return calculate(tip, covered, percent, fixed, BigDecimal.ZERO, poolCommission, 5);
+    }
+    public static long platformFee(long tipMinor,BigDecimal percent){
+        if(tipMinor<100||tipMinor>1_000_000||percent==null||percent.signum()<0||percent.compareTo(BigDecimal.valueOf(100))>=0)throw new IllegalArgumentException("Invalid platform fee configuration");
+        return BigDecimal.valueOf(tipMinor).multiply(percent).movePointLeft(2).setScale(0,RoundingMode.HALF_UP).longValueExact();
+    }
+    private static TipQuote calculate(long tipMinor,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent,long platformFixed,int version) {
         if (tipMinor < 100 || tipMinor > 1_000_000) throw new IllegalArgumentException("Invalid tip amount");
         long surcharge = covered ? voluntaryIncreaseMinor(tipMinor, percent, fixed) : 0;
         long total = safeTotal(tipMinor, surcharge);
         long estimated = serviceFeeMinor(total, percent, fixed);
-        long recipient = covered ? tipMinor : Math.max(0, Math.subtractExact(tipMinor, estimated));
+        if (platformFixed < 0) throw new IllegalArgumentException("Invalid platform fixed fee");
+        long platform = Math.addExact(platformFee(tipMinor,platformPercent),platformFixed);
+        long recipient = Math.subtractExact(Math.subtractExact(tipMinor,platform),covered?0:estimated);
         if (recipient < MIN_RECIPIENT_MINOR) throw new NoDistributableTipException();
         return new TipQuote(tipMinor, surcharge, total, "EUR", percent, fixed, recipient,
                 true, estimated,
                 (percent.compareTo(new BigDecimal(DEFAULT_PERCENT)) == 0 && fixed == 25
                     ? "Stripe-DE-Referenz für internationale Karten (20.10.2026); " : "Konfigurierte Tarifschätzung; ")
-                    + "Karte und Zahlungsmethode stehen erst bei Stripe fest. Abweichungen trägt Gratilo.");
+                    + "Karte und Zahlungsmethode stehen erst bei Stripe fest. Abweichungen trägt Gratilo.",version,platformPercent,platform);
     }
 }

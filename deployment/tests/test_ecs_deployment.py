@@ -133,6 +133,36 @@ class EcsDeploymentTest(unittest.TestCase):
         rendered_user = next(c for c in rendered["containerDefinitions"] if c["name"] == "user-service")
         self.assertEqual("true", {entry["name"]: entry["value"] for entry in rendered_user["environment"]}["FEATURE_TIP_POOLS_ENABLED"])
 
+    def test_direct_pricing_requires_explicit_sandbox_release_and_same_secret(self):
+        with self.assertRaisesRegex(ValueError,"only be enabled in Stripe test mode"):
+            renderer.render(self.response,self.images,{**self.config,"GRATILO_NEW_PRICING_ENABLED":"true"})
+        response=copy.deepcopy(self.response)
+        payment=response["taskDefinition"]["containerDefinitions"][2]
+        root="arn:aws:secretsmanager:eu-central-1:123456789012:secret:gratilo/prd/stripe-test-fixture"
+        payment["secrets"].extend([{"name":name,"valueFrom":root+":"+field+"::"} for name,field in [
+            ("STRIPE_SECRET_KEY","secret_key"),("STRIPE_WEBHOOK_SECRET","webhook_secret"),("PAYMENTS_TEST_ACTIVATION_CODE","activation_code")]])
+        config={**self.config,"STRIPE_TEST_MODE":"true","GRATILO_NEW_PRICING_ENABLED":"true"}
+        rendered=renderer.render(response,self.images,config)
+        result=rendered["containerDefinitions"][2]
+        env={e["name"]:e["value"] for e in result["environment"]}
+        refs={e["name"]:e["valueFrom"] for e in result["secrets"]}
+        self.assertEqual("true",env["GRATILO_NEW_PRICING_ENABLED"])
+        self.assertEqual("5.00",env["GRATILO_PLATFORM_FEE_PERCENT"])
+        self.assertEqual("45",env["GRATILO_POOL_COMMISSION_FIXED_MINOR"])
+        self.assertEqual(root+":direct_webhook_secret::",refs["STRIPE_DIRECT_WEBHOOK_SECRET"])
+        self.assertNotIn("STRIPE_DIRECT_WEBHOOK_SECRET",env)
+        payment["secrets"].append({"name":"STRIPE_DIRECT_WEBHOOK_SECRET","valueFrom":root+":webhook_secret::"})
+        with self.assertRaisesRegex(ValueError,"Direct webhook"):
+            renderer.render(response,self.images,config)
+
+    def test_new_pricing_is_disabled_on_a_following_release_unless_explicitly_requested(self):
+        response=copy.deepcopy(self.response)
+        payment=response["taskDefinition"]["containerDefinitions"][2]
+        payment["environment"].append({"name":"GRATILO_NEW_PRICING_ENABLED","value":"true"})
+        actual=renderer.render(response,self.images,self.config)
+        env={e["name"]:e["value"] for e in actual["containerDefinitions"][2]["environment"]}
+        self.assertEqual("false",env["GRATILO_NEW_PRICING_ENABLED"])
+
     def test_rejects_live_or_unrestricted_payment_configurations(self):
         base = copy.deepcopy(self.response)
         payment = base["taskDefinition"]["containerDefinitions"][2]

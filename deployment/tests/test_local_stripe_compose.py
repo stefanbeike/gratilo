@@ -134,8 +134,10 @@ class LocalComposeRenderingTest(unittest.TestCase):
         self.assertEqual(local.EVENTS, command[command.index("--events") + 1])
         self.assertIn("checkout.session.completed", command[command.index("--events") + 1].split(","))
         self.assertIn("payment_intent.payment_failed", command[command.index("--events") + 1].split(","))
-        for flag in ("--forward-to", "--forward-connect-to"):
-            self.assertEqual("http://payment-service:8082/payment-service/webhooks/stripe", command[command.index(flag) + 1])
+        self.assertEqual("http://payment-service:8082/payment-service/webhooks/stripe",command[command.index("--forward-to")+1])
+        self.assertEqual("http://payment-service:8082/payment-service/webhooks/stripe-direct",command[command.index("--forward-connect-to")+1])
+        self.assertEqual(payment["STRIPE_WEBHOOK_SECRET"],payment["STRIPE_DIRECT_WEBHOOK_SECRET"])
+        self.assertEqual("false",payment["GRATILO_NEW_PRICING_ENABLED"])
         self.assertNotIn("--live", command)
         self.assertNotIn("--skip-verify", command)
         self.assertNotIn("external", config["networks"]["default"])

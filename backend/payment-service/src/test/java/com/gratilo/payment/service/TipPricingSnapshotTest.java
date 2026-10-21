@@ -12,7 +12,7 @@ class TipPricingSnapshotTest {
     @Test void versionedNetIsImmutableAndIndependentOfFutureConfiguration()throws Exception{
         var tx=payment(false);var saved=tx.getMetadata();
         assertEquals(2396,TipPricingSnapshot.from(tx).recipientMinor());
-        TipPricing.quote(2500,false,new java.math.BigDecimal("1.5"),25);
+        TipPricing.legacyQuote(2500,false,new java.math.BigDecimal("1.5"),25);
         assertEquals(saved,tx.getMetadata());assertEquals(2396,TransactionResponse.from(tx).recipientAmountMinor());
         assertEquals(2500,TransactionResponse.from(tx).amountMinor());
     }
@@ -32,7 +32,7 @@ class TipPricingSnapshotTest {
     }
     static TransactionEntity payment(boolean covered)throws Exception{
         var tx=new TransactionEntity();tx.setId(UUID.randomUUID());tx.setAmountMinor(2500);tx.setType(TransactionType.TIP);tx.setProvider("STRIPE");tx.setStatus(TransactionStatus.BOOKED);
-        var quote=TipPricing.quote(2500,covered,new java.math.BigDecimal("3.15"),25);
+        var quote=TipPricing.legacyQuote(2500,covered,new java.math.BigDecimal("3.15"),25);
         tx.setMetadata(JsonMapper.createDefault().writeValueAsString(TipPricingSnapshot.metadata(quote,covered)));return tx;
     }
 }

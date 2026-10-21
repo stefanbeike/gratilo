@@ -83,7 +83,7 @@ class StripeTestAccessTest {
 
     @Test void webhookConfirmationAndPersistedReadsKeepTheirExistingChecks() {
         var rule = new StripeTestAccessRule(access(tester.toString(), ""), null);
-        for (String path : new String[]{"/health", "/payment-service/webhooks/stripe", "/payment-service/tips/checkout/confirm", "/payment-service/transactions", "/payment-service/connect-account"})
+        for (String path : new String[]{"/health", "/payment-service/webhooks/stripe", "/payment-service/webhooks/stripe-direct", "/payment-service/webhooks/stripe-connect", "/payment-service/tips/checkout/confirm", "/payment-service/transactions", "/payment-service/connect-account"})
             assertEquals(SecurityRuleResult.UNKNOWN, rule.evaluate(HttpRequest.GET(path), null));
         assertTrue(rule.getOrder() < io.micronaut.security.rules.SecuredAnnotationRule.ORDER);
     }

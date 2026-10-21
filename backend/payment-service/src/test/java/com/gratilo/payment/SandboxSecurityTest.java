@@ -21,6 +21,13 @@ class SandboxSecurityTest {
         assertDoesNotThrow(() -> new SandboxConfiguration("sk_test_fixture", WEBHOOK, true, true, "test"));
     }
 
+    @Test void newDirectChargesCannotBeEnabledWithoutTheirSigningSecret() {
+        for(String missing:new String[]{"","not-a-signing-secret","whsec_"})
+            assertThrows(IllegalStateException.class,()->new SandboxConfiguration("sk_test_fixture",WEBHOOK,true,true,"test",true,missing));
+        assertDoesNotThrow(()->new SandboxConfiguration("sk_test_fixture",WEBHOOK,true,true,"test",true,WEBHOOK));
+        assertDoesNotThrow(()->new SandboxConfiguration("sk_test_fixture",WEBHOOK,true,true,"test",false,""));
+    }
+
     @Test void rejectsLiveUnsignedAndExpiredWebhooks() throws Exception {
         var controller = new StripeWebhookController(null, WEBHOOK, true, JsonMapper.createDefault());
         long now = System.currentTimeMillis() / 1000;

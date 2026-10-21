@@ -17,7 +17,7 @@ class StripeFeeAuditTest {
  }
  @Test void newNetPaymentAuditsHigherAndLowerActualCostsWithoutChangingRecipient()throws Exception{
   for(long actual:new long[]{94,114}){
-   var f=new Fixture(false,2500);var quote=TipPricing.quote(2500,false,new java.math.BigDecimal("3.15"),25);
+   var f=new Fixture(false,2500);var quote=TipPricing.legacyQuote(2500,false,new java.math.BigDecimal("3.15"),25);
    f.tx.setMetadata(JsonMapper.createDefault().writeValueAsString(TipPricingSnapshot.metadata(quote,false)));
    f.audit.setEstimatedFeeMinor(104);f.audit.setEstimatePercent(3.15);f.actualFee=actual;f.service.reconcile();
    var report=f.service.report(f.tx.getId()).orElseThrow();
@@ -52,7 +52,7 @@ class StripeFeeAuditTest {
   var f=new Fixture(true);f.applicationFee=10;f.service.reconcile();assertEquals(48L,f.audit.getActualFeeMinor());assertTrue(f.audit.getFeeDetails().contains("application_fee"));
  }
  @Test void quoteSnapshotIsNotRepricedWhenConfigurationChanges()throws Exception{
-  var f=new Fixture(true);f.service.snapshot(f.tx,TipPricing.quote(1000,true,new java.math.BigDecimal("3.15"),25));assertEquals(1041,f.audit.getChargedMinor());assertEquals(1.5,f.audit.getEstimatePercent());
+  var f=new Fixture(true);f.service.snapshot(f.tx,TipPricing.legacyQuote(1000,true,new java.math.BigDecimal("3.15"),25));assertEquals(1041,f.audit.getChargedMinor());assertEquals(1.5,f.audit.getEstimatePercent());
  }
  @Test void privateFeeReportRequiresTransactionOwnership(){
   var f=new Fixture(true);UUID owner=UUID.randomUUID();
@@ -90,7 +90,7 @@ class StripeFeeAuditTest {
      return mapper.writeValueAsString(Map.of("livemode",false,"status","succeeded","latest_charge",charge));
     }
    };
-   var quote=TipPricing.quote(tip,covered,new java.math.BigDecimal("1.5"),25);
+   var quote=TipPricing.legacyQuote(tip,covered,new java.math.BigDecimal("1.5"),25);
    try{tx.setMetadata(JsonMapper.createDefault().writeValueAsString(TipPricingSnapshot.metadata(quote,covered)));}catch(Exception e){throw new RuntimeException(e);}
    service.snapshot(tx,quote);
   }

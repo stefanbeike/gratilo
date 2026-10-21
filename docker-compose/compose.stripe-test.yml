@@ -72,6 +72,10 @@ services:
       STRIPE_FEE_FIXED_MINOR: ${STRIPE_FEE_FIXED_MINOR:-25}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?Set a local Stripe sandbox key}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?Run stripe_test.py webhook-secret}
+      # Stripe CLI uses one local listener secret for both v1 forwarding scopes.
+      STRIPE_DIRECT_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?Run stripe_test.py webhook-secret}
+      GRATILO_NEW_PRICING_ENABLED: ${GRATILO_NEW_PRICING_ENABLED:-false}
+      GRATILO_POOL_COMMISSION_FIXED_MINOR: ${GRATILO_POOL_COMMISSION_FIXED_MINOR:-45}
       STRIPE_CONNECT_WEBHOOK_SECRET: ${STRIPE_CONNECT_WEBHOOK_SECRET:-}
       PAYMENTS_TEST_ACTIVATION_CODE: ${PAYMENTS_TEST_ACTIVATION_CODE:?Run stripe_test.py init}
       STRIPE_SUCCESS_URL: "${FRONTEND_BASE_URL:-http://localhost:3001}/pay/success?session_id={CHECKOUT_SESSION_ID}"
@@ -104,7 +108,7 @@ services:
       - --forward-to
       - http://payment-service:8082/payment-service/webhooks/stripe
       - --forward-connect-to
-      - http://payment-service:8082/payment-service/webhooks/stripe
+      - http://payment-service:8082/payment-service/webhooks/stripe-direct
     depends_on:
       payment-service:
         condition: service_healthy

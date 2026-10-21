@@ -11,7 +11,7 @@ CONTAINERS = ("frontend", "user-service", "payment-service")
 READ_ONLY = {"taskDefinitionArn", "revision", "status", "requiresAttributes",
              "compatibilities", "registeredAt", "registeredBy", "deregisteredAt"}
 SENSITIVE = {"DATASOURCES_DEFAULT_PASSWORD", "JWT_SECRET", "INTERNAL_API_KEY",
-             "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "PAYMENTS_TEST_ACTIVATION_CODE",
+             "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_DIRECT_WEBHOOK_SECRET", "STRIPE_CONNECT_WEBHOOK_SECRET", "PAYMENTS_TEST_ACTIVATION_CODE",
              "JAVAMAIL_AUTHENTICATION_USERNAME", "JAVAMAIL_AUTHENTICATION_PASSWORD"}
 
 
@@ -46,6 +46,9 @@ def render(response, images, config):
     test_mode = config.get("STRIPE_TEST_MODE", "false")
     require(test_mode in ("true", "false"), "STRIPE_TEST_MODE must be explicitly true or false")
     stripe_test_mode = test_mode == "true"
+    pricing_mode=config.get("GRATILO_NEW_PRICING_ENABLED","false")
+    require(pricing_mode in ("true","false"),"GRATILO_NEW_PRICING_ENABLED must be explicitly true or false")
+    require(pricing_mode!="true" or stripe_test_mode,"New pricing can only be enabled in Stripe test mode")
     pools_enabled = "true" if stripe_test_mode else "false"
     require(all(sum(c.get("name") == name for c in definitions) == 1 for name in CONTAINERS), "Task must contain each application container exactly once")
     registry = f'{config["AWS_ACCOUNT_ID"]}.dkr.ecr.{config["AWS_REGION"]}.amazonaws.com'
@@ -65,6 +68,9 @@ def render(response, images, config):
                 values.update(PAYMENTS_ENABLED=pools_enabled,
                               STRIPE_SANDBOX_PAYOUTS=pools_enabled,
                               STRIPE_TEST_ONLY="true", STRIPE_DEMO_ENABLED="false")
+                # A release may explicitly enable the versioned model; inherited true is never implicit approval.
+                if "GRATILO_NEW_PRICING_ENABLED" in config or "GRATILO_NEW_PRICING_ENABLED" in values:
+                    values["GRATILO_NEW_PRICING_ENABLED"]=pricing_mode
                 if "PAYMENTS_TEST_USER_IDS" in values:
                     values["PAYMENTS_TEST_USER_IDS"] = ""
             container["environment"] = [{"name": key, "value": value} for key, value in values.items()]
@@ -124,6 +130,13 @@ def render(response, images, config):
                     require(activation_secret.startswith(test_secret_prefix) and activation_secret.endswith(":activation_code::"), "Stripe test access requires the private activation-code secret JSON field")
                     stripe_arns = {value.rsplit(":", 3)[0] for value in (stripe_secret, webhook_secret, activation_secret)}
                     require(len(stripe_arns) == 1, "Stripe key, webhook, and activation code must use the same test secret")
+                    if pricing_mode=="true":
+                        direct_reference=next(iter(stripe_arns))+":direct_webhook_secret::"
+                        if "STRIPE_DIRECT_WEBHOOK_SECRET" in secret:
+                            require(secret["STRIPE_DIRECT_WEBHOOK_SECRET"]==direct_reference,"Direct webhook must use the same dedicated Stripe test secret")
+                        secret["STRIPE_DIRECT_WEBHOOK_SECRET"]=direct_reference
+                        container["secrets"]=[{"name":key,"valueFrom":value} for key,value in secret.items()]
+                        env.update(GRATILO_PLATFORM_FEE_PERCENT="5.00",GRATILO_POOL_COMMISSION_FIXED_MINOR="45")
                 else:
                     require(not sandbox_payouts and not demo_enabled, "Payments and simulated payouts must remain disabled")
                     require(not payments_enabled, "Payments must remain disabled")

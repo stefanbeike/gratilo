@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class StripeCheckoutTest {
     private final UUID recipient = UUID.randomUUID();
     private TransactionEntity stored;
-    private String form, stripeKey;
+    private String form, stripeKey, requestAccount;
     private int creates;
     private com.gratilo.payment.api.TipQuote savedQuote;
     private boolean ready = true, available = true, failOnce, providerFailure;
@@ -24,15 +24,16 @@ class StripeCheckoutTest {
     private int reads;
     private final String session = "cs_test_fixture";
 
-    @Test void singleDestinationChargeUsesCentralQuoteAndPreservesFullTipAcrossRatesAndCoverage() throws Exception {
+    @Test void directChargeUsesFrozenNetAndApplicationFeeAcrossRatesAndCoverage() throws Exception {
         for(long tip:new long[]{1000,2500})for(String rate:List.of("1.5","2.8","3.15"))for(boolean covered:new boolean[]{true,false}) {
             var f=new StripeCheckoutTest();var decimal=new java.math.BigDecimal(rate);
             f.service(decimal).create(f.recipient,new TipPaymentRequest(tip,"Danke","unique",covered));
             var expected=TipPricing.quote(tip,covered,decimal,25);
             assertEquals(expected,f.savedQuote);
-            assertTrue(f.form.contains("transfer_data][amount]="+expected.recipientAmountMinor()+"&"));
+            assertFalse(f.form.contains("transfer_data"));
+            assertEquals("acct_fixture",f.requestAccount);
             assertTrue(f.form.contains("unit_amount]="+expected.totalAmountMinor()+"&"));
-            assertFalse(f.form.contains("application_fee_amount"));
+            assertTrue(f.form.contains("application_fee_amount]="+(expected.totalAmountMinor()-expected.recipientAmountMinor())+"&"));
             assertEquals(tip,f.stored.getAmountMinor());assertEquals("Danke",f.stored.getDescription());
         }
     }
@@ -47,7 +48,7 @@ class StripeCheckoutTest {
         var f=new StripeCheckoutTest();var service=f.service();
         service.create(f.recipient,new TipPaymentRequest(2500L,null,"old-net",false));
         f.stored.setMetadata("{\"totalAmountMinor\":2500,\"feeCovered\":false}");
-        assertThrows(StripeCheckoutService.CheckoutConflictException.class,()->service.create(f.recipient,new TipPaymentRequest(2500L,null,"old-net",false)));
+        assertEquals(2500,service.create(f.recipient,new TipPaymentRequest(2500L,null,"old-net",false)).orElseThrow().quote().recipientAmountMinor());
         assertEquals(1,f.creates);assertEquals(2500,TipPricingSnapshot.from(f.stored).recipientMinor());
     }
     @Test void stripeApiDiagnosticContainsOnlyHttpStatus() {
@@ -95,10 +96,12 @@ class StripeCheckoutTest {
         return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class[]{type}, handler);
     }
     private StripeCheckoutService service() { return service(new java.math.BigDecimal("1.5")); }
-    private StripeCheckoutService service(java.math.BigDecimal rate) {
+    private StripeCheckoutService service(java.math.BigDecimal rate) {return service(rate,true);}
+    private StripeCheckoutService service(java.math.BigDecimal rate,boolean enabled) {
         var repository = proxy(TransactionRepository.class, (p, m, a) -> switch (m.getName()) {
             case "findByAccountUserIdAndIdempotencyKey" -> Optional.ofNullable(stored);
             case "findById" -> Optional.ofNullable(stored);
+            case "findByProviderReference" -> Optional.ofNullable(stored).filter(t->Objects.equals(t.getProviderReference(),a[0]));
             case "save" -> { stored = (TransactionEntity) a[0]; stored.setId(UUID.randomUUID()); yield stored; }
             case "update" -> a[0];
             default -> throw new AssertionError(m.getName());
@@ -124,7 +127,8 @@ class StripeCheckoutTest {
         var feeAudit=new StripeFeeAuditService(null,null,"sk_test_fixture") {
             @Override public void snapshot(TransactionEntity tx,com.gratilo.payment.api.TipQuote quote){savedQuote=quote;}
         };
-        return new StripeCheckoutService(repository, accounts, connect, "sk_test_fixture", "http://localhost/pay/success", "http://localhost/pay/cancelled", rate, 25, recipients,null,null,feeAudit) {
+        return new StripeCheckoutService(repository, accounts, connect, "sk_test_fixture", "http://localhost/pay/success", "http://localhost/pay/cancelled", rate, 25, recipients,null,null,feeAudit,TipPricing.DEFAULT_PLATFORM_PERCENT,45,enabled) {
+            @Override protected String stripeRequest(String path,String body,String key,String account){requestAccount=account;return stripeRequest(path,body,key);}
             @Override protected String stripeRequest(String path, String body, String key) {
                 if (body != null) {
                     creates++; form = URLDecoder.decode(body, StandardCharsets.UTF_8); stripeKey = key;
@@ -135,14 +139,32 @@ class StripeCheckoutTest {
         };
     }
 
+    @Test void unreleasedPricingBlocksNewSessionsButDoesNotRepriceAnExistingSession()throws Exception {
+        var rate=new java.math.BigDecimal("3.15");
+        assertThrows(StripeCheckoutService.PricingNotReleasedException.class,()->service(rate,false).create(recipient,new TipPaymentRequest(2500L,null,"flag",true)));
+        assertNull(stored);assertEquals(0,creates);
+        service(rate,true).create(recipient,new TipPaymentRequest(2500L,null,"flag",true));
+        var resumed=service(new java.math.BigDecimal("6.8"),false).create(recipient,new TipPaymentRequest(2500L,null,"flag",true)).orElseThrow();
+        assertEquals(2607,resumed.quote().totalAmountMinor());assertEquals(2330,resumed.quote().recipientAmountMinor());
+        assertEquals(new java.math.BigDecimal("3.15"),resumed.quote().serviceFeePercent());assertEquals(1,creates);
+    }
+    @Test void ambiguousRetryAfterRetentionWindowCannotSendAnotherCheckoutPost()throws Exception {
+        failOnce=true;var request=new TipPaymentRequest(2500L,null,"timeout",true);
+        assertThrows(IllegalStateException.class,()->service().create(recipient,request));
+        stored.setCreatedAt(java.time.OffsetDateTime.now().minusHours(24));
+        assertThrows(StripeCheckoutService.CheckoutConflictException.class,()->service().create(recipient,request));
+        assertEquals(1,creates);
+    }
+
     @Test void routesOnlyTipToOneEmployeeAndReusesCheckout() throws Exception {
         var service = service();
         var request = new TipPaymentRequest(500L, "Danke", "caller-key", true);
         var first = service.create(recipient, request).orElseThrow();
         assertEquals(533,savedQuote.totalAmountMinor());assertEquals(33,savedQuote.serviceFeeMinor());
         assertTrue(form.contains("unit_amount]=533&"));
-        assertTrue(form.contains("transfer_data][amount]=500&"));
-        assertTrue(form.contains("transfer_data][destination]=acct_fixture&"));
+        assertFalse(form.contains("transfer_data"));
+        assertTrue(form.contains("application_fee_amount]=103&"));
+        assertEquals(430,savedQuote.recipientAmountMinor());
         assertTrue(form.contains("metadata][fee_covered]=true&"));
         assertTrue(form.contains("metadata][fee_surcharge_minor]=33&"));
         assertTrue(form.contains("metadata][amount_charged_minor]=533&"));
@@ -151,7 +173,7 @@ class StripeCheckoutTest {
         assertEquals("checkout-" + stored.getId(), stripeKey);
         assertEquals(TransactionStatus.PENDING, stored.getStatus());
         // PostgreSQL JSONB normalizes whitespace and object key order.
-        stored.setMetadata("{\"feeCovered\": true, \"totalAmountMinor\": 533}");
+        stored.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(io.micronaut.json.JsonMapper.createDefault().readValue(stored.getMetadata(),Map.class)));
         assertEquals(first.transactionId(), service.create(recipient, request).orElseThrow().transactionId());
         assertEquals(1, creates);
         assertThrows(IllegalArgumentException.class, () -> service.create(recipient, new TipPaymentRequest(600L, "Danke", "caller-key", true)));
@@ -210,10 +232,11 @@ class StripeCheckoutTest {
         assertEquals(0, creates); assertNull(stored);
     }
 
-    @Test void everyV2IneligibleFixtureIsRejectedBeforeCreatingALedgerEntryOrSession() {
+    @Test void everyV2IneligibleFixtureIsRejectedBeforeCreatingALedgerEntryOrSession() throws Exception {
         var service = service();
         for (String json : StripeAccountFixtures.ineligible()) {
             stripeResponse = json;
+            if(StripeAccountStatus.directReady("acct_fixture",json))continue; // direct payments don't require transfer/payout capability
             assertFalse(service.canReceiveTips(recipient));
             assertThrows(IllegalStateException.class, () -> service.create(recipient, new TipPaymentRequest(500L, null, "blocked")));
             assertEquals(0, creates); assertNull(stored);

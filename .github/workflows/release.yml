@@ -13,6 +13,11 @@ on:
         required: true
         type: boolean
         default: false
+      new_pricing_enabled:
+        description: 'Enable versioned Direct Charges and provisional pool commission (Stripe sandbox only)'
+        required: true
+        type: boolean
+        default: false
       stripe_test_confirmation:
         description: 'When Stripe test mode is enabled, type ENABLE STRIPE TEST PAYMENTS'
         required: false
@@ -79,3 +84,4 @@ jobs:
       payment_service_image: ${{ needs.publish.outputs.payment_service_image }}
       stripe_test_mode: ${{ inputs.stripe_test_mode }}
       stripe_test_confirmation: ${{ inputs.stripe_test_confirmation }}
+      new_pricing_enabled: ${{ inputs.new_pricing_enabled }}

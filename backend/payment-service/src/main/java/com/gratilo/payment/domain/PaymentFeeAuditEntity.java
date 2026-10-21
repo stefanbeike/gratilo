@@ -7,6 +7,20 @@ import java.util.UUID;
 /** Created only for new checkouts; immutable quote and separately reconciled Stripe charge costs. */
 @Entity @Table(name="payment_fee_audits", schema="payment_mgmt") @Getter @Setter @NoArgsConstructor
 public class PaymentFeeAuditEntity {
+    @Column(name="fee_source_reference") private String feeSourceReference;
+    @Column(name="pricing_version") private Integer pricingVersion;
+    @Column(name="platform_fee_minor") private Long platformFeeMinor;
+    @Column(name="platform_fee_percent",precision=18,scale=8) private java.math.BigDecimal platformFeePercent;
+    @Column(name="exact_estimate_percent",precision=18,scale=8) private java.math.BigDecimal exactEstimatePercent;
+    @Column(name="recipient_total_minor") private Long recipientTotalMinor;
+    @Column(name="stripe_charge_id") private String stripeChargeId;
+    @Column(name="stripe_payment_intent_id") private String stripePaymentIntentId;
+    @Column(name="stripe_application_fee_id") private String stripeApplicationFeeId;
+    @Column(name="application_fee_minor") private Long applicationFeeMinor;
+    @Column(name="refunded_minor") private Long refundedMinor;
+    @Column(name="application_fee_refunded_minor") private Long applicationFeeRefundedMinor;
+    @Column(name="commission_refund_status") private String commissionRefundStatus;
+    @Column(name="platform_net_revenue_minor") private Long platformNetRevenueMinor;
     @Id @Column(name="transaction_id") private UUID transactionId;
     @Column(name="charged_minor", nullable=false) private long chargedMinor;
     @Column(name="surcharge_minor", nullable=false) private long surchargeMinor;

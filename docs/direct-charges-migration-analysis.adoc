@@ -1,0 +1,335 @@
+= Direct Charges und vorläufige Pool-Provision
+
+Stand: 21.10.2026. Implementierung mit automatisierten Fakes; Sandbox-Rollout
+in die bestehende AWS-Umgebung ausdrücklich vom Betreiber freigegeben.
+Keine Live-Zahlungen und kein Nachweis einer echten Sandbox-End-to-End-Zahlung.
+
+== Bestätigte Regeln und Geldflüsse
+
+Gratilo legt persönliche Checkouts als Direct Charges im eingefrorenen Connected
+Account an. `Stripe-Account` wird bei Erstellung und Abfragen gesetzt; es gibt
+keine `transfer_data`-Parameter für neue persönliche Checkouts.
+
+Bei `fees_collector=application` trägt die Plattform Stripe-Kosten. Die
+Application Fee enthält deshalb zwei getrennte Bestandteile:
+
+----
+Provision = 45 Cent + HALF_UP(ursprüngliches Trinkgeld * 5 / 100)
+Stripe-Kostenanteil = feeCovered ? Gross-up-Aufschlag : Stripe-Schätzung
+Application Fee = Provision + Stripe-Kostenanteil
+Empfängerbetrag = Checkout-Gesamtbetrag - Application Fee
+----
+
+Die Application Fee ist somit ausdrücklich NICHT allein der Gratilo-Umsatz.
+Ihre Höhe ist nach der Präzisierung vom 21.10.2026 größer als die reine Provision.
+Die Provision wird ausschließlich auf das ursprüngliche Trinkgeld berechnet.
+
+Pools behalten Separate Charges and Transfers auf dem Plattformkonto, ohne
+Application Fee. *Vorläufige Geschäftsregel*: einmalig ein konfigurierbarer
+Fixbetrag von standardmäßig 45 Cent, kein Prozentanteil. Erst nach diesem
+Abzug und einem gegebenenfalls nicht übernommenen Stripe-Kostenanteil wird
+verteilt. Keine weitere Provision und kein weiterer Stripe-Gebührenabzug pro
+Mitglied. Allokationen und Gewichte bleiben eingefroren.
+
+=== Beispiel: 25,00 EUR, Stripe-Referenz 3,15 Prozent plus 25 Cent
+
+[cols="1,1,1,1,1,1",options="header"]
+|===
+|Zahlungsart |Stripe-Kosten übernehmen |Gast zahlt |Gratilo-Provision |Stripe-Kostenanteil |Empfänger gesamt
+|Einzeln |Ja |26,07 EUR |1,70 EUR |1,07 EUR |23,30 EUR
+|Einzeln |Nein |25,00 EUR |1,70 EUR |1,04 EUR |22,26 EUR
+|Pool |Ja |26,07 EUR |0,45 EUR |1,07 EUR |24,55 EUR
+|Pool |Nein |25,00 EUR |0,45 EUR |1,04 EUR |23,51 EUR
+|===
+
+Persönliche Application Fees: 2,77 beziehungsweise 2,74 EUR. Im Stripe-Dashboard
+sind sie auf der Plattform als Application Fees sichtbar; die Charge selbst
+liegt im Connected Account. Gratilos eigene Datenbank trennt die 1,70 EUR
+Provision vom jeweiligen Kostenanteil.
+
+Im Pool verbleiben vor tatsächlichen Stripe-Kosten 1,52 beziehungsweise
+1,49 EUR auf der Plattform. Bei 50/50 werden 12,28 und 12,27 EUR beziehungsweise
+11,76 und 11,75 EUR transferiert. Rundungsreste werden deterministisch nach
+Rest und anschließend stabiler Benutzer-ID vergeben.
+
+Die Stripe-Schätzung ist kein vertraglich garantierter Tarif. Tatsächliche
+Abweichungen verändern keine bestätigten Empfängerbeträge. Bei 1,14 EUR
+Ist-Kosten und persönlicher Gebührenübernahme verbleiben Gratilo beispielsweise
+1,63 EUR statt 1,70 EUR, vor weiteren Connect-/Produktkosten.
+
+== Versionierung, historische Daten und Idempotenz
+
+* V1 ohne Pricing-Version und V2 bleiben ohne nachträgliche Provision lesbar.
+* V3 unterstützt den vorangegangenen lokalen Entwurf; sie wird nicht neu erzeugt.
+* V4 bezeichnet persönliche Direct Charges mit 45 Cent plus 5 Prozent.
+* V5 bezeichnet die vorläufige Pool-Fixprovision.
+
+Die Transaktionsmetadaten enthalten Pricing-Version, Zeitpunkt/Regel,
+Auswahlbetrag, Gebührenübernahme, genaue Schätzparameter, Provision samt
+Fix-/Prozentanteil, Aufschlag, Checkout-Gesamtbetrag und Empfängerbetrag.
+Direct Charges speichern zusätzlich Account-ID, Gebührenverantwortung und
+Application-Fee-/Stripe-Kostenanteil. Der Account wird bei Wiederholungen nicht
+aus einem veränderten Benutzerprofil übernommen.
+
+Neue Spalten im vorhandenen Audit sind nullable, ohne Backfill. Die neue
+`payment_fee_events`-Tabelle hält signierte Refund-/Dispute-Finanzereignisse
+append-only fest; die Event-ID verhindert doppelte Einträge. Die Migration
+`011_platform_commission.sql` schützt Pricing-Metadaten, Währung und Betrag
+neuer Pricing-Versionen vor UPDATE. Status und Provider-Referenzen dürfen
+weiterhin abgeglichen werden.
+
+Bereits vorhandene Sessions werden mit ihrer eingefrorenen Quote und ihrem
+ursprünglichen Kontext gelesen. Fehlender historischer Direct-Kontext bedeutet
+Plattform, nicht das aktuelle Connected Account. Unklare persönliche Legacy-
+Versuche ohne gespeicherte Session werden nicht als neue Direct Charges
+wiederholt. Unklare Versuche nach 23 Stunden benötigen Reconciliation, statt
+blind nach Ablauf von Stripes Idempotenz-Retention erneut zu senden.
+
+Pool-Worker, `source_transaction`, Transfer-Idempotenzschlüssel, Locks,
+Reconciliation, Retry und Reversals bleiben erhalten. Keine historischen
+Allokationen werden durch diese Änderungen freigegeben oder neu berechnet.
+
+== Accounts-v2-Prüfung und konkrete Nachweisgrenze
+
+Der bestehende Code legt Express-v2-Konten mit Merchant-`card_payments`,
+Recipient-`stripe_transfers` und `fees_collector=application`,
+`losses_collector=application` an. Accounts-v2-Abfragen fordern nun auch
+`defaults` ausdrücklich an. Neue persönliche Zahlungen verlangen ein aktuelles,
+valide identifiziertes Testkonto mit freigegebenen Kartenzahlungen, vollständigen
+relevanten Requirements und bestätigtem `fees_collector=application`.
+Bankauszahlung und separate Transferberechtigung werden davon unterschieden.
+
+Der ausschließlich lesende Sandbox-GET für das bekannte Konto
+`acct_1USFInJnhDfTGhs9` wurde am 21.10.2026 mit HTTP 403 abgewiesen.
+Auch der ergänzende lesende v1-Kompatibilitätsabruf lieferte HTTP 403,
+`api_error` / `account_invalid`. `.env` und `.env.stripe-test` enthalten denselben
+Testschlüssel; ein alternativer lokaler Sandbox-Zugriff war nicht vorhanden.
+Ob die bekannte Konto-ID und der Testschlüssel zum selben Sandbox-Kontext gehören,
+ist damit nicht bestätigt. Es wurden keine Kontoänderungen und keine Stripe-POSTs ausgeführt.
+Daher sind die tatsächlichen Einstellungen und die Zahlungserstellung auf
+diesem konkreten Konto weiterhin *nicht nachgewiesen*.
+Ein erfolgreicher Fake-Test ersetzt diesen Nachweis nicht.
+
+Die anschließende Deployment-Prüfung mit dem tatsächlich in ECS referenzierten
+AWS-Testsecret war dagegen erfolgreich: Konto `acct_1USFInJnhDfTGhs9`,
+`livemode=false`, `fees_collector=application`, `card_payments=active`.
+Der zuvor lokale Fehler betraf somit den lokalen Zugriffskontext. Die echte
+Sandbox-Zahlungserstellung wurde weiterhin nicht ausgelöst.
+
+Vor Abnahme: Zugriff eines autorisierten Testschlüssels auf das richtige Sandbox-
+Konto herstellen; Merchant-Capabilities, Requirements und Gebührenverantwortung
+lesend prüfen. Eine echte Sandbox-End-to-End-Zahlung bedarf einer eigenen
+Freigabe und wurde hier nicht ausgeführt.
+
+== Webhooks und Status
+
+* `/payment-service/webhooks/stripe`: bestehende Plattform-v1-Payment-Snapshots,
+  einschließlich alter Destination Charges und Poolzahlungen.
+* `/payment-service/webhooks/stripe-direct`: neue Connected-Account-v1-Payment-
+  Snapshots mit eigenem `STRIPE_DIRECT_WEBHOOK_SECRET`.
+* `/payment-service/webhooks/stripe-connect`: unverändert separate v2-Account-
+  Thin-Events mit `STRIPE_CONNECT_WEBHOOK_SECRET`.
+
+Direct-Payment-Ereignisse müssen `event.account` passend zum eingefrorenen
+Account besitzen. Plattform- und Connected-Ereignisse dürfen sich nicht
+gegenseitig Transaktionen zuordnen. Signaturprüfung und Testmodusprüfung bleiben
+aktiv. Application-Fee-Refunds sind Plattformereignisse und werden zusätzlich
+an Charge und Connected Account gebunden. Späte Payment-Success-Ereignisse
+dürfen eine erstattete oder verlorene Dispute-Zahlung nicht wiederherstellen.
+
+Die lokale Stripe-CLI-Compose-Konfiguration leitet `--forward-connect-to` an
+`stripe-direct`. Ein einzelner lokaler CLI-Listener verwendet für beide v1-
+Weiterleitungen denselben lokalen Signaturschlüssel. Gehostete Destinations
+haben eigene Secrets; keines davon darf mit einem produktiven Secret ersetzt
+werden. Accounts-v2-Thin-Events benötigen weiterhin ihre separate Integration.
+
+== Tatsächliche Gebühren und Audit-Grenzen
+
+Plattform-Charges werden weiter aus der Charge-Balance-Transaction abgeglichen.
+Bei Direct Charges mit Gebührenverantwortung der Plattform beweist die Balance-
+Transaction des Connected Accounts dagegen nicht die tatsächlichen Plattform-
+Kosten. Insbesondere werden Nullgebühren dort nicht als Gratilo-Kosten von null
+übernommen.
+
+Der Audit prüft Session, Intent, Charge und die plattformseitige Application Fee
+im jeweils richtigen Kontext. Danach markiert er `REPORT_REQUIRED` /
+`DIRECT_PLATFORM_FEE_REPORT_REQUIRED`. Ein separater, bereits beschaffter
+itemisierter Stripe-Plattformgebührenbericht ist als Kostenbeleg erforderlich.
+
+`StripeFeeAuditService.recordPlatformFeeEvidence` ist eine interne, nicht als
+Kunden-HTTP-API exponierte Reconciliation-Grenze: Transaktion, eingefrorener
+Account, zuvor verifizierte Charge, Betrag und Belegreferenz müssen passen.
+Derselbe Beleg ist idempotent; widersprüchliche Belege werden abgewiesen.
+Ist-Kosten, Abweichung, Unterdeckung und Plattformerlös werden getrennt erfasst.
+Automatischer Download/Import dieser Gebührenberichte ist *noch nicht angebunden*;
+vor einer vollständigen produktiven Abnahme muss dieser Weg geprüft werden.
+Keine erfundene Ist-Gebühr wird gespeichert.
+
+Der ausgewiesene Plattformerlös ist nach zugeordneten Zahlungsbearbeitungskosten,
+aber vor weiteren Connect-/Produktkosten. Bei Refunds/Disputes bleibt er offen,
+solange die vollständige finanzielle Rückabwicklung nicht feststeht.
+
+== Refunds und Freigabesicherung
+
+Die neue Entscheidung zur Erstattung der Gratilo-Provision bleibt offen.
+Es werden keine automatischen Application-Fee-Refunds eingeführt und keine
+bestehenden Pool-Reversal-Regeln geändert. Signierte Teil-/Vollrefunds und
+Chargebacks werden weiterhin verarbeitet, ohne historische Pricing-Snapshots
+zu überschreiben. Neue versionierte Stripe-Zahlungen dürfen nicht allein durch
+eine lokale Statusänderung als erstattet erklärt werden; dieser manuelle
+Backend-Weg meldet einen Konflikt und verlangt Stripe-Reconciliation.
+Das bestehende Verhalten älterer Transaktionen bleibt erhalten.
+
+`GRATILO_NEW_PRICING_ENABLED=false` ist der Standard. Neue Checkouts bleiben
+bis zu einer bewussten Freigabe gesperrt; existierende Checkouts können weiter
+abgeglichen werden. Eine Einführung mit Live-Zahlungen bleibt ausgeschlossen, solange Refund-Regel
+und vollständiger Ist-Gebührennachweis offen sind. Der Betreiber hat inzwischen
+den Sandbox-Rollout ausdrücklich freigegeben; die Provisionsrückerstattung bleibt
+weiterhin `POLICY_UNDECIDED` beziehungsweise `REVIEW_REQUIRED`, ohne neue
+automatische Provisions-Refunds.
+Die lokale Test-Compose-Datei belässt diesen Schalter ebenfalls auf false.
+Zusätzlich verweigert die Startprüfung eine Aktivierung ohne gültig formatiertes
+`STRIPE_DIRECT_WEBHOOK_SECRET`; Direct Charges dürfen nicht versehentlich ohne
+konfigurierten signierten Zahlungs-Webhook gestartet werden.
+
+== Konfiguration und lokale Prüfungen
+
+----
+STRIPE_FEE_PERCENT=3.15
+STRIPE_FEE_FIXED_MINOR=25
+GRATILO_PLATFORM_FEE_PERCENT=5.00
+GRATILO_POOL_COMMISSION_FIXED_MINOR=45
+GRATILO_NEW_PRICING_ENABLED=false
+STRIPE_DIRECT_WEBHOOK_SECRET=<lokaler Signaturschlüssel, niemals versionieren>
+----
+
+Der persönliche Fixanteil beträgt verbindlich 45 Cent. Der persönliche
+Prozentsatz wird auf den bestätigten Wert 5,00 validiert. Nur der vorläufige
+Pool-Fixanteil ist frei konfigurierbar; historische Snapshots behalten ihren Wert.
+
+----
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew :backend:payment-service:test :backend:user-service:test :backend:payment-service:assemble
+cd frontend
+npm test
+npm run build
+cd ..
+python3 deployment/scripts/test_payment_pricing_postgres.py
+----
+
+Alle Zahlungs-/Transfer-Tests verwenden Fakes; HTTP-Vertragstests verwenden nur
+Loopback. Die PostgreSQL-Prüfung erstellt ausschließlich einen isolierten,
+anschließend entfernten Testcontainer und verwendet keine vorhandene Datenbank.
+
+== Offizielle Stripe-Quellen
+
+* https://docs.stripe.com/connect/direct-charges?platform=web&ui=stripe-hosted[Checkout-Direct-Charges, Account-Header und Application Fees]
+* https://docs.stripe.com/connect/accounts-v2/connected-account-configuration?locale=fr-FR[Accounts-v2-Gebührenverantwortung]
+* https://docs.stripe.com/connect/direct-charges-fee-payer-behavior[Application Fee mit Provision und Stripe-Kostenanteil]
+* https://docs.stripe.com/connect/webhooks[Plattform-/Connected-Account-Scopes und v1/v2-Ereignisse]
+* https://docs.stripe.com/connect/direct-charge-buy-rate-reporting-overview[Plattformberichte für direkt belastete Stripe-Gebühren]
+
+== Prüfergebnis am 21.10.2026
+
+* Payment-Service: 157 Tests, keine Fehler, keine übersprungenen Tests.
+* User-Service: 52 Tests, keine Fehler; unveränderte Ergebnisse vom Gradle-Cache wiederverwendet.
+* Frontend: 112 Tests in 15 Dateien erfolgreich; TypeScript-/Vite-Build erfolgreich.
+* Payment-Service-Assembly erfolgreich; `git diff --check` ohne Befund.
+* Test-Compose-Konfiguration mit Platzhaltern und ohne Ausgabe von Secrets erfolgreich validiert.
+* Alle elf Migrations-SQL-Dateien gegen isoliertes PostgreSQL 15 erfolgreich.
+  Snapshot-UPDATEs, Ledger-UPDATE/DELETE und doppelte Event-IDs wurden abgewiesen;
+  Statusfortschritt bleibt erlaubt, historische Daten wurden nicht nachkalkuliert.
+* Der echte Liquibase-Changelog wurde zusätzlich auf einer separaten isolierten
+  PostgreSQL-Datenbank erfolgreich angewendet; der zweite Update-Lauf war unverändert.
+
+Die ursprünglichen acht Testfehler sind behoben. Angepasst wurden veraltete
+Destination-/Gebührenannahmen und Repository-Fakes; neue Tests prüfen echte
+HTTP-Header am Loopback-Fake, getrennte Gebührenbestandteile, beide Coverage-
+Varianten, eingefrorene Quotes, historische Plattform-Kontexte, lange unklare
+Retries, Freigabesicherung, signierte Account-Zuordnung, Refunds und Disputes. Der komplette HTTP-Test für
+Registrierung/Testaktivierung/Onboarding/Checkout sendet nun auch einen signierten
+Direct-Webhook über den echten anonymen HTTP-/Security-/Transaktionsinterceptor-
+Weg. Ohne Signatur antwortet dieser Weg mit 401 und lässt die Zahlung unverändert.
+Daten-Repositories und die Transaktionsgrenze sind dabei lokale Fakes, Stripe
+wird nicht kontaktiert.
+Ein stabilisierter Frontend-Test wartet auf den tatsächlichen asynchronen Zustand.
+Tests lösen keine externen Stripe-Zahlungsoperationen aus.
+
+== Freigegebener Sandbox-Rollout
+
+Der Release-Workflow erhält den zusätzlichen booleschen Input
+`new_pricing_enabled` (Standard false). Nur zusammen mit `stripe_test_mode=true`
+darf er die neue Logik aktivieren. Ein späterer Release übernimmt eine frühere
+Aktivierung nicht stillschweigend.
+
+Der Renderer setzt bei expliziter Freigabe `GRATILO_NEW_PRICING_ENABLED=true`,
+5,00 Prozent persönliche Provision und 45 Cent vorläufige Pool-Provision.
+`STRIPE_DIRECT_WEBHOOK_SECRET` wird ausschließlich aus `direct_webhook_secret`
+desselben dedizierten AWS-Sandbox-Secrets injiziert; keine Klartext-Credentials.
+
+Der Connected-Account-Sandbox-Webhook wurde mit `connect=true` eingerichtet:
+`we_1USu69JnhDgmiMAMoJauve18`, Ziel `/payment-service/webhooks/stripe-direct`.
+Am vorhandenen Plattform-Sandbox-Webhook wurden Ereignisse ausschließlich
+additiv um Disputes und Application-Fee-Refunds ergänzt. Kein Live-Webhook,
+keine Zahlung, kein Transfer und kein Refund wurde dadurch ausgeführt.
+
+Deployment-Tooling: 138 Tests erfolgreich; OIDC-Prüfungen: 7 Tests erfolgreich;
+GitHub-Workflow-Lint erfolgreich. Status des tatsächlichen Deployments wird
+im Abschlussbericht mit konkreter Release-/Workflow-Referenz festgehalten.
+
+== Geänderte Dateien
+
+* `.env.example`
+* `.github/workflows/deploy-production.yml`
+* `.github/workflows/release.yml`
+* `backend/payment-service/src/main/java/com/gratilo/payment/api/PoolTransferResponse.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/api/TipQuote.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/config/SandboxConfiguration.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/config/StripeTestAccessRule.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/controller/StripeDirectWebhookController.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/controller/StripeWebhookController.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/controller/TipController.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/controller/TransactionController.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/domain/PaymentFeeAuditEntity.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/domain/PaymentFeeEventEntity.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/repository/PaymentFeeEventRepository.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/repository/TransactionRepository.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/PoolTransferHistoryService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeAccountStatus.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeCheckoutService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeConnectService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeFeeAuditService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripePaymentContext.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/TipPricing.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/TipPricingSnapshot.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/TransactionService.java`
+* `backend/payment-service/src/main/resources/application.yml`
+* `backend/payment-service/src/main/resources/db/changelog/changelog-master.xml`
+* `backend/payment-service/src/main/resources/db/changelog/payment_mgmt/011_platform_commission.sql`
+* `backend/payment-service/src/test/java/com/gratilo/payment/GuestCheckoutHttpTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/SandboxSecurityTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/StripeTestAccessTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/controller/DirectWebhookTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/DirectFeeAuditTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/DirectPricingTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolCheckoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolSettlementStripeContractTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolSourceSettlementTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolTransferHistoryServiceTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/SelfActivationFlowHttpTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeAccountFixtures.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeCheckoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeFeeAuditTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeRequestScopeTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/TipPricingSnapshotTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/TipPricingTest.java`
+* `deployment/scripts/render_task_definition.py`
+* `deployment/scripts/test_payment_pricing_postgres.py`
+* `deployment/tests/test_ecs_deployment.py`
+* `deployment/tests/test_local_stripe_compose.py`
+* `docker-compose/compose.stripe-test.yml`
+* `docker-compose/docker-compose.infra.yml`
+* `docs/direct-charges-migration-analysis.adoc`
+* `docs/stripe-fees-and-pool-members.adoc`
+* `frontend/src/Dashboard.tsx`
+* `frontend/src/PublicTipCheckout.tsx`
+* `frontend/src/StripePayment.test.tsx`

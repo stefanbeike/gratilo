@@ -1,5 +1,32 @@
 = Stripe-Gebührenschätzung und Pool-Mitglieder
 
+== Aktuelle Gebührenregel: Direct Charges und vorläufige Pool-Fixprovision (21.10.2026)
+
+Die lokale Weiterentwicklung verwendet für neue persönliche Zahlungen echte
+Direct Charges mit einer Gratilo-Provision von 0,45 EUR plus 5 Prozent und einem
+separaten Stripe-Kostenanteil in der Application Fee. Pools behalten Separate
+Charges and Transfers; ihre Provision beträgt vorläufig einmalig 0,45 EUR.
+`feeCovered` betrifft ausschließlich Stripe-Kosten. Neue Snapshots sind V4/V5;
+Altzahlungen werden nicht nachträglich mit Provision belastet.
+
+Bei 25,00 EUR und 3,15 Prozent plus 0,25 EUR Stripe-Referenz erhält ein einzelner
+Empfänger 23,30 EUR mit beziehungsweise 22,26 EUR ohne Gebührenübernahme. Der
+Gast zahlt 26,07 beziehungsweise 25,00 EUR. Pools verteilen entsprechend 24,55
+beziehungsweise 23,51 EUR insgesamt, mit einem einmaligen Provisionsabzug.
+
+Die vollständigen Geldflüsse, Versionierung, Konfiguration, Webhook-Ziele,
+Testbefehle und offenen Abnahmegrenzen stehen in
+link:direct-charges-migration-analysis.adoc[Direct-Charge-Migration].
+Die neue Logik bleibt standardmäßig gesperrt und wird nur durch den expliziten
+Sandbox-Release-Input aktiviert. Die Konto-Prüfung mit dem AWS-Testsecret war
+inzwischen erfolgreich. Der Betreiber hat Push und Sandbox-Deployment freigegeben;
+Refund-Provisionsregel und automatische Plattform-Gebührenberichtsanbindung
+bleiben offen. Keine Freigabe für Live-Zahlungen.
+
+Die folgenden Abschnitte dokumentieren die vorherige Implementierung und
+historische Untersuchungen. Aussagen ohne Plattformprovision beschreiben diese
+älteren Pricing-Versionen, nicht die neue V4/V5-Regel.
+
 == Analyse und Tarifgrenzen
 
 Die frühere Formel enthielt bereits eine Brutto-Hochrechnung mit binärer Suche.

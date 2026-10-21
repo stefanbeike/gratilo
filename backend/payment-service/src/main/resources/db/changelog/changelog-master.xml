@@ -13,4 +13,5 @@
     <include file="payment_mgmt/008_pool_settlement_safety.sql" relativeToChangelogFile="true"/>
     <include file="payment_mgmt/009_connect_status.sql" relativeToChangelogFile="true"/>
     <include file="payment_mgmt/010_payment_fee_audits.sql" relativeToChangelogFile="true"/>
+    <include file="payment_mgmt/011_platform_commission.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>

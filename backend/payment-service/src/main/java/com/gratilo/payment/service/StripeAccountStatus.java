@@ -21,7 +21,7 @@ public record StripeAccountStatus(boolean canReceiveTips, boolean canReceiveTran
                 || !Boolean.FALSE.equals(account.get("livemode")) || (account.get("closed") != null && !Boolean.FALSE.equals(account.get("closed"))))
             return new StripeAccountStatus(false);
         Object applied = account.get("applied_configurations");
-        if (!(applied instanceof List<?> configurations) || !configurations.containsAll(List.of("merchant", "recipient")))
+        if (!(applied instanceof List<?> configurations) || !configurations.contains("merchant"))
             return new StripeAccountStatus(false);
         boolean active = "active".equals(at(account, "configuration", "merchant", "capabilities", "card_payments", "status"))
                 && "active".equals(at(account, "configuration", "recipient", "capabilities", "stripe_balance", "payouts", "status"))
@@ -61,6 +61,14 @@ public record StripeAccountStatus(boolean canReceiveTips, boolean canReceiveTran
                 : !complete && ("currently_due".equals(deadline) || entries instanceof List<?> list && !list.isEmpty()) ? "INCOMPLETE" : "UNAVAILABLE";
         return new StripeAccountStatus(active && complete, transferReady, "active".equals(payouts), complete || awaitingStripe,
                 complete ? "COMPLETE" : awaitingStripe ? "SUBMITTED" : "IN_PROGRESS", display, charges);
+    }
+
+    /** Direct charges don't depend on the recipient's separate-transfer or bank-payout capability. */
+    public static boolean directReady(String id, String json) throws IOException {
+        var status=parse(id,json);
+        var account=JsonMapper.createDefault().readValue(json,Map.class);
+        return status.detailsSubmitted() && "COMPLETE".equals(status.onboardingStatus()) && status.chargesEnabled()
+                && "application".equals(at(account,"defaults","responsibilities","fees_collector"));
     }
 
     private static Object at(Map<?, ?> root, String... path) {

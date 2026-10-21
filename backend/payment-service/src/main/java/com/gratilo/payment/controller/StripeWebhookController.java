@@ -24,13 +24,19 @@ public class StripeWebhookController {
     private final JsonMapper jsonMapper;
     private final com.gratilo.payment.repository.PoolTransferRepository poolTransfers;
     public StripeWebhookController(TransactionRepository transactions, @Value("${stripe.webhook-secret:}") String secret, @Value("${stripe.test-only:false}") boolean testOnly, JsonMapper jsonMapper) { this(transactions, secret, testOnly, jsonMapper, null); }
-    @jakarta.inject.Inject
-    public StripeWebhookController(TransactionRepository transactions, @Value("${stripe.webhook-secret:}") String secret, @Value("${stripe.test-only:false}") boolean testOnly, JsonMapper jsonMapper, com.gratilo.payment.repository.PoolTransferRepository poolTransfers) { this.transactions = transactions; this.secret = secret; this.testOnly = true; this.jsonMapper = jsonMapper; this.poolTransfers = poolTransfers; }
+    public StripeWebhookController(TransactionRepository transactions, @Value("${stripe.webhook-secret:}") String secret, @Value("${stripe.test-only:false}") boolean testOnly, JsonMapper jsonMapper, com.gratilo.payment.repository.PoolTransferRepository poolTransfers) {this(transactions,secret,testOnly,jsonMapper,poolTransfers,null);}
+    private final com.gratilo.payment.service.StripeFeeAuditService feeAudit;
+    @jakarta.inject.Inject public StripeWebhookController(TransactionRepository transactions,@Value("${stripe.webhook-secret:}") String secret,@Value("${stripe.test-only:true}") boolean testOnly,JsonMapper jsonMapper,com.gratilo.payment.repository.PoolTransferRepository poolTransfers,com.gratilo.payment.service.StripeFeeAuditService feeAudit){this.feeAudit=feeAudit;this.transactions = transactions; this.secret = secret; this.testOnly = true; this.jsonMapper = jsonMapper; this.poolTransfers = poolTransfers; }
 
     @Post
     @Transactional
     public HttpResponse<?> receive(@Body String payload, @Header("Stripe-Signature") @Nullable String signature) {
         if (secret.isBlank() || !com.gratilo.payment.service.StripeWebhookSignature.valid(secret, payload, signature)) return HttpResponse.unauthorized();
+        return processVerified(payload,false);
+    }
+
+    /** Called only after the corresponding endpoint has checked its own signing secret. */
+    HttpResponse<?> processVerified(String payload,boolean directEndpoint) {
         java.util.Map<?, ?> body;
         try {
             body = jsonMapper.readValue(payload, java.util.Map.class);
@@ -54,12 +60,23 @@ public class StripeWebhookController {
             var byIntent = transactions.findByStripePaymentIntentId(intentId).orElse(null);
             if (byIntent != null) txId = byIntent.getId().toString();
         }
+        if(txId==null&&event!=null&&event.startsWith("application_fee.")&&object.get("charge") instanceof String chargeId){var tx=transactions.findByStripeChargeId(chargeId).orElse(null);if(tx!=null)txId=tx.getId().toString();}
         if (txId != null && event != null) {
             try {
                 var tx = transactions.findById(UUID.fromString(txId)).orElse(null);
                 if (tx != null) {
                     if (!"STRIPE".equals(tx.getProvider())) return HttpResponse.ok();
+                    String expectedAccount=com.gratilo.payment.service.StripePaymentContext.account(tx);
+                    boolean applicationFeeEvent=event.startsWith("application_fee.");
+                    if(applicationFeeEvent){
+                        // Application fees live on the platform; bind both their charge and account.
+                        if(directEndpoint||body.get("account")!=null||expectedAccount==null
+                            ||!expectedAccount.equals(object.get("account"))
+                            ||!java.util.Objects.equals(tx.getStripeChargeId(),object.get("charge")))return HttpResponse.ok();
+                    }else if(directEndpoint ? expectedAccount==null||!expectedAccount.equals(body.get("account"))
+                            : expectedAccount!=null||body.get("account")!=null)return HttpResponse.ok();
                     if (event.startsWith("checkout.session.") && !java.util.Objects.equals(tx.getProviderReference(), object.get("id"))) return HttpResponse.ok();
+                    if(feeAudit!=null)feeAudit.recordEvent(tx,body.get("id") instanceof String id?id:null,event,object);
                     boolean tip = tx.getType() == com.gratilo.payment.domain.TransactionType.TIP;
                     boolean payout = tx.getType() == com.gratilo.payment.domain.TransactionType.PAYOUT;
                     TransactionStatus next = null;
@@ -88,7 +105,8 @@ public class StripeWebhookController {
                     else if (payout && (event.equals("payout.failed") || event.equals("payout.canceled"))) next = TransactionStatus.FAILED;
                     // Late failures and duplicate successes cannot overwrite a completed or refunded tip.
                     boolean settled = tx.getStatus() == TransactionStatus.BOOKED || tx.getStatus() == TransactionStatus.COMPLETED;
-                    if (next != null && next != tx.getStatus() && tx.getStatus() != TransactionStatus.REFUNDED
+                    boolean riskState=tx.getStatus()==TransactionStatus.DISPUTED||tx.getStatus()==TransactionStatus.CHARGEBACK;
+                    if (next != null && (!riskState || event.startsWith("charge.dispute.") || next==TransactionStatus.REFUNDED) && next != tx.getStatus() && tx.getStatus() != TransactionStatus.REFUNDED
                             && (!settled || next == TransactionStatus.REFUNDED || next == TransactionStatus.DISPUTED
                                 || next == TransactionStatus.CHARGEBACK || payout)) {
                         tx.setStatus(next);

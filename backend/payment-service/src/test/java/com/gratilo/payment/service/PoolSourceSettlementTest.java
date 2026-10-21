@@ -24,7 +24,7 @@ class PoolSourceSettlementTest {
     }
     @Test void newNetSnapshotSettlesBothFrozenSharesWithoutSubtractingAnotherFeePerMember()throws Exception {
         var f=new Fixture(1198,1198);f.tx.setAmountMinor(2500);f.chargeAmount=2500;f.actualFee=114;
-        var quote=TipPricing.quote(2500,false,new java.math.BigDecimal("3.15"),25);
+        var quote=TipPricing.legacyQuote(2500,false,new java.math.BigDecimal("3.15"),25);
         f.tx.setMetadata(JsonMapper.createDefault().writeValueAsString(TipPricingSnapshot.metadata(quote,false)));
         f.failSecond=true;f.worker.settle();f.worker.settle();f.worker.settle();
         assertEquals(2,f.remote.size());assertEquals(2396,f.remote.values().stream().mapToLong(r->((Number)r.get("amount")).longValue()).sum());

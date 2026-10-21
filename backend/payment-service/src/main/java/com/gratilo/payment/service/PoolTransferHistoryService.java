@@ -20,7 +20,8 @@ public class PoolTransferHistoryService {
     public List<PoolTransferResponse> list(UUID userId) {
         return transfers.findByRecipientUserIdOrderByCreatedAtDesc(userId).stream().map(item -> {
             String poolName = "Team-Trinkgeld";
-            Long selected = null, distribution = null;
+            Long selected = null, distribution = null, commission=null,stripeFee=null;
+            Boolean covered=null;
             var transaction = transactions.findById(item.getTransactionId()).orElse(null);
             if (transaction != null) {
                 try {
@@ -29,7 +30,9 @@ public class PoolTransferHistoryService {
                 } catch (Exception ignored) { }
                 if (transaction.getAmountMinor() > 0) selected = transaction.getAmountMinor();
                 try {
-                    long frozen = TipPricingSnapshot.from(transaction).recipientMinor();
+                    var pricing=TipPricingSnapshot.from(transaction);
+                    long frozen = pricing.recipientMinor();
+                    if(pricing.version()>=4){commission=pricing.platformFeeMinor();stripeFee=pricing.estimatedFeeMinor();covered=pricing.feeCovered();}
                     if (frozen > 0) distribution = frozen;
                 } catch (IllegalStateException ignored) {
                     // Missing/corrupt historical pricing is unknown, never the recipient's amount.
@@ -48,7 +51,7 @@ public class PoolTransferHistoryService {
             return new PoolTransferResponse(item.getId(), item.getTransactionId(), poolName, item.getAmountMinor(),
                     item.getReversedAmountMinor(), item.getStatus(), item.getStripeTransferId(),
                     item.getStripeReversalId(), item.getCreatedAt(), item.getFailureCode(), item.getFundsAvailableAt(), item.getLastAttemptAt(),
-                    historicalShare, distribution, selected, gross, fee, transaction == null || transaction.getStatus() == null ? null : transaction.getStatus().name());
+                    historicalShare, distribution, selected, gross, fee, transaction == null || transaction.getStatus() == null ? null : transaction.getStatus().name(),commission,stripeFee,covered);
         }).toList();
     }
 

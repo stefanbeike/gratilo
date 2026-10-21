@@ -24,6 +24,8 @@ micronaut:
         access: isAnonymous()
       - pattern: /payment-service/tips/**
         access: isAnonymous()
+      - pattern: /payment-service/webhooks/stripe-direct
+        access: isAnonymous()
       - pattern: /payment-service/webhooks/stripe-connect
         access: isAnonymous()
       - pattern: /payment-service/webhooks/stripe
@@ -50,6 +52,7 @@ stripe:
   sandbox-payouts: true
   secret-key: ${STRIPE_SECRET_KEY:}
   webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+  direct-webhook-secret: ${STRIPE_DIRECT_WEBHOOK_SECRET:}
   connect-webhook-secret: ${STRIPE_CONNECT_WEBHOOK_SECRET:}
   # STRIPE_SUCCESS_URL can override this property through Micronaut environment binding.
   success-url: "${frontend.base-url}/pay/success?session_id={CHECKOUT_SESSION_ID}"
@@ -89,3 +92,10 @@ jpa:
         hbm2ddl:
           auto: none
         default_schema: payment_mgmt
+
+gratilo:
+  platform-fee-percent: ${GRATILO_PLATFORM_FEE_PERCENT:5.00}
+  # Provisional business rule: fixed 45 cents ONCE per pool charge, no percentage.
+  pool-commission-fixed-minor: ${GRATILO_POOL_COMMISSION_FIXED_MINOR:45}
+  # Remains off until refund commission policy and sandbox acceptance have been approved.
+  new-pricing-enabled: ${GRATILO_NEW_PRICING_ENABLED:false}

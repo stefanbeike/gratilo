@@ -20,7 +20,7 @@ class PoolCheckoutTest {
         assertPoolCharge(false,2500,new java.math.BigDecimal("3.15"),List.of(20.0,30.0,50.0));
         assertPoolCharge(true,2500,new java.math.BigDecimal("3.15"),List.of(20.0,30.0,50.0));
     }
-    @Test void twentyFiveEurosWithoutCoverageProducesTwoTransfersOfElevenNinetyEight() throws Exception {
+    @Test void twentyFiveEurosDeductsProvisionalCommissionOnceBeforeSplitting() throws Exception {
         assertPoolCharge(false,2500,new java.math.BigDecimal("3.15"));
     }
     @Test void tinySharesAreRejectedBeforeCheckoutOrAllocationWrites() {
@@ -30,7 +30,7 @@ class PoolCheckoutTest {
         assertPoolCharge(covered,tip,rate,List.of(50.0,50.0));
     }
     private void assertPoolCharge(boolean covered,long tip,java.math.BigDecimal rate,List<Double> distribution) throws Exception {
-        var expected=TipPricing.quote(tip,covered,rate,25);
+        var expected=TipPricing.poolQuote(tip,covered,rate,25,45);
         UUID owner = UUID.randomUUID(), first = new UUID(0,1), second = new UUID(0,2), third = new UUID(0,3);
         var members=new ArrayList<PoolDistributionClient.Member>();
         members.add(new PoolDistributionClient.Member(first,"A",distribution.get(0),true));
@@ -91,7 +91,7 @@ class PoolCheckoutTest {
         assertEquals(expected.recipientAmountMinor(),TipPricingSnapshot.from(stored.get()).recipientMinor());
         if(tip==2500&&rate.toString().equals("3.15")) {
             var actual=snapshots.stream().sorted(java.util.Comparator.comparing(a->a.getRecipientUserId().toString())).map(PoolTransferEntity::getAmountMinor).toList();
-            assertEquals(distribution.size()==3?(covered?List.of(500L,750L,1250L):List.of(479L,719L,1198L)):(covered?List.of(1250L,1250L):List.of(1198L,1198L)),actual);
+            assertEquals(distribution.size()==3?(covered?List.of(491L,737L,1227L):List.of(470L,705L,1176L)):(covered?List.of(1228L,1227L):List.of(1176L,1175L)),actual);
         }
         assertEquals(1,auditRows.size());var audit=auditRows.get(stored.get().getId());
         assertEquals(expected.totalAmountMinor(),audit.getChargedMinor());assertEquals(expected.serviceFeeMinor(),audit.getSurchargeMinor());
@@ -111,7 +111,7 @@ class PoolCheckoutTest {
             @Override public String retrieveAccount(String id) { return StripeAccountFixtures.readyJson().replace("acct_fixture",id).replace("active", id.equals("acct_second") && !ready.get() ? "pending" : "active"); }
         };
         var recipients=new RecipientAvailability("http://localhost") { @Override public void requireEnabled(UUID id) { throw new AssertionError("Pool cannot depend on personal link"); } @Override public void requirePoolMemberEnabled(UUID id) {} };
-        var txRepo=proxy(TransactionRepository.class,(p,m,a)->{throw new AssertionError("No writes before eligibility");});
+        var txRepo=proxy(TransactionRepository.class,(p,m,a)->{if(m.getName().equals("findByAccountUserIdAndIdempotencyKey"))return Optional.empty();throw new AssertionError("No writes before eligibility");});
         var transferRepo=proxy(PoolTransferRepository.class,(p,m,a)->{throw new AssertionError("No allocations before eligibility");});
         var service=new StripeCheckoutService(txRepo,accountRepository(Map.of(owner,"acct_first",other,"acct_second")),connect,"sk_test_fixture","http://localhost/pay/success","http://localhost/pay/cancelled",new java.math.BigDecimal("1.5"),25,recipients,pool,transferRepo);
         assertFalse(service.canReceivePoolTips(owner));

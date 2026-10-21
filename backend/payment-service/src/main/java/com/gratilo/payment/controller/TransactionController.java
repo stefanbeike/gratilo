@@ -24,5 +24,5 @@ public class TransactionController {
     @Get("/{id}") public HttpResponse<?> get(UUID id, Authentication a) { return service.get(user(a), id).map(HttpResponse::ok).orElseGet(HttpResponse::notFound); }
     @Post public HttpResponse<?> create(@Body @Valid TransactionRequests request, Authentication a) { return HttpResponse.created(service.create(user(a), request)); }
     @Post("/{id}/cancel") public HttpResponse<?> cancel(UUID id, Authentication a) { return service.cancel(user(a), id).map(HttpResponse::ok).orElseGet(HttpResponse::notFound); }
-    @Post("/{id}/refund") public HttpResponse<?> refund(UUID id, Authentication a) { return service.refund(user(a), id).map(HttpResponse::ok).orElseGet(HttpResponse::notFound); }
+    @Post("/{id}/refund") public HttpResponse<?> refund(UUID id, Authentication a) { try{return service.refund(user(a), id).map(HttpResponse::ok).orElseGet(HttpResponse::notFound);}catch(com.gratilo.payment.service.TransactionService.StripeRefundRequiredException blocked){return HttpResponse.status(io.micronaut.http.HttpStatus.CONFLICT).body(java.util.Map.of("code","STRIPE_REFUND_RECONCILIATION_REQUIRED","message",blocked.getMessage()));} }
 }

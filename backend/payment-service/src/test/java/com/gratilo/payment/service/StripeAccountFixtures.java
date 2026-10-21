@@ -8,6 +8,7 @@ final class StripeAccountFixtures {
         return """
             {"id":"acct_fixture","object":"v2.core.account","livemode":false,"closed":false,
              "applied_configurations":["merchant","recipient"],
+             "defaults":{"responsibilities":{"fees_collector":"application","losses_collector":"application"}},
              "configuration":{
                 "merchant":{"capabilities":{"card_payments":{"status":"active"},"stripe_balance":{"payouts":{"status":"active"}}}},
                 "recipient":{"capabilities":{"stripe_balance":{"stripe_transfers":{"status":"active"},"payouts":{"status":"active"}}}}},

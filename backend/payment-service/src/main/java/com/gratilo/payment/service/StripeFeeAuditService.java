@@ -20,16 +20,20 @@ public class StripeFeeAuditService {
     private final PaymentFeeAuditRepository audits;
     private final TransactionRepository transactions;
     private final String secret;
+    private final PaymentFeeEventRepository events;
+    public StripeFeeAuditService(PaymentFeeAuditRepository audits,TransactionRepository transactions,String secret){this(audits,transactions,secret,null);}
+    @jakarta.inject.Inject
     public StripeFeeAuditService(PaymentFeeAuditRepository audits, TransactionRepository transactions,
-                                 @Value("${stripe.secret-key:}") String secret) {
-        StripeConnectService.requireTestKey(secret); this.audits=audits;this.transactions=transactions;this.secret=secret;
+                                 @Value("${stripe.secret-key:}") String secret, PaymentFeeEventRepository events) {
+        StripeConnectService.requireTestKey(secret); this.audits=audits;this.transactions=transactions;this.secret=secret;this.events=events;
     }
     public void snapshot(TransactionEntity tx, TipQuote quote) {
         if(audits.findById(tx.getId()).isPresent())return;
         var audit=new PaymentFeeAuditEntity();audit.setTransactionId(tx.getId());audit.setChargedMinor(quote.totalAmountMinor());
         audit.setSurchargeMinor(quote.serviceFeeMinor());audit.setEstimatedFeeMinor(quote.estimatedStripeFeeMinor());
         audit.setEstimatePercent(quote.serviceFeePercent().doubleValue());audit.setEstimateFixedMinor(quote.fixedFeeMinor());audit.setEstimateBasis(quote.feeEstimateBasis());
-        audits.save(audit);
+        audit.setPricingVersion(quote.pricingVersion());audit.setPlatformFeeMinor(quote.platformFeeMinor());audit.setPlatformFeePercent(quote.platformFeePercent());audit.setRecipientTotalMinor(quote.recipientAmountMinor());audit.setExactEstimatePercent(quote.serviceFeePercent());
+        audit.setCommissionRefundStatus(quote.pricingVersion()>=3?"POLICY_UNDECIDED":"LEGACY");audits.save(audit);
     }
     @Scheduled(fixedDelay="PT60S") public void reconcile() {
         if(secret.isBlank())return;
@@ -41,7 +45,8 @@ public class StripeFeeAuditService {
         var tx=transactions.findById(audit.getTransactionId()).orElse(null);
         if(tx==null||!"STRIPE".equals(tx.getProvider())||tx.getProviderReference()==null)return;
         if(tx.getStatus()==TransactionStatus.FAILED||tx.getStatus()==TransactionStatus.CANCELLED){audit.setStatus("NOT_APPLICABLE");audits.update(audit);return;}
-        var session=map(get("/v1/checkout/sessions/"+enc(tx.getProviderReference())));
+        String account=StripePaymentContext.account(tx);
+        var session=map(get("/v1/checkout/sessions/"+enc(tx.getProviderReference()),account));
         if(!Boolean.FALSE.equals(session.get("livemode")))return;
         if(!"paid".equals(session.get("payment_status"))) {
             if("expired".equals(session.get("status"))){audit.setStatus("NOT_APPLICABLE");audit.setCheckedAt(OffsetDateTime.now());audits.update(audit);}
@@ -50,13 +55,14 @@ public class StripeFeeAuditService {
         var metadata=session.get("metadata") instanceof Map<?,?> m?m:Map.of();
         if(!tx.getId().toString().equals(metadata.get("transaction_id")))throw new IllegalStateException("Fee source mismatch");
         if(!(session.get("payment_intent") instanceof String intentId)||!intentId.startsWith("pi_"))return;
-        var intent=map(get("/v1/payment_intents/"+enc(intentId)+"?expand%5B%5D=latest_charge.balance_transaction"));
+        var intent=map(get("/v1/payment_intents/"+enc(intentId)+"?expand%5B%5D=latest_charge.balance_transaction",account));
         if(!Boolean.FALSE.equals(intent.get("livemode"))||!"succeeded".equals(intent.get("status")))return;
         Object chargeValue=intent.get("latest_charge");
-        if(chargeValue instanceof String id)chargeValue=map(get("/v1/charges/"+enc(id)+"?expand%5B%5D=balance_transaction"));
+        if(chargeValue instanceof String id)chargeValue=map(get("/v1/charges/"+enc(id)+"?expand%5B%5D=balance_transaction",account));
         if(!(chargeValue instanceof Map<?,?> charge)||!Boolean.FALSE.equals(charge.get("livemode"))
                 ||!Boolean.TRUE.equals(charge.get("paid"))||!Boolean.TRUE.equals(charge.get("captured"))
                 ||!"eur".equals(charge.get("currency"))||number(charge.get("amount"))!=audit.getChargedMinor())throw new IllegalStateException("Fee source mismatch");
+        if(account!=null){reconcileDirect(audit,tx,intentId,charge);return;}
         Object balanceValue=charge.get("balance_transaction");
         if(balanceValue instanceof String id)balanceValue=map(get("/v1/balance_transactions/"+enc(id)));
         if(!(balanceValue instanceof Map<?,?> balance)){audit.setLastError("WAITING_BALANCE_TRANSACTION");audits.update(audit);return;}
@@ -77,25 +83,99 @@ public class StripeFeeAuditService {
             details.add(Map.of("type",type,"amountMinor",amount,"currency","eur"));
         }
         long actual=Math.subtractExact(totalFee,applicationFee);if(actual<0)throw new IllegalStateException("Invalid Stripe fee");
+        audit.setStripePaymentIntentId(intentId);
+        if(charge.get("id") instanceof String chargeId)audit.setStripeChargeId(chargeId);
+        long refunded=number(charge.get("amount_refunded"));audit.setRefundedMinor(Math.max(refunded,Objects.requireNonNullElse(audit.getRefundedMinor(),0L)));
+        Object app=charge.get("application_fee");if(app instanceof String id)app=map(get("/v1/application_fees/"+enc(id)));
+        if(app instanceof Map<?,?> application){
+            if(!Boolean.FALSE.equals(application.get("livemode"))||!"eur".equals(application.get("currency"))||!(application.get("id") instanceof String appId)||!appId.startsWith("fee_"))throw new IllegalStateException("Invalid application fee source");
+            long appAmount=number(application.get("amount"));if(TipPricingSnapshot.from(tx).version()>=3&&appAmount!=audit.getChargedMinor()-TipPricingSnapshot.from(tx).recipientMinor())throw new IllegalStateException("Application fee mismatch");
+            audit.setStripeApplicationFeeId(appId);audit.setApplicationFeeMinor(appAmount);audit.setApplicationFeeRefundedMinor(number(application.get("amount_refunded")));
+        }
         audit.setActualTotalFeeMinor(totalFee);audit.setActualFeeMinor(actual);audit.setActualNetMinor(net);audit.setDifferenceMinor(actual-audit.getEstimatedFeeMinor());
         long retained = Math.subtractExact(audit.getChargedMinor(),TipPricingSnapshot.from(tx).recipientMinor());
-        audit.setUncoveredMinor(Math.subtractExact(actual,retained));audit.setBalanceTransactionId(balanceId);audit.setFeeDetails(JsonMapper.createDefault().writeValueAsString(details));
+        audit.setUncoveredMinor(Math.subtractExact(actual,Math.subtractExact(retained,TipPricingSnapshot.from(tx).platformFeeMinor())));
+        audit.setPlatformNetRevenueMinor(refunded>0||tx.getStatus()==TransactionStatus.DISPUTED||tx.getStatus()==TransactionStatus.CHARGEBACK?null:Math.subtractExact(retained,actual));audit.setBalanceTransactionId(balanceId);audit.setFeeDetails(JsonMapper.createDefault().writeValueAsString(details));
         audit.setStatus(actual==audit.getEstimatedFeeMinor()?"MATCHED":"DIFFERENCE");audit.setLastError(null);audit.setCheckedAt(OffsetDateTime.now());audits.update(audit);
         LoggerFactory.getLogger(getClass()).info("Stripe fee audit transaction={} chargedMinor={} surchargeMinor={} estimatedMinor={} actualMinor={} differenceMinor={} uncoveredMinor={} status={}",
                 audit.getTransactionId(),audit.getChargedMinor(),audit.getSurchargeMinor(),audit.getEstimatedFeeMinor(),actual,audit.getDifferenceMinor(),audit.getUncoveredMinor(),audit.getStatus());
     }
+    private void reconcileDirect(PaymentFeeAuditEntity audit,TransactionEntity tx,String intentId,Map<?,?> charge)throws Exception {
+        var pricing=TipPricingSnapshot.from(tx);
+        if(!(charge.get("id") instanceof String chargeId)||!chargeId.startsWith("ch_"))throw new IllegalStateException("Missing charge");
+        if(tx.getStripeChargeId()!=null&&!chargeId.equals(tx.getStripeChargeId())||tx.getStripePaymentIntentId()!=null&&!intentId.equals(tx.getStripePaymentIntentId()))throw new IllegalStateException("Frozen payment source mismatch");
+        audit.setStripeChargeId(chargeId);audit.setStripePaymentIntentId(intentId);
+        Object app=charge.get("application_fee");
+        if(app instanceof String id)app=map(get("/v1/application_fees/"+enc(id))); // platform object, no Stripe-Account
+        if(!(app instanceof Map<?,?> application))throw new IllegalStateException("Missing application fee");
+        if(!Boolean.FALSE.equals(application.get("livemode"))||!"eur".equals(application.get("currency"))
+                ||!(application.get("id") instanceof String appId)||!appId.startsWith("fee_")
+                ||!chargeId.equals(application.get("charge"))||!StripePaymentContext.account(tx).equals(application.get("account"))
+                ||number(application.get("amount"))!=pricing.checkoutMinor()-pricing.recipientMinor())throw new IllegalStateException("Application fee mismatch");
+        tx.setStripeChargeId(chargeId);tx.setStripePaymentIntentId(intentId);transactions.update(tx);
+        audit.setStripeApplicationFeeId(appId);audit.setApplicationFeeMinor(number(application.get("amount")));
+        audit.setRefundedMinor(Math.max(number(charge.get("amount_refunded")),Objects.requireNonNullElse(audit.getRefundedMinor(),0L)));
+        audit.setApplicationFeeRefundedMinor(number(application.get("amount_refunded")));
+        // With fees_collector=application the connected charge's fee/net does NOT prove the
+        // platform's processing cost. Never record its zero Stripe fee as a platform zero.
+        audit.setStatus("REPORT_REQUIRED");audit.setLastError("DIRECT_PLATFORM_FEE_REPORT_REQUIRED");
+        audit.setPlatformNetRevenueMinor(null);audit.setCheckedAt(OffsetDateTime.now());audits.update(audit);
+    }
+
+    /** Trusted reconciliation boundary for an already obtained, itemized platform Stripe fees report.
+     * Not exposed as a customer HTTP endpoint. No Stripe writes. Conflicting evidence is rejected.
+     * Production enablement requires a reviewed report ingestion path as well as refund policy.
+     */
+    @jakarta.transaction.Transactional
+    public void recordPlatformFeeEvidence(UUID transactionId,String accountId,String chargeId,long actualFeeMinor,String reportReference){
+        var tx=transactions.findById(transactionId).orElseThrow();
+        var audit=audits.findById(transactionId).orElseThrow();
+        if(!"STRIPE".equals(tx.getProvider())||!Objects.equals(accountId,StripePaymentContext.account(tx))||accountId==null
+                ||!Objects.equals(chargeId,audit.getStripeChargeId())||chargeId==null
+                ||actualFeeMinor<0||actualFeeMinor>99_999_999||reportReference==null||!reportReference.matches("[A-Za-z0-9_.:-]{1,180}"))throw new IllegalArgumentException("Invalid platform fee evidence");
+        if(audit.getActualFeeMinor()!=null){
+            if(audit.getActualFeeMinor()!=actualFeeMinor||!Objects.equals(audit.getFeeSourceReference(),reportReference))throw new IllegalStateException("Conflicting platform fee evidence");
+            return;
+        }
+        if(audit.getApplicationFeeMinor()==null)throw new IllegalStateException("Application fee not reconciled");
+        long stripeBudget=Math.subtractExact(audit.getApplicationFeeMinor(),TipPricingSnapshot.from(tx).platformFeeMinor());
+        audit.setActualFeeMinor(actualFeeMinor);audit.setDifferenceMinor(Math.subtractExact(actualFeeMinor,audit.getEstimatedFeeMinor()));
+        audit.setUncoveredMinor(Math.subtractExact(actualFeeMinor,stripeBudget));audit.setFeeSourceReference(reportReference);
+        audit.setPlatformNetRevenueMinor(Objects.requireNonNullElse(audit.getRefundedMinor(),0L)>0
+                ||tx.getStatus()==TransactionStatus.REFUNDED||tx.getStatus()==TransactionStatus.DISPUTED||tx.getStatus()==TransactionStatus.CHARGEBACK
+                ?null:Math.subtractExact(audit.getApplicationFeeMinor(),actualFeeMinor));
+        audit.setStatus(actualFeeMinor==audit.getEstimatedFeeMinor()?"MATCHED":"DIFFERENCE");
+        audit.setLastError(null);audit.setCheckedAt(OffsetDateTime.now());audits.update(audit);
+    }
+
     @Serdeable public record Report(UUID transactionId,String status,long chargedMinor,long surchargeMinor,long estimatedFeeMinor,
             Long actualFeeMinor,Long actualTotalFeeMinor,Long actualNetMinor,Long differenceMinor,Long uncoveredMinor,String balanceTransactionId,
-            String feeDetails,String estimateBasis,double estimatePercent,long estimateFixedMinor,String lastError,OffsetDateTime checkedAt,Long selectedAmountMinor,Long recipientAmountMinor,Boolean feeCovered,Long platformRetainedMinor,Long platformResultMinor){}
+            String feeDetails,String estimateBasis,double estimatePercent,long estimateFixedMinor,String lastError,OffsetDateTime checkedAt,Long selectedAmountMinor,Long recipientAmountMinor,Boolean feeCovered,Long platformRetainedMinor,Long platformResultMinor,Long platformFeeMinor,java.math.BigDecimal platformFeePercent,String stripePaymentIntentId,String stripeChargeId,String stripeApplicationFeeId,Long applicationFeeMinor,Long refundedMinor,Long applicationFeeRefundedMinor,String commissionRefundStatus,Long platformNetRevenueMinor,String feeSourceReference){}
     public Optional<Report> report(UUID id){return audits.findById(id).map(a->{
         var tx=transactions.findById(id).orElse(null);
         var pricing=tx==null?null:TipPricingSnapshot.from(tx);
         Long retained=pricing==null?null:Math.subtractExact(a.getChargedMinor(),pricing.recipientMinor());
         Long result=retained==null||a.getActualFeeMinor()==null?null:Math.subtractExact(retained,a.getActualFeeMinor());
-        return new Report(a.getTransactionId(),a.getStatus(),a.getChargedMinor(),a.getSurchargeMinor(),a.getEstimatedFeeMinor(),a.getActualFeeMinor(),a.getActualTotalFeeMinor(),a.getActualNetMinor(),a.getDifferenceMinor(),a.getUncoveredMinor(),a.getBalanceTransactionId(),a.getFeeDetails(),a.getEstimateBasis(),a.getEstimatePercent(),a.getEstimateFixedMinor(),a.getLastError(),a.getCheckedAt(),pricing==null?null:pricing.selectedMinor(),pricing==null?null:pricing.recipientMinor(),pricing==null?null:pricing.feeCovered(),retained,result);
+        if(pricing!=null&&pricing.version()>=3)result=a.getPlatformNetRevenueMinor();
+        return new Report(a.getTransactionId(),a.getStatus(),a.getChargedMinor(),a.getSurchargeMinor(),a.getEstimatedFeeMinor(),a.getActualFeeMinor(),a.getActualTotalFeeMinor(),a.getActualNetMinor(),a.getDifferenceMinor(),a.getUncoveredMinor(),a.getBalanceTransactionId(),a.getFeeDetails(),a.getEstimateBasis(),a.getEstimatePercent(),a.getEstimateFixedMinor(),a.getLastError(),a.getCheckedAt(),pricing==null?null:pricing.selectedMinor(),pricing==null?null:pricing.recipientMinor(),pricing==null?null:pricing.feeCovered(),retained,result,pricing==null?null:pricing.platformFeeMinor(),pricing==null?null:pricing.platformPercent(),a.getStripePaymentIntentId(),a.getStripeChargeId(),a.getStripeApplicationFeeId(),a.getApplicationFeeMinor(),a.getRefundedMinor(),a.getApplicationFeeRefundedMinor(),a.getCommissionRefundStatus(),a.getPlatformNetRevenueMinor(),a.getFeeSourceReference());
     });}
-    protected String get(String path)throws Exception {
-        var request=HttpRequest.newBuilder(URI.create("https://api.stripe.com"+path)).timeout(Duration.ofSeconds(20)).header("Authorization","Bearer "+secret).header("Stripe-Version","2026-09-30.endive").GET().build();
+    /** Signed provider events are append-only evidence; no refund or reversal is initiated here. */
+    public void recordEvent(TransactionEntity tx,String eventId,String type,Map<?,?> object){
+        if(events==null||eventId==null||!eventId.matches("evt_[A-Za-z0-9_]+"))return;
+        if(!(type.equals("charge.refunded")||type.startsWith("charge.dispute.")||type.equals("application_fee.refunded")))return;
+        if(events.existsById(eventId))return;
+        var values=new TreeMap<String,Object>();for(String key:List.of("id","amount","amount_refunded","charge","payment_intent","balance_transaction","application_fee","refunded","status")){Object value=object.get(key);if(value instanceof String||value instanceof Number||value instanceof Boolean)values.put(key,value);}
+        try{var row=new PaymentFeeEventEntity();row.setEventId(eventId);row.setTransactionId(tx.getId());row.setEventType(type);row.setFinancialData(JsonMapper.createDefault().writeValueAsString(values));row.setRecordedAt(OffsetDateTime.now());events.save(row);}catch(java.io.IOException failure){throw new IllegalStateException("Financial event serialization failed",failure);}
+        audits.findById(tx.getId()).ifPresent(a->{a.setStatus("PENDING");a.setPlatformNetRevenueMinor(null);if(a.getPricingVersion()!=null&&a.getPricingVersion()>=3)a.setCommissionRefundStatus("REVIEW_REQUIRED");audits.update(a);});
+    }
+    protected String get(String path,String account)throws Exception {
+        return account==null?get(path):read(path,account);
+    }
+    protected String get(String path)throws Exception {return read(path,null);}
+    private String read(String path,String account)throws Exception {
+        var builder=HttpRequest.newBuilder(URI.create("https://api.stripe.com"+path)).timeout(Duration.ofSeconds(20)).header("Authorization","Bearer "+secret).header("Stripe-Version","2026-09-30.endive");
+        if(account!=null)builder.header("Stripe-Account",account);
+        var request=builder.GET().build();
         var response=HttpClient.newHttpClient().send(request,HttpResponse.BodyHandlers.ofString());
         if(response.statusCode()!=200)throw new IllegalStateException("Stripe fee GET HTTP "+response.statusCode());return response.body();
     }
