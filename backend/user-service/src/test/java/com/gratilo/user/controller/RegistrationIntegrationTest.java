@@ -47,6 +47,10 @@ class RegistrationIntegrationTest implements TestPropertyProvider {
     @Inject UserRepository users;
     @Inject EmailVerificationTokenRepository tokens;
     @Inject PaymentUrlRepository urls;
+    @Inject com.gratilo.user.service.InventoryTestReset inventoryReset;
+    @Inject com.gratilo.user.repository.PoolMemberRepository poolMembers;
+    @Inject com.gratilo.user.repository.PoolRepository pools;
+    @Inject com.gratilo.user.service.PoolService poolService;
     @Inject EmailSendService mail;
     @Inject JsonMapper json;
 
@@ -69,16 +73,37 @@ class RegistrationIntegrationTest implements TestPropertyProvider {
     }
 
     @BeforeEach
-    void prepareIsolatedTestDatabase() {
+    void prepareIsolatedTestDatabase() throws Exception {
         // This context only connects to its isolated test database, never production.
         reset(mail);
         tokens.deleteAll();
-        urls.deleteAll();
+        poolMembers.deleteAll();
+        pools.deleteAll();
+        // Fixtures are disposable. Production forbids deleting used inventory rows.
+        inventoryReset.truncate();
         users.deleteAll();
         PaymentUrlEntity slot = new PaymentUrlEntity();
         slot.setId(1L);
+        slot.setPublicPath("gratilo-001");
         slot.setPaymentUrl("http://localhost:3000/pay/gratilo-001");
         urls.save(slot);
+    }
+
+    @Test
+    void poolCreationIsAtomicAndPersonalAndTeamInventoryStayIndependent() {
+        UserEntity user=new UserEntity();user.setEmail("owner-local@example.invalid");user.setPasswordHash("test-hash");user.setPaymentEnabled(true);
+        user=users.save(user);
+        var first=urls.findById(1L).orElseThrow();first.setAssignedUserId(user.getId());first.setAssignedAt(OffsetDateTime.now());urls.update(first);
+        final var owner=user.getId();
+        assertThrows(IllegalStateException.class,()->poolService.create(owner,"Team"));
+        assertTrue(pools.findByOwnerId(owner).isEmpty());assertTrue(users.findById(owner).orElseThrow().isPaymentEnabled());
+        PaymentUrlEntity free=new PaymentUrlEntity();free.setId(2L);free.setPublicPath("gratilo-002");free.setPaymentUrl("http://localhost:3000/pay/gratilo-002");urls.save(free);
+        var team=poolService.create(owner,"Team");
+        assertEquals("http://localhost:3000/pay/gratilo-002",team.paymentUrl());
+        assertEquals(team.id(),urls.findById(2L).orElseThrow().getAssignedPoolId());
+        assertEquals(owner,urls.findById(1L).orElseThrow().getAssignedUserId());
+        assertEquals(team.id(),poolService.create(owner,"Team").id());assertEquals(2,urls.countByAssignedAtIsNotNull());
+        assertTrue(com.gratilo.user.api.UserResponses.PublicProfile.from(users.findById(owner).orElseThrow(),"Team").paymentEnabled());
     }
 
     @Test

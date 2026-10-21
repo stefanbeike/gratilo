@@ -22,6 +22,8 @@ jobs:
       run: bash ./gradlew :backend:user-service:test :backend:payment-service:test :frontend:check :frontend:build --no-daemon
     - name: Registration regression with isolated PostgreSQL 15 and mocked SMTP
       run: python3 deployment/scripts/test_registration_postgres.py
+    - name: Payment-link inventory migration and concurrency regression
+      run: python3 deployment/scripts/test_pool_link_inventory_postgres.py
     - uses: actions/upload-artifact@v4
       if: always()
       with:

@@ -1,0 +1,202 @@
+= Persönliche und Team-Zahlungslinks
+
+== Bestandsaufnahme und neue Geschäftsregel
+
+Vor dieser Änderung war `user_mgmt.payment_url_pool` kein Trinkgeld-Team:
+Die Tabelle enthält 100 vorgefertigte öffentliche Links (`id`, `payment_url`,
+`assigned_user_id`, `assigned_at`). Die ursprüngliche Spalte `path` wurde bereits
+mit Migration 006 entfernt. Registrierung weist einen freien Datensatz zu und
+kopiert die URL in `users.payment_url_path`. QR-Codes verwenden diese URL;
+eine eigene NFC-Zuordnung oder NFC-Hardware-Verwaltung existiert nicht.
+
+Die alte Vergabe war nur innerhalb eines JVM-Prozesses synchronisiert und
+überschrieb die ausgewählte Bestands-URL anhand der laufenden Frontend-Konfiguration.
+Teams erhielten bisher keinen Bestandsdatensatz. Das Dashboard erzeugte ihre URL
+als `/pay/team/{ownerId}`.
+
+Die bisherige Pausierung persönlicher Zahlungen war eine ausdrückliche frühere
+Geschäftsregel: `UserResponses` lieferte für Poolinhaber `paymentEnabled=false`,
+`personalLinkPaused=true` sowie den Teamnamen statt des persönlichen Namens.
+`RecipientAvailability` übernahm diese Backend-Sperre auch bei direkten
+Checkout-Aufrufen. Zusätzlich sperrte das Dashboard persönliche QR-/Link-Aktionen.
+Die zugrunde liegende persönliche DB-Freigabe wurde dabei nicht verändert.
+
+Die neue Regel ist: Eigener Pool und persönliche Zahlungsberechtigung sind
+unabhängig. Persönlicher Name, Zahlungslink und persönliche Transaktionsliste
+bleiben erhalten. Manuelle Deaktivierung, Stripe-KYC, Direct-Charge-Capabilities,
+Testmodus und Sicherheitsprüfungen bleiben wirksam. Die Ein-Team-Regel wird
+nicht aufgehoben: Ein persönlicher Link ist keine zweite Team-Mitgliedschaft.
+
+== Zuordnung aus dem vorhandenen Bestand
+
+Es gibt weiterhin einen gemeinsamen Linkbestand. Jede Zeile gehört entweder
+einem Nutzer oder einem Team. Keine zusätzlichen Links werden erzeugt und keine
+persönliche Zuordnung wird verändert. `assigned_at` markiert eine dauerhafte
+Verwendung, nicht lediglich eine vorübergehende Reservierung.
+
+Migration 016 ergänzt:
+
+* `public_path`: eindeutiger hostunabhängiger Routing-Schlüssel aus der Bestands-URL.
+* `assigned_pool_id`: eindeutiger Fremdschlüssel auf den bestehenden Pool.
+* `original_pool_id`: unveränderliche ursprüngliche Team-ID; bleibt nach Löschung
+  als historischer Identitätsnachweis erhalten und hat deshalb keinen löschenden FK.
+* `legacy_owner_id`: eindeutige Bindung bisheriger inhaberbasierter Team-URLs.
+* `retired_at`: dauerhaft stillgelegter Link.
+
+Eindeutige Indizes, Fremdschlüssel, CHECK-Constraints und Trigger verhindern
+Doppelzuordnung, Wechsel des öffentlichen Links, Wiedervergabe gebrauchter Links
+und Löschung verwendeter Bestandszeilen. Ein eindeutiger Owner-Index auf Pools
+sichert zusätzlich die bereits bestehende Ein-Inhaber-Regel. Widersprüchliche
+Bestandsdaten führen zu einem Fehler, niemals zur automatischen Bereinigung.
+
+Die Vergabe sperrt zunächst Nutzer beziehungsweise Pool und reserviert danach
+einen freien Datensatz mit `FOR UPDATE SKIP LOCKED`. Ausstehende JPA-Inserts
+werden innerhalb derselben Transaktion vor nativen Sperrabfragen geflusht.
+Ein Request mit derselben vorhandenen Teamidentität verbraucht keinen weiteren
+Link. Ein wiederholter Create-Request mit identischem Besitzer und Namen liefert
+den bestehenden Pool; ein anderer Name erzeugt keinen zweiten Pool.
+
+Pool, Inhabermitgliedschaft und Link werden in derselben Service-Transaktion
+gespeichert. Die Controller-Fehlerbehandlung läuft außerhalb dieser Transaktion,
+damit Fehlerantworten einen notwendigen Rollback nicht verhindern.
+Bei fehlendem Bestand lautet die Fehlermeldung:
+„Keine freien vorgefertigten Zahlungslinks verfügbar. Bitte kontaktiere den Gratilo-Support.“
+
+== Öffentliche Auflösung und Dashboard
+
+* `/pay/gratilo-NNN` bleibt die öffentliche Bestands-URL. Die anonyme Backend-Auflösung
+  liefert entweder das persönliche Profil oder ein öffentliches Teamprofil mit
+  `paymentTarget=POOL`, `ownerId` und unveränderlicher `poolId`.
+* Persönliche Links können ausschließlich über `assigned_user_id` aufgelöst werden;
+  Teamlinks ausschließlich über `assigned_pool_id`. Interne Mitglieder werden
+  nicht veröffentlicht. Query-Parameter überschreiben keine Zielzuordnung.
+* `/pay/team/{Bestandspfad}` wird ebenfalls unterstützt.
+* Bestehende `/pay/team/{ownerId}`-Links werden über `legacy_owner_id` an genau
+  das bei der Migration vorhandene Team gebunden.
+* Der Client verwendet beim Team-Checkout zusätzlich `expectedPoolId`.
+  Das Backend vergleicht sie mit der tatsächlichen Distribution beziehungsweise
+  dem gespeicherten Checkout-Snapshot. Ein zwischenzeitlich ersetztes Team oder
+  ein Retry mit anderer Pool-ID wird vor einem neuen Stripe-POST abgewiesen.
+* Unter „Mein Profil“ bleiben persönlicher Link, QR-Code und persönliche Funktionen
+  unabhängig vom Team verfügbar. Unter „Mein Team“ verwendet der QR-Code die vom
+  Backend gelieferte Bestands-URL. Der alte URL-Fallback bleibt zur API-Kompatibilität.
+  Ein nicht zahlungsbereites Team bleibt für neue Zahlungen gesperrt; sein dauerhaft zugeordneter Link kann dennoch kopiert werden.
+
+Die Zahlung selbst verwendet weiterhin Direct Charges für persönliche Trinkgelder
+und Separate Charges and Transfers für Teams. Gebühren, Snapshots,
+Allokationen, Transfer-Retries und historische Transaktionen werden nicht geändert.
+`personalLinkPaused` bleibt als Kompatibilitätsfeld erhalten und wird künftig
+mit `false` geliefert; `paymentEnabled` bleibt die tatsächliche persönliche Freigabe.
+
+== Bestehende Teams, Löschung und NFC
+
+Die transaktionale Liquibase-Migration ordnet jedem bestehenden Team ohne Link
+in deterministischer Reihenfolge einen freien Bestandslink zu. Es werden keine
+vorher vergebenen Slots verwendet. Die Nachzuordnungsfunktion
+`user_mgmt.backfill_pool_payment_links()` ist idempotent. Bei zu wenig Bestand
+scheitert die gesamte Migration einschließlich Schemaänderungen atomar.
+Vor einer späteren Einführung muss der vorhandene freie Bestand geprüft werden.
+Vor dem vom Nutzer zusätzlich freigegebenen Rollout wird der Bestand ausschließlich lesend geprüft; Änderungen an vorhandenen Pools erfolgen nur durch die geprüfte Migration.
+
+Beim Löschen eines Teams setzt der Fremdschlüssel `assigned_pool_id` auf NULL;
+der Schutztrigger setzt dabei `retired_at`. `original_pool_id`,
+`legacy_owner_id`, URL und Vergabezeitpunkt bleiben erhalten. Beide früheren
+Team-Links liefern anschließend kein zahlbares Ziel mehr. Erstellt derselbe
+Inhaber ein neues Team, erhält dieses einen anderen Bestandslink. Der alte
+inhaberbasierte Alias wird ausdrücklich nicht auf das neue Team umgebogen.
+Gedruckte QR-Codes und NFC-Tags können dadurch keinen anderen Pool begünstigen.
+
+Für historische Löschungen vor dieser Migration kann die ursprüngliche Bindung
+einer reinen Owner-URL nicht aus dem aktuellen Schema rekonstruiert werden.
+Die Migration bindet den Alias an den aktuell vorhandenen Pool; eine frühere
+versehentliche Wiederverwendung wäre vor Einführung gesondert zu prüfen.
+Es gibt aktuell keinen eigenständigen Archivierungs-/Deaktivierungszustand für
+Pools; inaktive Mitglieder beeinflussen weiterhin nur Zahlungsbereitschaft und
+Verteilung. Ein stillgelegter Link wird nicht automatisch reaktiviert.
+
+Ein gemischter Betrieb mit alten Backend-Versionen nach der Migration sollte
+vermieden werden: Deren alte Auswahl freier Nutzerlinks kennt Team-Zuordnungen
+nicht. Die neuen DB-Constraints verhindern zwar deren Überschreiben, können dann
+aber die alte Registrierung ablehnen. Ein späteres Deployment benötigt deshalb
+koordinierten Rollout und ausreichend Linkbestand.
+
+== Lokale Prüfungen
+
+[source,bash]
+----
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew :backend:user-service:test :backend:payment-service:test
+cd frontend
+npm test
+npm run build
+cd ..
+python3 deployment/scripts/test_pool_link_inventory_postgres.py
+----
+
+Die PostgreSQL-Prüfung verwendet ausschließlich einen neuen, isolierten Docker-
+Container mit `--network none`, einer eigenen Testdatenbank und anschließendem
+Entfernen des Containers. Sie prüft Migration, Nachzuordnung, parallele
+Reservierung, Eindeutigkeit, Link-Stilllegung, Löschschutz und Rollback bei
+erschöpftem Bestand. Backend-Tests prüfen außerdem echte Service-Transaktionen,
+Registrierungs-Rollback, konkurrierende Team-Erstellung, getrennte Linkziele,
+Autorisierung und den Pool-ID-Abgleich. Frontend-Tests prüfen beide Linkrouten,
+Linkdarstellung und unverändert nutzbare persönliche Links für Poolinhaber.
+
+Die Implementierung und Tests erzeugen keine Stripe-Zahlungen oder Stripe-POSTs.
+Push und Deployment wurden nachträglich ausdrücklich freigegeben. Der Rollout bleibt
+im Stripe-Testmodus; historische Zahlungen und Transfers werden nicht verändert.
+
+== Read-only-Prüfung vor dem freigegebenen Rollout
+
+Am 21.10.2026 ergab die ausschließlich lesende Bestandsprüfung: 1 vorhandener Pool,
+97 freie Links, keine doppelten Poolinhaber oder Pfade, keine ungültigen Pfade und
+keine falschen Domains bei freien Links. Migration 016 war noch nicht angewendet.
+Der Zugriff erfolgte über den vorhandenen SSM-Zugang mit TLS und einer ausdrücklich
+schreibgeschützten PostgreSQL-Transaktion. Keine Infrastruktur wurde dafür angelegt.
+
+== Verifikation vor Veröffentlichung
+
+* 62 User-Service-Tests und 158 Payment-Service-Tests: erfolgreich.
+* 114 Frontend-Tests, TypeScript und Vite-Build: erfolgreich.
+* 141 Pipeline-Tests und Actionlint: erfolgreich.
+* Isolierter PostgreSQL-Test für Migration, Bestandsvergabe, konkurrierende
+  Reservierung, Stilllegung, Löschschutz und transaktionalen Abbruch: erfolgreich.
+* Zusätzlich: alle 8 HTTP-/Liquibase-PostgreSQL-Integrationstests erfolgreich,
+  einschließlich der echten neuen Migration. Keine echten Stripe-API-Aufrufe.
+
+Die echten PostgreSQL-Constraints deckten während der Implementierung eine
+JPA-Autoflush-Falle auf. Alle notwendigen Abfragen stehen nun vor der Mutation
+der verwalteten Linkzeile; der Vergabezeitpunkt wird vor der ersten Speicherung
+gesetzt. HTTP-Testserver verwenden dynamische Ports; das isolierte Testclient-
+Timeout beträgt für kalte WSL-JVMs 30 Sekunden.
+
+== Geänderte Dateien
+
+* `.github/workflows/002_unit_tests.yml`
+* `backend/payment-service/src/main/java/com/gratilo/payment/api/TipPaymentRequest.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeCheckoutService.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolCheckoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/RecipientAvailabilityTest.java`
+* `backend/user-service/src/main/java/com/gratilo/user/api/PoolResponses.java`
+* `backend/user-service/src/main/java/com/gratilo/user/api/UserResponses.java`
+* `backend/user-service/src/main/java/com/gratilo/user/controller/PoolController.java`
+* `backend/user-service/src/main/java/com/gratilo/user/controller/PublicPoolController.java`
+* `backend/user-service/src/main/java/com/gratilo/user/controller/UserController.java`
+* `backend/user-service/src/main/java/com/gratilo/user/domain/PaymentUrlEntity.java`
+* `backend/user-service/src/main/java/com/gratilo/user/repository/PaymentUrlRepository.java`
+* `backend/user-service/src/main/java/com/gratilo/user/repository/PoolRepository.java`
+* `backend/user-service/src/main/java/com/gratilo/user/service/PaymentUrlPoolService.java`
+* `backend/user-service/src/main/java/com/gratilo/user/service/PoolService.java`
+* `backend/user-service/src/main/resources/db/changelog/changelog-master.xml`
+* `backend/user-service/src/main/resources/db/changelog/user_mgmt/016_pool_payment_links.sql`
+* `backend/user-service/src/test/java/com/gratilo/user/controller/PersonalPoolLinkTest.java`
+* `backend/user-service/src/test/java/com/gratilo/user/controller/RegistrationIntegrationTest.java`
+* `backend/user-service/src/test/java/com/gratilo/user/service/InventoryTestReset.java`
+* `backend/user-service/src/test/java/com/gratilo/user/service/PaymentLinkInventoryTest.java`
+* `backend/user-service/src/test/java/com/gratilo/user/service/TeamMembershipIntegrationTest.java`
+* `backend/user-service/src/test/resources/application-registration-test.yml`
+* `deployment/scripts/test_pool_link_inventory_postgres.py`
+* `docs/payment-link-inventory.adoc`
+* `frontend/src/Dashboard.tsx`
+* `frontend/src/PoolPayments.test.tsx`
+* `frontend/src/PublicTipCheckout.tsx`
+* `frontend/src/StripePayment.test.tsx`

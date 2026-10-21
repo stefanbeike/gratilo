@@ -302,3 +302,25 @@ for (const pool of [false, true]) for (const covered of [false, true]) it(`shows
   expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ tipAmountMinor: 2500, feeCovered: covered,
     expectedTotalAmountMinor: covered ? 2607 : 2500, expectedRecipientAmountMinor: 2500 - (pool ? 45 : 170) - (covered ? 0 : 104) })
 })
+
+it.each([false,true])('resolves preallocated team links by server mapping (team route=%s)', async explicitTeam => {
+  const poolId='22222222-2222-2222-2222-222222222222'
+  const fetch=vi.fn(async(url:string, options?:RequestInit)=>{
+    if(url.includes('/public/'))return response({ownerId:user,poolId,name:'Bestandslink-Team',paymentTarget:'POOL',memberNames:[]})
+    if(url.includes('/eligibility'))return response({canReceiveTips:true})
+    if(url.includes('/quote'))return response({tipAmountMinor:500,serviceFeeMinor:0,totalAmountMinor:500,recipientAmountMinor:410})
+    return response({transactionId:'pool-test'})
+  })
+  vi.stubGlobal('fetch',fetch)
+  history.replaceState({},'',`/pay/${explicitTeam?'team/':''}gratilo-002?recipient=manipulated`)
+  render(<DemoPayment />)
+  await screen.findByRole('heading',{name:'Trinkgeld für Bestandslink-Team.'})
+  const next=screen.getByRole('button',{name:/Weiter/});await waitFor(()=>expect(next).toBeEnabled());fireEvent.click(next)
+  fireEvent.click(await screen.findByRole('button',{name:/Weiter zur Zusammenfassung/}))
+  fireEvent.click(await screen.findByRole('button',{name:/Jetzt sicher bezahlen/}))
+  await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url===`/payment-service/tips/pools/${user}/checkout`)).toBe(true))
+  const checkout=fetch.mock.calls.find(([url])=>url.endsWith('/checkout'))!
+  expect(JSON.parse(String(checkout[1]?.body))).toMatchObject({expectedPoolId:poolId,expectedRecipientAmountMinor:410})
+  expect(fetch.mock.calls.some(([url])=>url.includes('manipulated'))).toBe(false)
+  expect(fetch.mock.calls.some(([url])=>url===`/payment-service/tips/${user}/checkout`)).toBe(false)
+})

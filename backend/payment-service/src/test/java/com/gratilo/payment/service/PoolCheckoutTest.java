@@ -77,7 +77,12 @@ class PoolCheckoutTest {
                 return "{\"livemode\":false,\"id\":\"cs_test_pool\",\"url\":\"https://checkout.stripe.com/test\"}";
             }
         };
-        var response = service.createPool(owner, new TipPaymentRequest(tip, "Team danke", "pool-key", covered)).orElseThrow();
+        assertThrows(StripeCheckoutService.PoolNotReadyException.class,()->service.createPool(owner,
+                new TipPaymentRequest(tip,"Team danke","wrong-target",covered,null,null,UUID.randomUUID())));
+        assertTrue(calls.isEmpty());assertNull(stored.get());assertTrue(snapshots.isEmpty());
+        var response = service.createPool(owner, new TipPaymentRequest(tip, "Team danke", "pool-key", covered,null,null,frozenPoolId)).orElseThrow();
+        assertThrows(StripeCheckoutService.CheckoutConflictException.class,()->service.createPool(owner,
+                new TipPaymentRequest(tip,"Team danke","pool-key",covered,null,null,UUID.randomUUID())));
         assertEquals("https://checkout.stripe.com/test", response.checkoutUrl());
         var form = calls.getFirst();
         assertTrue(form.contains("line_items%5B0%5D%5Bprice_data%5D%5Bunit_amount%5D="+expected.totalAmountMinor()));

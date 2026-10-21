@@ -4,7 +4,7 @@ import { paymentsEnabled } from './stripe'
 import { TeamAvatar } from './TeamImageEditor'
 
 type Quote = { tipAmountMinor: number; serviceFeeMinor: number; totalAmountMinor: number; currency: string; serviceFeePercent: number; fixedFeeMinor: number; recipientAmountMinor: number; feeEstimated?: boolean; estimatedStripeFeeMinor?: number; feeEstimateBasis?: string; pricingVersion?: number; platformFeeMinor?: number; platformFeePercent?: number }
-type Recipient = { userId: string; firstName?: string; lastName?: string; organisation?: string; profileImage?: string | null; paymentEnabled?: boolean; personalLinkPaused?: boolean; poolName?: string | null; memberNames?: string[] }
+type Recipient = { userId: string; firstName?: string; lastName?: string; organisation?: string; profileImage?: string | null; paymentEnabled?: boolean; personalLinkPaused?: boolean; poolId?: string; poolName?: string | null; memberNames?: string[] }
 type SavedFlow = { amount: number; message: string; feeCovered: boolean; step: 1 | 2 | 3; attemptKey?: string; pendingSessionId?: string }
 type CheckoutStatus = { status: 'PAID' | 'PENDING' | 'FAILED'; confirmed: boolean; transactionId?: string; tipAmountMinor?: number; amountPaidMinor?: number; recipientUserId?: string; recipientAmountMinor?: number; checkoutUrl?: string }
 const MIN_TIP = 100
@@ -32,7 +32,8 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   const path = location.pathname
   const isSuccess = path.endsWith('/success')
   const isCancelled = path.endsWith('/cancelled')
-  const isPool = path.startsWith('/pay/team/') || ((isSuccess || isCancelled) && sessionStorage.getItem('gratilo:last-pool') === 'true')
+  const routeIsPool = path.startsWith('/pay/team/') || ((isSuccess || isCancelled) && sessionStorage.getItem('gratilo:last-pool') === 'true')
+  const [isPool, setIsPool] = useState(routeIsPool)
   const recipientPath = isSuccess || isCancelled ? sessionStorage.getItem('gratilo:last-recipient') || '' : path.split('/').pop() || ''
   const legacyFlowStorageKey = `gratilo:checkout:${recipientPath || 'current'}`
   const flowStorageKey = `gratilo:checkout:${isPool ? 'pool' : 'individual'}:${recipientPath || 'current'}`
@@ -57,14 +58,21 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   useEffect(() => { sessionStorage.setItem(flowStorageKey, JSON.stringify(flow)) }, [flow, flowStorageKey])
   useEffect(() => {
     if (!recipientPath) return
-    const endpoint = isPool ? `/user-service/pools/public/${encodeURIComponent(recipientPath)}`
+    const endpoint = routeIsPool ? `/user-service/pools/public/${encodeURIComponent(recipientPath)}`
       : `/user-service/users/public/${(/^[0-9a-f-]{36}$/i.test(recipientPath) ? recipientPath : `payment/${encodeURIComponent(recipientPath)}`)}`
     let current = true
     fetch(endpoint, { cache: 'no-store' }).then(response => response.ok ? response.json() : Promise.reject())
-      .then((profile: Recipient | { ownerId: string; name: string; memberNames: string[]; profileImage?: string | null }) => { if (current) { const recipientProfile = isPool ? { userId: (profile as { ownerId: string }).ownerId, poolName: (profile as { name: string }).name, profileImage: (profile as { profileImage?: string | null }).profileImage } : profile as Recipient; setRecipient(recipientProfile); setRecipientId(recipientProfile.userId); sessionStorage.setItem('gratilo:last-recipient', recipientPath); sessionStorage.setItem('gratilo:last-pool', String(isPool)) } })
+      .then((profile: Recipient & { ownerId?: string; name?: string; paymentTarget?: string; poolId?: string }) => {
+        if (!current) return
+        const team = routeIsPool || profile.paymentTarget === 'POOL'
+        const recipientProfile: Recipient = team ? { userId: profile.ownerId!, poolName: profile.name, poolId: profile.poolId, profileImage: profile.profileImage } : profile
+        if (team !== isPool) setFlow(savedFlow(`gratilo:checkout:${team ? 'pool' : 'individual'}:${recipientPath}`, legacyFlowStorageKey, team))
+        setIsPool(team); setRecipient(recipientProfile); setRecipientId(recipientProfile.userId)
+        sessionStorage.setItem('gratilo:last-recipient', recipientPath); sessionStorage.setItem('gratilo:last-pool', String(team))
+      })
       .catch(() => { if (current) setError('Das Gratilo-Profil konnte nicht geladen werden.') })
     return () => { current = false }
-  }, [recipientPath, isPool])
+  }, [recipientPath, routeIsPool])
   useEffect(() => {
     if (!recipientId || isResult) return
     let current = true
@@ -116,7 +124,7 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
     const attemptKey = flow.attemptKey || nextKey()
     update({ attemptKey })
     try {
-      const response = await fetch(`/payment-service/tips/${isPool ? `pools/${recipientId}` : recipientId}/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ tipAmountMinor: flow.amount, message: flow.message || null, idempotencyKey: attemptKey, feeCovered: flow.feeCovered, expectedTotalAmountMinor: quote.totalAmountMinor, expectedRecipientAmountMinor: quote.recipientAmountMinor }) })
+      const response = await fetch(`/payment-service/tips/${isPool ? `pools/${recipientId}` : recipientId}/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ tipAmountMinor: flow.amount, message: flow.message || null, idempotencyKey: attemptKey, feeCovered: flow.feeCovered, expectedTotalAmountMinor: quote.totalAmountMinor, expectedRecipientAmountMinor: quote.recipientAmountMinor, expectedPoolId: isPool ? recipient?.poolId : undefined }) })
       const result = await response.json()
       if (!response.ok) {
         if (['CHECKOUT_ALREADY_PROCESSED','CHECKOUT_DETAILS_CONFLICT'].includes(result.code) && /^cs_test_[A-Za-z0-9_]+$/.test(result.sessionId || '')) {
@@ -147,7 +155,7 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   async function refreshStatus() { setLoadRevision(value => value + 1) }
 
   if (!paymentsEnabled) return <main className="tip-page"><CheckoutBrand /><section className="tip-card"><h1>Zahlungen sind derzeit deaktiviert.</h1><p>Aktuell sind keine Zahlungen möglich.</p></section></main>
-  if (!isResult && recipient && recipient.paymentEnabled === false) return <main className="tip-page"><CheckoutBrand /><section className="tip-card"><span className="step-label">ZAHLUNGSSEITE</span><h1>Momentan nicht verfügbar.</h1><p className="tip-intro">{recipient.personalLinkPaused ? 'Dieser persönliche Zahlungslink ist pausiert. Bitte verwende den Pool-Zahlungslink.' : 'Diese Zahlungsseite ist derzeit deaktiviert.'}</p></section></main>
+  if (!isResult && recipient && recipient.paymentEnabled === false) return <main className="tip-page"><CheckoutBrand /><section className="tip-card"><span className="step-label">ZAHLUNGSSEITE</span><h1>Momentan nicht verfügbar.</h1><p className="tip-intro">{'Diese Zahlungsseite ist derzeit deaktiviert.'}</p></section></main>
 
   if (isResult) {
     const status = checkoutStatus?.status || 'PENDING'

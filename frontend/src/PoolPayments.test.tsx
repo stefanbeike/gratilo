@@ -5,9 +5,9 @@ vi.mock('./features',()=>({useTipPoolsEnabled:()=>true}))
 import { Dashboard } from './Dashboard'
 const session={userId:'owner',accessToken:'token',email:'owner@example.test'}
 afterEach(()=>{cleanup();vi.unstubAllGlobals();window.history.replaceState({},'','/account')})
-it('pauses the personal QR for owners, shows member readiness and reactivates it after pool deletion',async()=>{
+it('keeps the personal QR active for owners while an unready team stays blocked',async()=>{
   vi.stubGlobal('confirm',vi.fn(()=>true))
-  const pool={id:'pool',ownerId:'owner',name:'Team',members:[{id:'m1',userId:'owner',name:'Alex',email:session.email,status:'ACTIVE',active:true,sharePercent:50},{id:'m2',userId:'other',name:'Sam',email:'sam@example.test',status:'ACTIVE',active:true,sharePercent:50}]}
+  const pool={id:'pool',ownerId:'owner',name:'Team',paymentUrl:'http://localhost:3000/pay/gratilo-002',members:[{id:'m1',userId:'owner',name:'Alex',email:session.email,status:'ACTIVE',active:true,sharePercent:50},{id:'m2',userId:'other',name:'Sam',email:'sam@example.test',status:'ACTIVE',active:true,sharePercent:50}]}
   vi.stubGlobal('fetch',vi.fn(async(url:string,options?:RequestInit)=>({ok:true,json:async()=>{
     if(url.endsWith('/test-access'))return {enabled:true,restricted:false}
     if(url.includes('/connect-account/pools/'))return [{userId:'owner',status:'READY',transfersEnabled:true,payoutsEnabled:true,checkedAt:new Date().toISOString()},{userId:'other',status:'NOT_STARTED',transfersEnabled:false,payoutsEnabled:false,checkedAt:new Date().toISOString()}]
@@ -17,13 +17,15 @@ it('pauses the personal QR for owners, shows member readiness and reactivates it
     return {}
   }})))
   render(<Dashboard session={session} profile={{email:session.email,paymentEnabled:true,paymentUrl:'/pay/original'}} onProfile={vi.fn()} onLogout={vi.fn()} />)
-  expect(await screen.findByText(/Dein persönlicher Zahlungslink ist pausiert/)).toBeInTheDocument()
-  expect(screen.getByRole('button',{name:'Zahlungslink kopieren'})).toBeDisabled()
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Zahlungslink kopieren'})).toBeEnabled())
+  expect(screen.queryByText(/Dein persönlicher Zahlungslink ist pausiert/)).not.toBeInTheDocument()
+  expect(screen.getByRole('button',{name:'Zahlungslink kopieren'})).toBeEnabled()
   fireEvent.click(screen.getByRole('button',{name:'Mein Team'}))
+  expect(await screen.findByLabelText('Team-Trinkgeldlink')).toHaveValue('http://localhost:3000/pay/gratilo-002')
   fireEvent.click(await screen.findByText('Team-Einstellungen und Mitglieder verwalten'))
   expect(await screen.findByText('1 von 2 Mitgliedern sind für Stripe bereit.')).toBeInTheDocument()
   expect(screen.getByText('Onboarding ausstehend')).toBeInTheDocument()
-  expect(screen.getByRole('button',{name:'Team-Link kopieren'})).toBeDisabled()
+  expect(screen.getByRole('button',{name:'Team-Link kopieren'})).toBeEnabled()
   fireEvent.click(screen.getByRole('button',{name:'Pool löschen'}))
   fireEvent.click(screen.getByRole('button',{name:'Mein Profil'}))
   await waitFor(()=>expect(screen.queryByText(/Dein persönlicher Zahlungslink ist pausiert/)).not.toBeInTheDocument())

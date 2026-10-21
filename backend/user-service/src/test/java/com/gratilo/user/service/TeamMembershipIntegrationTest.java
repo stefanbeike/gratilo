@@ -20,6 +20,12 @@ class TeamMembershipIntegrationTest implements TestPropertyProvider {
     @Inject UserRepository users;
     @Inject PoolRepository pools;
     @Inject PoolMemberRepository members;
+    @Inject PaymentUrlRepository urls;
+    @Inject InventoryTestReset inventoryReset;
+    void clearInventory() {inventoryReset.truncate();}
+    @BeforeEach void inventory() throws Exception {clearInventory();for(long id=1;id<=4;id++){
+        var slot=new com.gratilo.user.domain.PaymentUrlEntity();slot.setId(id);slot.setPublicPath("team-fixture-"+id);slot.setPaymentUrl("http://localhost:3000/pay/team-fixture-"+id);urls.save(slot);
+    }}
     @Override public Map<String,String> getProperties(){
         String url=System.getenv("REGISTRATION_TEST_DATABASE_URL");
         if(url!=null&&!url.matches("jdbc:postgresql://127\\.0\\.0\\.1:[0-9]+/gratilo_registration_test"))throw new IllegalStateException("Only an isolated loopback test database is allowed");
@@ -28,7 +34,7 @@ class TeamMembershipIntegrationTest implements TestPropertyProvider {
     @MockBean(EmailSendService.class) EmailSendService mail(){return mock(EmailSendService.class);}
     final List<UUID> createdUsers=new ArrayList<>();
     UUID user(){var u=new UserEntity();u.setEmail(UUID.randomUUID()+"@example.invalid");u.setPasswordHash("unused-test-only");u=users.save(u);createdUsers.add(u.getId());return u.getId();}
-    @AfterEach void cleanup(){for(var id:createdUsers){for(var m:members.findByUserId(id))members.deleteById(m.getId());pools.findByOwnerId(id).ifPresent(p->pools.deleteById(p.getId()));}for(var id:createdUsers)users.deleteById(id);createdUsers.clear();}
+    @AfterEach void cleanup() throws Exception {for(var id:createdUsers){for(var m:members.findByUserId(id))members.deleteById(m.getId());pools.findByOwnerId(id).ifPresent(p->pools.deleteById(p.getId()));}clearInventory();for(var id:createdUsers)users.deleteById(id);createdUsers.clear();}
     void race(Runnable first,Runnable second) throws Exception {
         var start=new CountDownLatch(1);var executor=Executors.newFixedThreadPool(2);
         try {

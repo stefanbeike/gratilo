@@ -16,8 +16,8 @@ public class PublicPoolController {
     private final PoolService pools;
     public PublicPoolController(PoolService pools) { this.pools = pools; }
     @Get("/{ownerId}")
-    public HttpResponse<?> get(UUID ownerId) {
-        var pool = pools.publicDetails(ownerId);
+    public HttpResponse<?> get(String ownerId) {
+        var pool = pools.publicLink(ownerId);
         return pool == null ? HttpResponse.notFound() : HttpResponse.ok(pool).header("Cache-Control", "no-store");
     }
 }

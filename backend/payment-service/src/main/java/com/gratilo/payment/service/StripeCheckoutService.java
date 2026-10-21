@@ -89,6 +89,7 @@ public class StripeCheckoutService {
                 tx.getAccountUserId().toString(), checkoutUrl, TipPricingSnapshot.from(tx).recipientMinor());
     }
     public Optional<CheckoutResponse> create(UUID recipient, TipPaymentRequest request) throws Exception {
+        if(request.expectedPoolId()!=null) throw new InvalidCheckoutRequestException();
         if (request.tipAmountMinor() == null || request.tipAmountMinor() < 100 || request.tipAmountMinor() > 1000000
                 || request.idempotencyKey() == null || !request.idempotencyKey().matches("[A-Za-z0-9_-]{1,100}"))
             throw new InvalidCheckoutRequestException();
@@ -168,6 +169,7 @@ public class StripeCheckoutService {
         if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
         var resumed=resumeExisting(owner,request,true);if(resumed.isPresent())return resumed;
         var pool = poolClient.find(owner).orElseThrow(PoolNotReadyException::new);
+        if (request.expectedPoolId()!=null && !request.expectedPoolId().equals(pool.poolId())) throw new PoolNotReadyException();
         if (pool.poolId() == null || pool.members().isEmpty()) throw new PoolNotReadyException();
         var eligible = new ArrayList<PoolEligible>();
         for (var member : pool.members()) {
@@ -255,6 +257,7 @@ public class StripeCheckoutService {
         var found=transactions.findByAccountUserIdAndIdempotencyKey(owner,request.idempotencyKey());if(found.isEmpty())return Optional.empty();
         var tx=found.get();var metadata=json(tx.getMetadata());
         if(!"STRIPE".equals(tx.getProvider())||tx.getType()!=TransactionType.TIP||metadata.containsKey("poolId")!=pool||tx.getAmountMinor()!=request.tipAmountMinor()||!Objects.equals(tx.getDescription(),request.message())||!Boolean.valueOf(request.feeCovered()).equals(metadata.get("feeCovered")))throw new CheckoutConflictException("CHECKOUT_DETAILS_CONFLICT",tx);
+        if(pool && request.expectedPoolId()!=null && !request.expectedPoolId().toString().equals(metadata.get("poolId")))throw new CheckoutConflictException("CHECKOUT_DETAILS_CONFLICT",tx);
         var saved=TipPricingSnapshot.from(tx).quote();
         if(request.expectedTotalAmountMinor()!=null&&request.expectedTotalAmountMinor()!=saved.totalAmountMinor()||request.expectedRecipientAmountMinor()!=null&&request.expectedRecipientAmountMinor()!=saved.recipientAmountMinor())throw new CheckoutConflictException("CHECKOUT_DETAILS_CONFLICT",tx);
         if(tx.getStatus()!=TransactionStatus.PENDING)throw new CheckoutConflictException("CHECKOUT_ALREADY_PROCESSED",tx);

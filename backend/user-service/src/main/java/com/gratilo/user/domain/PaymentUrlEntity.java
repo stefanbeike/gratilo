@@ -1,4 +1,4 @@
 package com.gratilo.user.domain;
 import jakarta.persistence.*; import lombok.*; import java.time.OffsetDateTime; import java.util.UUID;
 @Entity @Table(name="payment_url_pool", schema="user_mgmt") @Getter @Setter @NoArgsConstructor
-public class PaymentUrlEntity { @Id private Long id; @Column(name="payment_url",unique=true) private String paymentUrl; @Column(name="assigned_user_id",unique=true) private UUID assignedUserId; @Column(name="assigned_at") private OffsetDateTime assignedAt; }
+public class PaymentUrlEntity { @Id private Long id; @Column(name="payment_url",unique=true) private String paymentUrl; @Column(name="public_path",unique=true) private String publicPath; @Column(name="assigned_pool_id",unique=true) private UUID assignedPoolId; @Column(name="original_pool_id",unique=true) private UUID originalPoolId; @Column(name="legacy_owner_id",unique=true) private UUID legacyOwnerId; @Column(name="retired_at") private OffsetDateTime retiredAt; @Column(name="assigned_user_id",unique=true) private UUID assignedUserId; @Column(name="assigned_at") private OffsetDateTime assignedAt; }

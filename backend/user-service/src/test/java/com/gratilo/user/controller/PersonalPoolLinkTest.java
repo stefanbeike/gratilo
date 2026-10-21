@@ -11,7 +11,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PersonalPoolLinkTest {
-    @Test void ownershipPausesPersonalLinkAndDeletionRestoresTheSameUrl() {
+    @Test void ownershipAndDeletionPreserveEnabledPersonalIdentity() {
         UUID owner=UUID.randomUUID();
         var user=new UserEntity(); user.setId(owner); user.setEmail("owner@example.test"); user.setPaymentEnabled(true); user.setPaymentUrlPath("/pay/unchanged");
         var users=mock(UserRepository.class); when(users.findById(owner)).thenReturn(Optional.of(user)); when(users.findByIdForUpdate(owner)).thenReturn(Optional.of(user));
@@ -27,7 +27,7 @@ class PersonalPoolLinkTest {
         assertTrue(((UserResponses.PublicProfile)controller.publicProfile(owner).body()).paymentEnabled());
         var created=service.create(owner,"Team");
         var paused=(UserResponses.PublicProfile)controller.publicProfile(owner).body();
-        assertFalse(paused.paymentEnabled()); assertTrue(paused.personalLinkPaused()); assertTrue(paused.poolParticipationEnabled());
+        assertTrue(paused.paymentEnabled()); assertFalse(paused.personalLinkPaused()); assertTrue(paused.poolParticipationEnabled());
         assertEquals("/pay/unchanged",paused.paymentUrl()); assertTrue(user.isPaymentEnabled());
         service.delete(owner,created.id());
         var restored=(UserResponses.PublicProfile)controller.publicProfile(owner).body();

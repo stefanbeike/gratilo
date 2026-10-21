@@ -21,3 +21,11 @@ liquibase:
 logger:
   levels:
     ROOT: WARN
+
+# Allow cold JVM/BCrypt/database setup on WSL without weakening business assertions.
+micronaut:
+  server:
+    port: -1
+  http:
+    client:
+      read-timeout: 30s

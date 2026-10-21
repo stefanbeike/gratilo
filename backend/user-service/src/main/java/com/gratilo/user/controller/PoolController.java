@@ -6,7 +6,7 @@ import com.gratilo.user.api.*; import com.gratilo.user.service.PoolService; impo
 public class PoolController { private final PoolService service; public PoolController(PoolService service){this.service=service;}
  @Get public HttpResponse<?> mine(Authentication a){return HttpResponse.ok(service.mine(id(a)));}
  @Get("/memberships") public HttpResponse<?> memberships(Authentication a){return HttpResponse.ok(service.memberships(id(a)));}
- @Post @io.micronaut.transaction.annotation.Transactional public HttpResponse<?> create(@Body @Valid PoolRequests.Create r,Authentication a){try{return HttpResponse.ok(service.create(id(a),r.name()));}catch(Exception e){return HttpResponse.badRequest(Map.of("message",e.getMessage()));}}
+ @Post public HttpResponse<?> create(@Body @Valid PoolRequests.Create r,Authentication a){try{return HttpResponse.ok(service.create(id(a),r.name()));}catch(Exception e){return HttpResponse.badRequest(Map.of("message",e.getMessage()));}}
  @Put("/{poolId}") public HttpResponse<?> rename(UUID poolId,@Body @Valid PoolRequests.Create r,Authentication a){try{return HttpResponse.ok(service.rename(id(a),poolId,r.name()));}catch(Exception e){return HttpResponse.badRequest(Map.of("message",e.getMessage()));}}
  @io.micronaut.serde.annotation.Serdeable public record TeamImage(@io.micronaut.core.annotation.Nullable String profileImage) {}
  @Put("/{poolId}/image") public HttpResponse<?> image(UUID poolId,@Body TeamImage r,Authentication a){try{return HttpResponse.ok(service.setImage(id(a),poolId,r.profileImage()));}catch(Exception e){return HttpResponse.badRequest(Map.of("message",e.getMessage()));}}

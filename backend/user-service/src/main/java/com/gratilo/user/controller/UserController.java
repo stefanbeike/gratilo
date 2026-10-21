@@ -78,8 +78,10 @@ public class UserController {
     @Secured(SecurityRule.IS_ANONYMOUS)
     @Get("/public/payment/{path}")
     public HttpResponse<?> publicPaymentProfile(String path) {
+        var team=poolService==null?null:poolService.publicLink(path);
+        if(team!=null)return HttpResponse.ok(team).header("Cache-Control", "no-store");
         UserEntity user = paymentUrlPoolService.userForPath(path);
-        return user == null ? HttpResponse.notFound() : HttpResponse.ok(UserResponses.PublicProfile.from(user, poolService == null ? null : poolService.publicPoolName(user.getId()))).header("Cache-Control", "no-store");
+        return user == null ? HttpResponse.notFound() : HttpResponse.ok(UserResponses.PublicProfile.from(user)).header("Cache-Control", "no-store");
     }
 
     @Secured(SecurityRule.IS_AUTHENTICATED)
@@ -87,7 +89,7 @@ public class UserController {
     @Transactional
     public HttpResponse<?> showProfile(Authentication authentication) {
         return authenticatedUser(authentication)
-                .map(user -> HttpResponse.ok(UserResponses.Profile.from(user, poolService != null && poolService.publicPoolName(user.getId()) != null)))
+                .map(user -> HttpResponse.ok(UserResponses.Profile.from(user)))
                 .orElseGet(HttpResponse::notFound);
     }
 
@@ -95,7 +97,7 @@ public class UserController {
     @Get("/public/{id}")
     public HttpResponse<?> publicProfile(UUID id) {
         return userRepository.findById(id).filter(user -> user.getDeletedAt() == null)
-                .map(user -> HttpResponse.ok(UserResponses.PublicProfile.from(user, poolService == null ? null : poolService.publicPoolName(user.getId()))).header("Cache-Control", "no-store"))
+                .map(user -> HttpResponse.ok(UserResponses.PublicProfile.from(user)).header("Cache-Control", "no-store"))
                 .orElseGet(HttpResponse::notFound);
     }
 
@@ -140,7 +142,7 @@ public class UserController {
         user.setProfileImage(request.profileImage());
         if (request.paymentEnabled() != null) user.setPaymentEnabled(request.paymentEnabled());
         if (request.stripeOnboardingCompleted() != null) user.setStripeOnboardingCompleted(request.stripeOnboardingCompleted());
-        return HttpResponse.ok(UserResponses.Profile.from(userRepository.update(user), poolService != null && poolService.publicPoolName(user.getId()) != null));
+        return HttpResponse.ok(UserResponses.Profile.from(userRepository.update(user)));
     }
 
     @Secured(SecurityRule.IS_AUTHENTICATED)
