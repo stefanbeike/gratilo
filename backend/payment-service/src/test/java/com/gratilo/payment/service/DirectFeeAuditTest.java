@@ -12,7 +12,7 @@ class DirectFeeAuditTest {
     @Test void platformCostsNeedSeparateEvidenceAndNeverUseConnectedAccountZero()throws Exception {
         var f=new Fixture(true);f.service.reconcile();
         assertEquals("REPORT_REQUIRED",f.audit.getStatus());assertNull(f.audit.getActualFeeMinor());assertNull(f.audit.getPlatformNetRevenueMinor());
-        assertEquals(277L,f.audit.getApplicationFeeMinor());assertEquals(170L,f.audit.getPlatformFeeMinor());
+        assertEquals(232L,f.audit.getApplicationFeeMinor());assertEquals(125L,f.audit.getPlatformFeeMinor());
         assertEquals(List.of("acct_fixture","acct_fixture","PLATFORM"),f.scopes);
         assertEquals("fee_fixture",f.audit.getStripeApplicationFeeId());
     }
@@ -20,9 +20,9 @@ class DirectFeeAuditTest {
         for(boolean covered:new boolean[]{true,false})for(long actual:new long[]{94,114}) {
             var f=new Fixture(covered);f.service.reconcile();
             f.service.recordPlatformFeeEvidence(f.tx.getId(),"acct_fixture","ch_fixture",actual,"stripe_report_fixture");
-            long expectedNet=covered?2330:2226;
+            long expectedNet=covered?2375:2271;
             assertEquals(expectedNet,TipPricingSnapshot.from(f.tx).recipientMinor());
-            assertEquals(170+(covered?107:104)-actual,f.audit.getPlatformNetRevenueMinor());
+            assertEquals(125+(covered?107:104)-actual,f.audit.getPlatformNetRevenueMinor());
             assertEquals(actual-(covered?107:104),f.audit.getUncoveredMinor());
             assertEquals("DIFFERENCE",f.audit.getStatus());
             f.service.recordPlatformFeeEvidence(f.tx.getId(),"acct_fixture","ch_fixture",actual,"stripe_report_fixture");

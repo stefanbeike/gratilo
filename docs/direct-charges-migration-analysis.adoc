@@ -1,5 +1,10 @@
 = Direct Charges und vorläufige Pool-Provision
 
+NOTE: Historische Migrationsanalyse. Die nachstehende Festprovision wurde lokal
+für neue V6-/V7-Checkouts durch einheitlich 5 Prozent ohne Festbetrag ersetzt.
+Aktuelle Regel: link:stripe-fees-and-pool-members.adoc[Stripe-Gebühren und Pool-Mitglieder].
+Die historischen Snapshots V4/V5 bleiben gültig.
+
 Stand: 21.10.2026. Implementierung mit automatisierten Fakes; Sandbox-Rollout
 in die bestehende AWS-Umgebung ausdrücklich vom Betreiber freigegeben.
 Keine Live-Zahlungen und kein Nachweis einer echten Sandbox-End-to-End-Zahlung.

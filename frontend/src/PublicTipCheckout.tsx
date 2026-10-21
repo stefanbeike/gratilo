@@ -195,7 +195,7 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
       <p className="hint">Die Gebührenübernahme ist eine Schätzung. Karte und Zahlungsmethode werden erst bei Stripe gewählt; die tatsächlichen Kosten können abweichen. Mehrkosten trägt Gratilo. Dein bestätigter Gesamtbetrag und der festgelegte Empfängerbetrag bleiben nach der Zahlung unverändert.</p>
       <div className="tip-breakdown" aria-live="polite">
         <SummaryLine label="Ausgewählter Betrag" value={money(quote.tipAmountMinor)} />
-        {quote.platformFeeMinor != null && <SummaryLine noWrap label={isPool ? 'Gratilo-Provision (einmalig für den Pool, vorläufig)' : 'Gratilo-Provision (0,45 € + 5 % des Trinkgelds)'} value={`− ${money(quote.platformFeeMinor)}`} />}
+        {quote.platformFeeMinor != null && <SummaryLine noWrap label={quote.pricingVersion === 6 || quote.pricingVersion === 7 ? 'Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags' : 'Gratilo-Servicegebühr (bei Zahlungsbeginn vereinbart)'} value={`− ${money(quote.platformFeeMinor)}`} />}
         <SummaryLine noWrap label={flow.feeCovered ? 'Zusätzlich übernommene Gebühren (geschätzt)' : 'Geschätzte Stripe-Gebühren als Abzug'} value={flow.feeCovered ? money(quote.serviceFeeMinor) : `− ${money(quote.estimatedStripeFeeMinor ?? 0)}`} />
         <SummaryLine noWrap label={flow.feeCovered ? (isPool ? 'Für den Pool festgelegt' : 'Für den Empfänger festgelegt') : (isPool ? 'Voraussichtlicher Nettobetrag für den Pool' : 'Voraussichtlicher Nettobetrag für den Empfänger')} value={money(quote.recipientAmountMinor)} />
         <SummaryLine label="Du bezahlst insgesamt" value={money(quote.totalAmountMinor)} total />
@@ -213,7 +213,7 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
         <SummaryLine label="Freibetrag" value="Kein separater Freibetrag · Mindestbetrag 1,00 €" />
         {flow.message.length > 0 && <SummaryLine label="Deine Nachricht" value={flow.message} />}
         <SummaryLine label="Gebührenausgleich" value={flow.feeCovered ? 'Freiwillig ausgewählt' : 'Nicht ausgewählt'} />
-        {quote.platformFeeMinor != null && <SummaryLine noWrap label={isPool ? 'Gratilo-Provision (einmalig für den Pool, vorläufig)' : 'Gratilo-Provision (0,45 € + 5 % des Trinkgelds)'} value={`− ${money(quote.platformFeeMinor)}`} />}
+        {quote.platformFeeMinor != null && <SummaryLine noWrap label={quote.pricingVersion === 6 || quote.pricingVersion === 7 ? 'Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags' : 'Gratilo-Servicegebühr (bei Zahlungsbeginn vereinbart)'} value={`− ${money(quote.platformFeeMinor)}`} />}
         <SummaryLine noWrap label={flow.feeCovered ? 'Zusätzlich übernommene Gebühren (geschätzt)' : 'Geschätzte Stripe-Gebühren als Abzug'} value={flow.feeCovered ? money(quote.serviceFeeMinor) : `− ${money(quote.estimatedStripeFeeMinor ?? 0)}`} />
         <SummaryLine noWrap label={flow.feeCovered ? (isPool ? 'Für den Pool festgelegt' : 'Für den Empfänger festgelegt') : (isPool ? 'Voraussichtlicher Nettobetrag für den Pool' : 'Voraussichtlicher Nettobetrag für den Empfänger')} value={money(quote.recipientAmountMinor)} />
         <SummaryLine label="Du bezahlst insgesamt" value={money(quote.totalAmountMinor)} total />

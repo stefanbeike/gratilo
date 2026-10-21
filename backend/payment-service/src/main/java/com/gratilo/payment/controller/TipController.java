@@ -31,7 +31,7 @@ public class TipController {
         return checkoutService==null?TipPricing.quote(amountMinor,feeCovered,feePercent,fixedFeeMinor):checkoutService.quote(amountMinor,feeCovered);
     }
     @Get("/pools/{ownerUserId}/quote") public TipQuote poolQuote(UUID ownerUserId, @QueryValue @jakarta.validation.constraints.Min(100) @jakarta.validation.constraints.Max(1000000) long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) {
-        return checkoutService==null?TipPricing.poolQuote(amountMinor,feeCovered,feePercent,fixedFeeMinor,45):checkoutService.poolQuote(amountMinor,feeCovered);
+        return checkoutService==null?TipPricing.poolQuote(amountMinor,feeCovered,feePercent,fixedFeeMinor,TipPricing.DEFAULT_PLATFORM_PERCENT):checkoutService.poolQuote(amountMinor,feeCovered);
     }
     @Get("/checkout/confirm") public HttpResponse<?> confirm(@QueryValue String sessionId) {
         try { return HttpResponse.ok(checkoutService.checkoutStatus(sessionId)).header("Cache-Control", "no-store"); }

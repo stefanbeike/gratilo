@@ -11,10 +11,10 @@ public final class StripePaymentContext {
         try {
             var metadata=JsonMapper.createDefault().readValue(tx.getMetadata(),Map.class);
             if (!"DIRECT".equals(metadata.get("chargeModel"))) {
-                if (TipPricingSnapshot.from(tx).version()==4) throw new IllegalStateException("Missing direct account context");
+                if (TipPricingSnapshot.isDirectVersion(TipPricingSnapshot.from(tx).version())) throw new IllegalStateException("Missing direct account context");
                 return null;
             }
-            if (TipPricingSnapshot.from(tx).version()!=4 || !"application".equals(metadata.get("feesCollector"))
+            if (!TipPricingSnapshot.isDirectVersion(TipPricingSnapshot.from(tx).version()) || !"application".equals(metadata.get("feesCollector"))
                     || !(metadata.get("stripeAccountId") instanceof String id) || !id.matches("acct_[A-Za-z0-9]+"))
                 throw new IllegalStateException("Invalid direct account context");
             return id;

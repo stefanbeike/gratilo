@@ -25,7 +25,7 @@ type ApiPoolTransfer = { id: string; transactionId: string; poolName: string; am
 const pricingDetails = (metadata?: string | null) => {
   try {
     const saved = JSON.parse(metadata || '{}')
-    if (![4, 5].includes(saved.pricingVersion)) return {}
+    if (![4, 5, 6, 7].includes(saved.pricingVersion)) return {}
     return { commissionMinor: Number.isSafeInteger(saved.platformFeeMinor) ? saved.platformFeeMinor as number : undefined,
       stripeEstimateMinor: Number.isSafeInteger(saved.estimatedStripeFeeMinor) ? saved.estimatedStripeFeeMinor as number : undefined,
       feeCovered: typeof saved.feeCovered === 'boolean' ? saved.feeCovered as boolean : undefined }

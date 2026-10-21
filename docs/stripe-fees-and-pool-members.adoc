@@ -1,31 +1,116 @@
 = Stripe-Gebührenschätzung und Pool-Mitglieder
 
-== Aktuelle Gebührenregel: Direct Charges und vorläufige Pool-Fixprovision (21.10.2026)
+== Aktuelle Gebührenregel: einheitlich 5 Prozent ohne Festgebühr (21.10.2026)
 
-Die lokale Weiterentwicklung verwendet für neue persönliche Zahlungen echte
-Direct Charges mit einer Gratilo-Provision von 0,45 EUR plus 5 Prozent und einem
-separaten Stripe-Kostenanteil in der Application Fee. Pools behalten Separate
-Charges and Transfers; ihre Provision beträgt vorläufig einmalig 0,45 EUR.
-`feeCovered` betrifft ausschließlich Stripe-Kosten. Neue Snapshots sind V4/V5;
-Altzahlungen werden nicht nachträglich mit Provision belastet.
+Neue persönliche und Poolzahlungen verwenden dieselbe zentrale Berechnung:
+`platformFeeMinor = HALF_UP(tipAmountMinor * 0.05)`.
+Es gibt keine feste Gratilo-Provision. Die Provision wird auf den ursprünglichen
+Trinkgeldbetrag berechnet, niemals auf den Stripe-Gebührenaufschlag und bei Pools
+niemals pro Mitglied. `gratilo.platform-fee-percent` / `GRATILO_PLATFORM_FEE_PERCENT`
+bleibt 5,00; `gratilo.platform-fee-fixed-minor` / `GRATILO_PLATFORM_FEE_FIXED_MINOR`
+ist 0. Abweichende Konfigurationen verhindern den Start des Checkout-Service.
+Der alte Parameter `GRATILO_POOL_COMMISSION_FIXED_MINOR` wird nicht mehr verwendet.
+Die Stripe-Referenz bleibt getrennt: `STRIPE_FEE_PERCENT=3.15`,
+`STRIPE_FEE_FIXED_MINOR=25`. Die festen 25 Cent sind Stripe-Kosten, keine Gratilo-Provision.
 
-Bei 25,00 EUR und 3,15 Prozent plus 0,25 EUR Stripe-Referenz erhält ein einzelner
-Empfänger 23,30 EUR mit beziehungsweise 22,26 EUR ohne Gebührenübernahme. Der
-Gast zahlt 26,07 beziehungsweise 25,00 EUR. Pools verteilen entsprechend 24,55
-beziehungsweise 23,51 EUR insgesamt, mit einem einmaligen Provisionsabzug.
+Direct Charges bleiben persönliche Zahlungen. Bei `fees_collector=application`
+enthält `application_fee_amount` die Gratilo-Provision plus Stripe-Kostenausgleich.
+Bei Pools bleiben Separate Charges and Transfers ohne Application Fee bestehen.
+Die einmalige Provision wird vor der eingefrorenen Allokation einbehalten.
+Source-Transaction-Verknüpfung, Idempotenz, Retries und Reversals sind unverändert.
 
-Die vollständigen Geldflüsse, Versionierung, Konfiguration, Webhook-Ziele,
-Testbefehle und offenen Abnahmegrenzen stehen in
-link:direct-charges-migration-analysis.adoc[Direct-Charge-Migration].
-Die neue Logik bleibt standardmäßig gesperrt und wird nur durch den expliziten
-Sandbox-Release-Input aktiviert. Die Konto-Prüfung mit dem AWS-Testsecret war
-inzwischen erfolgreich. Der Betreiber hat Push und Sandbox-Deployment freigegeben;
-Refund-Provisionsregel und automatische Plattform-Gebührenberichtsanbindung
-bleiben offen. Keine Freigabe für Live-Zahlungen.
+.Beispiel für beide Zahlungsarten: 25,00 EUR, Stripe-Referenz 3,15 % + 0,25 EUR
+[cols="2,1,1",options="header"]
+|===
+|Betrag |feeCovered=true |feeCovered=false
+|Ursprüngliches Trinkgeld |25,00 |25,00
+|Gratilo-Provision |1,25 |1,25
+|Geschätzte Stripe-Kosten |1,07 |1,04
+|Zusätzlicher Gastaufschlag |1,07 |0,00
+|Gastzahlbetrag |26,07 |25,00
+|Empfänger-/Pool-Gesamtbetrag |23,75 |22,71
+|Persönliche Application Fee |2,32 |2,29
+|Pool-Transfers bei 50/50 |11,88 + 11,87 |11,36 + 11,35
+|===
 
-Die folgenden Abschnitte dokumentieren die vorherige Implementierung und
-historische Untersuchungen. Aussagen ohne Plattformprovision beschreiben diese
-älteren Pricing-Versionen, nicht die neue V4/V5-Regel.
+Die tatsächliche Stripe-Gebühr kann abweichen. Das Audit trennt eigene Provision,
+Stripe-Kostenausgleich, Istkosten und Nettoerlös. Der Plattform-Nettoerlös ist bei
+bekannten Kosten `Gastzahlbetrag - eingefrorener Empfängerbetrag - Stripe-Istkosten`.
+Weitere Connect-Kosten sind separat zu betrachten. Direct-Charge-Istkosten erfordern
+weiterhin den Plattform-Gebührennachweis; unbekannte Kosten werden nicht als null
+verbucht. Empfängerbeträge werden nach Zahlung nicht nachträglich korrigiert.
+
+Neue Pricing-Versionen: V6 `DIRECT_PERCENT_ONLY_V6`, V7 `POOL_PERCENT_ONLY_V7`.
+V1 bis V5 bleiben nach ihren gespeicherten Regeln lesbar, insbesondere V4 mit
+45 Cent + 5 Prozent und V5 mit vorläufiger Festprovision. Bestehende Sessions und
+Idempotenz-Retries verwenden ihre alten Snapshots und Kontokontexte.
+Die additive Migration `012_percentage_commission.sql` erweitert ausschließlich
+den Schutz unveränderlicher Metadaten auf V6/V7. Kein Backfill, keine Neuberechnung,
+keine Änderung alter Liquibase-Checksummen. Status und Stripe-Referenzen können
+weiterhin fortgeschrieben werden.
+
+Checkout zeigt für neue Versionen »Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags«.
+Historische Sessions zeigen ihre gespeicherte Vereinbarung mit neutraler Beschriftung.
+Dashboard-Details lesen auch V6/V7 und zeigen die tatsächlich eingefrorene Provision.
+
+Der vorhandene Schalter `GRATILO_NEW_PRICING_ENABLED` bleibt unverändert. Kein
+automatisches Aktivieren, Push oder Deployment ist Bestandteil dieser lokalen Änderung.
+Die Entscheidung zur Erstattung der Gratilo-Provision bleibt offen; bestehende
+Refund-/Chargeback-Sperren, Auditregeln und Reversal-Funktionen bleiben erhalten.
+Rechtsverbindliche Bedingungen wurden nicht geändert.
+
+=== Geänderte Dateien dieser lokalen Umstellung
+
+Backend unter `backend/payment-service/src/main/`:
+
+* `java/com/gratilo/payment/service/TipPricing.java`: gemeinsame Berechnung ohne Festprovision.
+* `java/com/gratilo/payment/service/TipPricingSnapshot.java`: V6/V7 und unveränderte Leseregeln für V1–V5.
+* `java/com/gratilo/payment/service/StripePaymentContext.java`: Direct-Kontokontext für V4 und V6.
+* `java/com/gratilo/payment/service/StripeCheckoutService.java`: gemeinsame Konfiguration, eingefrorene Wiederholungsaufrufe.
+* `java/com/gratilo/payment/controller/TipController.java`: konsistente Pool-Quote auch im bestehenden Fallback.
+* `resources/application.yml`: getrennte Prozent-/Festprovisionskonfiguration.
+* `resources/db/changelog/changelog-master.xml` und `payment_mgmt/012_percentage_commission.sql`: additive Historienabsicherung.
+
+Backend-Tests unter `backend/payment-service/src/test/java/com/gratilo/payment/`:
+`GuestCheckoutHttpTest.java`, `service/DirectPricingTest.java`,
+`service/DirectFeeAuditTest.java`, `service/StripeFeeAuditTest.java`,
+`service/PoolCheckoutTest.java`, `service/StripeCheckoutTest.java`,
+`service/TipPricingSnapshotTest.java`.
+
+Frontend unter `frontend/src/`:
+`PublicTipCheckout.tsx`, `Dashboard.tsx`, `StripePayment.test.tsx`,
+`DashboardStructure.test.tsx`.
+
+Lokale Konfiguration und Prüfungen:
+`.env.example`, `docker-compose/compose.stripe-test.yml`,
+`deployment/scripts/render_task_definition.py`,
+`deployment/scripts/test_payment_pricing_postgres.py`,
+`deployment/tests/test_ecs_deployment.py`.
+Die Deploymentvorlage wird ausschließlich als Datei angepasst, nicht ausgeführt.
+
+Dokumentation: dieses Dokument sowie ein Hinweis auf die überholte Gebührenregel in
+`docs/direct-charges-migration-analysis.adoc`. Der vorher bereits lokal vorhandene
+Diagnosebericht bleibt als historische Bestandsaufnahme unverändert.
+
+=== Lokale Prüfergebnisse dieser Umstellung
+
+* Payment-Service: vollständiger Lauf erfolgreich, 165 Tests, keine Fehler oder übersprungenen Tests.
+* Frontend: vollständiger Lauf erfolgreich, 114 Tests. Nach Ergänzung zweier weiterer
+  Dashboard-Regressionen: 38 Checkout-/Dashboard-Tests erfolgreich; nach Präzisierung
+  der historischen Netto-Fixtures nochmals alle 9 Dashboard-Strukturtests erfolgreich.
+* Frontend-Build: TypeScript und Vite erfolgreich.
+* Deploymentvorlage: 26 lokale Tests erfolgreich, keine Cloud-Ausführung.
+* Migrationen: erfolgreich gegen eine neu angelegte, isolierte PostgreSQL-15-Datenbank
+  im Docker-Container mit `--network none`. Geprüft: kein Backfill, Schutz alter und
+  neuer Pricing-Versionen, weiter veränderbarer Zahlungsstatus, append-only Audits
+  und Schutz vor doppelten Finanzereignissen. Testcontainer danach entfernt.
+* `git diff --check`: erfolgreich.
+* Stripe-Requests in Tests ausschließlich Fakes/Mocks; keine echten Stripe-Aufrufe.
+
+Die folgenden Abschnitte dokumentieren vorherige Implementierungen und
+historische Untersuchungen. Abweichende Provisionsmodelle dort gelten nicht für
+neue V6-/V7-Checkouts. Auch der Diagnosebericht `stripe-commission-diagnosis.adoc`
+ist eine zeitgebundene Bestandsaufnahme vor dieser lokalen Änderung.
 
 == Analyse und Tarifgrenzen
 

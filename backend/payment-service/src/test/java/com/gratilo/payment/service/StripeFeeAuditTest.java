@@ -8,6 +8,22 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StripeFeeAuditTest {
+ @Test void newPoolCommissionAndStripeCostsRemainSeparateForBothCoverageChoices()throws Exception {
+  for(boolean covered:new boolean[]{false,true})for(long actual:new long[]{94,114}) {
+   var f=new Fixture(covered,2500);
+   var quote=TipPricing.poolQuote(2500,covered,new java.math.BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT);
+   f.tx.setMetadata(JsonMapper.createDefault().writeValueAsString(TipPricingSnapshot.metadata(quote,covered)));
+   f.audit=null;f.service.snapshot(f.tx,quote);f.actualFee=actual;
+   f.service.reconcile();
+   assertEquals(125L,f.audit.getPlatformFeeMinor());
+   assertEquals(quote.recipientAmountMinor(),f.audit.getRecipientTotalMinor());
+   assertEquals(actual,f.audit.getActualFeeMinor());assertNull(f.audit.getStripeApplicationFeeId());
+   assertEquals(125+(covered?107:104)-actual,f.audit.getPlatformNetRevenueMinor());
+   assertEquals(actual-(covered?107:104),f.audit.getUncoveredMinor());
+   assertEquals(covered?2375:2271,TipPricingSnapshot.from(f.tx).recipientMinor());
+   assertEquals("DIFFERENCE",f.audit.getStatus());
+  }
+ }
  @Test void observedTwentyFiveEuroPoolChargeRecordsFortyThreeCentPlatformUndercoverage()throws Exception{
   var f=new Fixture(true,2500);f.actualFee=106;f.service.reconcile();
   assertEquals(2563,f.audit.getChargedMinor());assertEquals(63,f.audit.getSurchargeMinor());

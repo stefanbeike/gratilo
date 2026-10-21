@@ -1,0 +1,212 @@
+= Diagnose: Stripe-Provision und erhobene Gebühren
+:toc:
+
+Stand: 21.10.2026. Untersuchung anhand des lokalen Codes, ausschließlich lesender
+Stripe-Sandbox-Abfragen und einer ausdrücklich schreibgeschützten Datenbankverbindung.
+Keine Zahlungsoperationen, Datenänderungen, Deployments oder Pushes ausgeführt.
+
+== Ergebnis
+
+Bei den drei untersuchten neuen Poolzahlungen fehlt die Provision nicht:
+Jeweils 45 Cent wurden einbehalten und im Gebühren-Audit als Plattform-Nettoerlös
+gespeichert. Separate Charges and Transfers erzeugen hier kein Application-Fee-Objekt.
+Eine leere Ansicht »Erhobene Gebühren« ist deshalb für diese Zahlungen erwartbar.
+
+Für den neuen persönlichen Direct-Charge-Ablauf sind Kontokontext und Application-Fee-
+Parameter im Code und in simulierten Requests nachgewiesen. In den untersuchten
+Connected Accounts existierte seit dem 20.10.2026 keine erfolgreich abgeschlossene
+Direct-Charge-Zahlung. Eine reale Gutschrift einer neuen Application Fee ist daher
+nicht nachgewiesen. Die erfolgreichen älteren persönlichen Zahlungen waren noch
+Destination Charges ohne Application Fee und ohne neue Gratilo-Provision.
+
+== Tatsächlich geprüfte Poolzahlungen
+
+Alle Beträge in EUR. Alle drei Transaktionen: Pricing-Version 5, BOOKED,
+Gebühren-Audit MATCHED, vollständig übertragene Allokationen.
+
+[cols="3,1,1,1,1,1",options="header"]
+|===
+|PaymentIntent |Trinkgeld |Gastzahlung |Stripe-Istkosten |Transfers gesamt |Netto bei Gratilo
+|pi_3USxn0JnhDgmiMAM1wDBJJ5C |52,00 |53,95 |1,95 |51,55 |0,45
+|pi_3USuusJnhDgmiMAM0va3mkc7 |1.000,00 |1.032,78 |32,78 |999,55 |0,45
+|pi_3USupFJnhDgmiMAM1HlGHhdg |14,60 |15,33 |0,73 |14,15 |0,45
+|===
+
+Der Betrag von 1.000 EUR belegt außerdem, dass die separat angefragten neuen
+Trinkgeldlimits noch nicht umgesetzt sind. Sie sind kein Bestandteil dieser Diagnose.
+
+Konkreter Nachweis der neuesten Zahlung:
+
+* Interne Transaktion: `0301834e-e001-44e5-b042-0612b50f8171`.
+* Charge: `ch_3USxn0JnhDgmiMAM13OtMnTO`.
+* Transfer `tr_3USxn0JnhDgmiMAM1i5w1Tv7`: 25,77 EUR.
+* Transfer `tr_3USxn0JnhDgmiMAM1xjpD1YR`: 25,78 EUR.
+* Beide Transfers referenzieren dieselbe ursprüngliche Charge als `source_transaction`.
+* Rechnung: 53,95 - 1,95 - 25,77 - 25,78 = 0,45 EUR.
+* Stripe `application_fee` und `application_fee_amount`: leer.
+* Datenbank `platform_net_revenue_minor`: 45; `stripe_application_fee_id`: leer.
+
+Die vollständige Application-Fee-Liste des untersuchten Laufzeit-Plattformkontos
+war leer. Das ist ein API-Nachweis und nicht nur eine Beobachtung der Dashboard-Oberfläche.
+
+== Kontokontexte und Accounts-v2-Unterstützung
+
+Die laufende Webanwendung verwendet Plattform `acct_1UQNErJnhDgmiMAM`.
+Die lokalen Testkonfigurationen `.env` und `.env.stripe-test` gehören laut
+GET auf das Stripe-Konto dagegen zu `acct_1UFbtVCMj7Vzvm34`.
+Beide sind Testkontexte, aber unterschiedliche Plattformkonten. Für die genannten
+Web-Zahlungen muss im Dashboard das Laufzeitkonto ausgewählt sein. Welches Konto
+im Browser des Nutzers ausgewählt ist, konnte nicht festgestellt werden.
+
+Die Accounts `acct_1USFInJnhDfTGhs9` und `acct_1USZOlJnhDeaeFtd` wurden über die
+Accounts-v2-API gelesen. `fees_collector=application` und aktive Karten-Capability
+wurden festgestellt. Die tatsächliche bestehende Java-Statusprüfung lieferte für
+beide Direct-, Transfer- und Auszahlungsbereitschaft.
+Das ist ein Konfigurationsnachweis, kein Nachweis einer bereits ausgeführten Direct Charge.
+
+Ein drittes geprüftes Konto hatte `fees_collector=stripe`, eine eingeschränkte
+Karten-Capability und überfällige Anforderungen. Es erfüllt die Voraussetzungen
+des implementierten Gratilo-Direct-Charge-Modells nicht und darf nicht freigeschaltet werden.
+
+Verwendete Stripe-API-Version im HTTP-Client: `2026-09-30.endive`.
+
+== Tatsächliche Request-Erstellung
+
+`StripeCheckoutService` erzeugt für neue persönliche Checkouts:
+
+[source,text]
+----
+POST /v1/checkout/sessions
+Stripe-Account: eingefrorene stripeAccountId der persönlichen Transaktion
+mode=payment
+line_items[0][price_data][unit_amount]=serverseitiger Gesamtbetrag
+payment_intent_data[application_fee_amount]=Gesamtbetrag - Empfängerbetrag
+keine payment_intent_data[transfer_data]-Parameter
+----
+
+Der Kontokontext wird durch `StripePaymentContext.account(tx)` aufgelöst und
+im tatsächlichen HTTP-Client als Header gesetzt. Der Idempotenzschlüssel bleibt
+an die interne Checkout-Transaktion gebunden. Historische Sessions werden in
+ihrem gespeicherten Kontokontext weiterverarbeitet.
+
+Neue Pool-Checkouts:
+
+[source,text]
+----
+POST /v1/checkout/sessions
+kein Stripe-Account-Header: Plattformkontext
+mode=payment
+line_items[0][price_data][unit_amount]=serverseitiger Gesamtbetrag
+payment_intent_data[transfer_group]=Transaktionsgruppe
+kein application_fee_amount
+keine transfer_data[destination]- oder transfer_data[amount]-Parameter
+----
+
+Anschließende Pool-Transfers verwenden die eingefrorenen Allokationen und
+`source_transaction`. Die vorläufige Poolprovision beträgt einmalig 45 Cent.
+
+== Getestete persönliche Gebührenbeträge
+
+Referenz: 3,15 % + 25 Cent geschätzte Stripe-Kosten; eigene Provision
+45 Cent + 5 % des ursprünglichen Trinkgelds, Cent-Rundung mit BigDecimal.
+Die folgende Tabelle beschreibt Code- und Mock-Testergebnisse, keine bereits
+auf Stripe gebuchten persönlichen Application Fees. Alle Werte in EUR.
+
+[cols="1,1,1,1,1,1",options="header"]
+|Trinkgeld |feeCovered |Gratilo-Provision |Stripe-Kostenausgleich |Application Fee |Empfänger
+|10,00 |false |0,95 |0,57 |1,52 |8,48
+|10,00 |true |0,95 |0,58 |1,53 |9,05
+|25,00 |false |1,70 |1,04 |2,74 |22,26
+|25,00 |true |1,70 |1,07 |2,77 |23,30
+|100,00 |false |5,45 |3,40 |8,85 |91,15
+|100,00 |true |5,45 |3,51 |8,96 |94,55
+|===
+
+Bei Gebührenübernahme wird der Kostenausgleich zusätzlich bezahlt, einschließlich
+Gross-up; sonst bleibt der Gastzahlbetrag beim gewählten Trinkgeld.
+Bei `fees_collector=application` trägt Gratilo die tatsächlichen Stripe-Kosten.
+Die Application Fee enthält deshalb eigene Provision und geschätzten Kostenausgleich.
+Nettoerlös aus der Zahlung: Application Fee abzüglich tatsächlicher Stripe-Kosten;
+weitere Connect-Kosten, Refunds und andere separate Kosten sind zusätzlich zu betrachten.
+
+Die tatsächlichen Direct-Charge-Kosten sind ohne eine entsprechende Zahlung und
+zugehörigen Plattform-Gebührenreport nicht belegt. Der bestehende Auditpfad meldet
+dafür `REPORT_REQUIRED` statt fiktiver Nullkosten und akzeptiert validierte
+Plattform-Gebührennachweise über `recordPlatformFeeEvidence`.
+
+== Historische persönliche Zahlungen
+
+`pi_3USdw6JnhDgmiMAM0OAmV7Sv` war eine Destination Charge: 100,00 EUR belastet,
+100,00 EUR an das Connected Account übertragen, 3,40 EUR Stripe-Kosten,
+keine Application Fee. Das ist kein neuer Direct-Charge-Checkout.
+
+`pi_3USdyjJnhDgmiMAM1rKPu1Ue` belastete 2,28 EUR und übertrug 2,00 EUR;
+tatsächliche Stripe-Kosten 0,32 EUR. Der Plattformfehlbetrag betrug 0,04 EUR,
+ohne neue Gratilo-Provision. Datenbank und Stripe stimmen insoweit überein.
+Historische Zahlungen werden nicht nachträglich mit einer Provision belastet.
+
+== Bewertung möglicher Ursachen
+
+[cols="2,4",options="header"]
+|Verdacht |Nachweis und Bewertung
+|Persönliche Zahlung noch Destination Charge |Für geprüfte ältere Zahlungen bestätigt; neuer Code verwendet Direct Charges.
+|Application Fee nur intern berechnet |Für neuen persönlichen Code widerlegt: tatsächlicher Request-Pfad setzt den Parameter; Mocktests prüfen den Formularwert.
+|Parameter unterwegs verloren |Lokaler HTTP-Client verwendet den erzeugten Formbody; echte erfolgreiche neue persönliche Zahlung als End-to-End-Nachweis fehlt.
+|Falscher Kontokontext |Neuer Direct-Code setzt das eingefrorene Connected Account; lokale und deployed Plattformkonten unterscheiden sich tatsächlich.
+|Accounts v2 generell ungeeignet |Für zwei geprüfte Accounts nicht bestätigt; Konfiguration erfüllt die bestehenden Direct-Readiness-Prüfungen.
+|Poolprovision fehlt |Für die drei geprüften neuen Zahlungen widerlegt: jeweils 45 Cent bei Gratilo und im Audit.
+|Poolprovision nicht als Application Fee dargestellt |Bestätigt: Einbehalt über reduzierte Transfers, keine Application-Fee-Objekte.
+|Application Fee nur an anderer Stelle sichtbar |Für den untersuchten Plattformbestand keine bestehenden Fee-Objekte gefunden; bei künftigen Direct Charges können Fee-Objekte zunächst asynchron entstehen.
+|Pricing-Snapshot widerspricht Buchung |Bei den drei neuen Poolzahlungen nicht festgestellt; Istkosten und Transfers stimmen mit Audit und Snapshot überein.
+|===
+
+== Konkreter Umsetzungsvorschlag
+
+. Keine Änderung der Zahlungsarchitektur aufgrund der beobachteten Pool-Darstellung.
+. Poolprovisionen in Gratilos Abrechnung getrennt von Stripe-Application-Fees ausweisen.
+. Für Web- und lokale Tests bewusst den jeweiligen Plattform-/Sandbox-Kontext wählen.
+. Nach separater Freigabe eine persönliche Sandbox-Zahlung durchführen und im Connected
+  Account PaymentIntent/Charge, im Plattformkonto Application Fee und später den
+  Plattform-Gebührenreport gemeinsam prüfen. Während dieser Diagnose keine Zahlung erzeugt.
+. Die vorhandene Annahme validierter Direct-Charge-Gebührennachweise bei Bedarf an einen
+  kontrollierten Reportimport anbinden. Fehlende Istkosten nicht als null verbuchen.
+. Optional `application_fee.created` für frühere Sichtbarkeit überwachen; Stripe erstellt
+  Direct-Application-Fee-Objekte standardmäßig asynchron.
+. Alte Gebührenvereinbarungen, Transfers und Pricing-Snapshots unverändert lassen.
+
+Im Dashboard: das richtige Plattformkonto und die richtige Sandbox auswählen,
+für persönliche Zahlungen »Connect / Erhobene Gebühren« prüfen und das Fee-Objekt
+mit Connected Account und Charge abgleichen. Bei Pools stattdessen Plattform-Charge,
+Balance Transaction und alle source-gebundenen Transfers gegenüberstellen.
+
+== Änderungen und Tests
+
+Nur lokale Testergänzungen und dieses Dokument:
+
+* `DirectPricingTest.java`: vertragliche Provision und separater Stripe-Kostenausgleich
+  für 10, 25 und 100 EUR, beide Varianten der Gebührenübernahme.
+* `StripeCheckoutTest.java`: übertragener Application-Fee-Parameter, Connected-Account-
+  Kontext und Abwesenheit von Destination-Parametern.
+* `PoolCheckoutTest.java`: kein Application-Fee-Parameter für Pool-Checkout.
+* `docs/stripe-commission-diagnosis.adoc`.
+
+Erfolgreich ausgeführt: 57 Tests, 0 Fehler, 0 fehlgeschlagen, 0 übersprungen.
+Klassen: DirectPricingTest, StripeCheckoutTest, StripeRequestScopeTest,
+DirectFeeAuditTest, PoolCheckoutTest, PoolSourceSettlementTest, DirectWebhookTest.
+Alle Stripe-Schreibaufrufe dieser Tests sind simuliert. Keine Zahlungslogik verändert.
+
+[source,bash]
+----
+./gradlew :backend:payment-service:test \
+  --tests '*DirectPricingTest' --tests '*StripeCheckoutTest' \
+  --tests '*StripeRequestScopeTest' --tests '*DirectFeeAuditTest' \
+  --tests '*PoolCheckoutTest' --tests '*PoolSourceSettlementTest' \
+  --tests '*DirectWebhookTest'
+----
+
+== Offizielle Stripe-Grundlagen
+
+* https://docs.stripe.com/connect/direct-charges?platform=web&ui=stripe-hosted[Direct Charges: Kontokontext, Application Fees und asynchrone Erstellung]
+* https://docs.stripe.com/connect/direct-charges-fee-payer-behavior[Gebührenverantwortung und Zusammensetzung der Application Fee]
+* https://docs.stripe.com/connect/separate-charges-and-transfers[Separate Charges and Transfers]
+* https://docs.stripe.com/connect/direct-charge-buy-rate-reporting-overview[Plattformreports für Direct-Charge-Zahlungsgebühren]

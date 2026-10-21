@@ -38,6 +38,18 @@ class StripeCheckoutTest {
         }
     }
 
+    @Test void directRequestsTransmitCommissionPlusStripeContributionInTheConnectedAccountScope() throws Exception {
+        long[][] amounts={{1000,107,108},{2500,229,232},{10000,840,851}};
+        for(var row:amounts)for(boolean covered:new boolean[]{false,true}) {
+            var fixture=new StripeCheckoutTest();
+            fixture.service(new java.math.BigDecimal("3.15")).create(fixture.recipient,new TipPaymentRequest(row[0],"Danke","fee-proof",covered));
+            assertEquals("acct_fixture",fixture.requestAccount);
+            assertTrue(fixture.form.contains("payment_intent_data[application_fee_amount]="+row[covered?2:1]+"&"));
+            assertFalse(fixture.form.contains("transfer_data"));
+            assertEquals(1,fixture.creates);
+        }
+    }
+
     @Test void staleNetAmountIsRejectedEvenWhenGuestTotalHasNotChanged() throws Exception {
         var f=new StripeCheckoutTest();
         assertThrows(StripeCheckoutService.QuoteChangedException.class,()->f.service(new java.math.BigDecimal("3.15")).create(f.recipient,
@@ -127,7 +139,7 @@ class StripeCheckoutTest {
         var feeAudit=new StripeFeeAuditService(null,null,"sk_test_fixture") {
             @Override public void snapshot(TransactionEntity tx,com.gratilo.payment.api.TipQuote quote){savedQuote=quote;}
         };
-        return new StripeCheckoutService(repository, accounts, connect, "sk_test_fixture", "http://localhost/pay/success", "http://localhost/pay/cancelled", rate, 25, recipients,null,null,feeAudit,TipPricing.DEFAULT_PLATFORM_PERCENT,45,enabled) {
+        return new StripeCheckoutService(repository, accounts, connect, "sk_test_fixture", "http://localhost/pay/success", "http://localhost/pay/cancelled", rate, 25, recipients,null,null,feeAudit,TipPricing.DEFAULT_PLATFORM_PERCENT,0,enabled) {
             @Override protected String stripeRequest(String path,String body,String key,String account){requestAccount=account;return stripeRequest(path,body,key);}
             @Override protected String stripeRequest(String path, String body, String key) {
                 if (body != null) {
@@ -145,8 +157,22 @@ class StripeCheckoutTest {
         assertNull(stored);assertEquals(0,creates);
         service(rate,true).create(recipient,new TipPaymentRequest(2500L,null,"flag",true));
         var resumed=service(new java.math.BigDecimal("6.8"),false).create(recipient,new TipPaymentRequest(2500L,null,"flag",true)).orElseThrow();
-        assertEquals(2607,resumed.quote().totalAmountMinor());assertEquals(2330,resumed.quote().recipientAmountMinor());
+        assertEquals(2607,resumed.quote().totalAmountMinor());assertEquals(2375,resumed.quote().recipientAmountMinor());
         assertEquals(new java.math.BigDecimal("3.15"),resumed.quote().serviceFeePercent());assertEquals(1,creates);
+    }
+    @Test void preexistingDirectSessionRetainsFixedPlusPercentCommissionOnIdempotentResume()throws Exception {
+        var request=new TipPaymentRequest(2500L,null,"historical-v4",true);
+        var service=service(new java.math.BigDecimal("3.15"));service.create(recipient,request);
+        var metadata=io.micronaut.json.JsonMapper.createDefault().readValue(stored.getMetadata(),Map.class);
+        metadata.put("pricingVersion",4);metadata.put("pricingRule","DIRECT_APPLICATION_V4");
+        metadata.put("platformFeeFixedMinor",45);metadata.put("platformFeeMinor",170);
+        metadata.put("recipientAmountMinor",2330);metadata.put("applicationFeeMinor",277);
+        stored.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(metadata));
+        var frozen=stored.getMetadata();
+        var result=service.create(recipient,request).orElseThrow();
+        assertEquals(4,result.quote().pricingVersion());assertEquals(170,result.quote().platformFeeMinor());
+        assertEquals(2330,result.quote().recipientAmountMinor());assertEquals(1,creates);
+        assertEquals("acct_fixture",requestAccount);assertEquals(frozen,stored.getMetadata());
     }
     @Test void ambiguousRetryAfterRetentionWindowCannotSendAnotherCheckoutPost()throws Exception {
         failOnce=true;var request=new TipPaymentRequest(2500L,null,"timeout",true);
@@ -163,8 +189,8 @@ class StripeCheckoutTest {
         assertEquals(533,savedQuote.totalAmountMinor());assertEquals(33,savedQuote.serviceFeeMinor());
         assertTrue(form.contains("unit_amount]=533&"));
         assertFalse(form.contains("transfer_data"));
-        assertTrue(form.contains("application_fee_amount]=103&"));
-        assertEquals(430,savedQuote.recipientAmountMinor());
+        assertTrue(form.contains("application_fee_amount]=58&"));
+        assertEquals(475,savedQuote.recipientAmountMinor());
         assertTrue(form.contains("metadata][fee_covered]=true&"));
         assertTrue(form.contains("metadata][fee_surcharge_minor]=33&"));
         assertTrue(form.contains("metadata][amount_charged_minor]=533&"));

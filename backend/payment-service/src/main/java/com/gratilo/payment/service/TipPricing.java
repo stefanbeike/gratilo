@@ -46,10 +46,10 @@ public final class TipPricing {
     }
     public static TipQuote quote(long tipMinor,boolean covered,BigDecimal percent,long fixed){return quote(tipMinor,covered,percent,fixed,DEFAULT_PLATFORM_PERCENT);}
     public static TipQuote legacyQuote(long tipMinor,boolean covered,BigDecimal percent,long fixed){return calculate(tipMinor,covered,percent,fixed,BigDecimal.ZERO,0,2);}
-    public static TipQuote quote(long tipMinor,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent){return calculate(tipMinor,covered,percent,fixed,platformPercent,45,4);}
-    /** Pool commission is a provisional fixed rule, charged once before allocation. */
-    public static TipQuote poolQuote(long tip, boolean covered, BigDecimal percent, long fixed, long poolCommission) {
-        return calculate(tip, covered, percent, fixed, BigDecimal.ZERO, poolCommission, 5);
+    public static TipQuote quote(long tipMinor,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent){return calculate(tipMinor,covered,percent,fixed,platformPercent,0,6);}
+    /** The same percentage commission is charged once before pool allocation. */
+    public static TipQuote poolQuote(long tip, boolean covered, BigDecimal percent, long fixed, BigDecimal platformPercent) {
+        return calculate(tip, covered, percent, fixed, platformPercent, 0, 7);
     }
     public static long platformFee(long tipMinor,BigDecimal percent){
         if(tipMinor<100||tipMinor>1_000_000||percent==null||percent.signum()<0||percent.compareTo(BigDecimal.valueOf(100))>=0)throw new IllegalArgumentException("Invalid platform fee configuration");

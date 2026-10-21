@@ -281,8 +281,8 @@ for (const pool of [false, true]) for (const covered of [false, true]) it(`shows
     if (url.includes('/quote')) {
       selectedCoverage = new URLSearchParams(url.split('?')[1]).get('feeCovered') === 'true'
       return response({ tipAmountMinor: 2500, serviceFeeMinor: selectedCoverage ? 107 : 0, totalAmountMinor: selectedCoverage ? 2607 : 2500,
-        recipientAmountMinor: 2500 - (pool ? 45 : 170) - (selectedCoverage ? 0 : 104), platformFeeMinor: pool ? 45 : 170,
-        platformFeePercent: pool ? 0 : 5, pricingVersion: pool ? 5 : 4, estimatedStripeFeeMinor: selectedCoverage ? 107 : 104 })
+        recipientAmountMinor: 2500 - 125 - (selectedCoverage ? 0 : 104), platformFeeMinor: 125,
+        platformFeePercent: 5, pricingVersion: pool ? 7 : 6, estimatedStripeFeeMinor: selectedCoverage ? 107 : 104 })
     }
     return response({ transactionId: 'fake' })
   })
@@ -293,14 +293,14 @@ for (const pool of [false, true]) for (const covered of [false, true]) it(`shows
   fireEvent.click(screen.getByRole('button', { name: /Weiter/ }))
   if (covered) fireEvent.click(screen.getByRole('checkbox', { name: 'Zahlungsgebühren freiwillig übernehmen' }))
   await waitFor(() => expect(selectedCoverage).toBe(covered))
-  expect(await screen.findByText(pool ? /Gratilo-Provision \(einmalig/ : /Gratilo-Provision \(0,45/)).toBeInTheDocument()
+  expect(await screen.findByText(/Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags/)).toBeInTheDocument()
   expect(screen.queryByText(/Keine Gratilo-Plattformgebühr/)).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: /Weiter zur Zusammenfassung/ }))
   fireEvent.click(screen.getByRole('button', { name: /Jetzt sicher bezahlen/ }))
   await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(true))
   const sent = fetch.mock.calls.find(([url]) => url.includes('/checkout'))
   expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ tipAmountMinor: 2500, feeCovered: covered,
-    expectedTotalAmountMinor: covered ? 2607 : 2500, expectedRecipientAmountMinor: 2500 - (pool ? 45 : 170) - (covered ? 0 : 104) })
+    expectedTotalAmountMinor: covered ? 2607 : 2500, expectedRecipientAmountMinor: 2500 - 125 - (covered ? 0 : 104) })
 })
 
 it.each([false,true])('resolves preallocated team links by server mapping (team route=%s)', async explicitTeam => {

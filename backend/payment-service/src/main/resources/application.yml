@@ -95,7 +95,7 @@ jpa:
 
 gratilo:
   platform-fee-percent: ${GRATILO_PLATFORM_FEE_PERCENT:5.00}
-  # Provisional business rule: fixed 45 cents ONCE per pool charge, no percentage.
-  pool-commission-fixed-minor: ${GRATILO_POOL_COMMISSION_FIXED_MINOR:45}
+  # Both payment kinds: 5% of the original tip, no fixed Gratilo commission.
+  platform-fee-fixed-minor: ${GRATILO_PLATFORM_FEE_FIXED_MINOR:0}
   # Remains off until refund commission policy and sandbox acceptance have been approved.
   new-pricing-enabled: ${GRATILO_NEW_PRICING_ENABLED:false}

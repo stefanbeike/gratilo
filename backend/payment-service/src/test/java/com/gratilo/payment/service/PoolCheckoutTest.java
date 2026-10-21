@@ -20,7 +20,7 @@ class PoolCheckoutTest {
         assertPoolCharge(false,2500,new java.math.BigDecimal("3.15"),List.of(20.0,30.0,50.0));
         assertPoolCharge(true,2500,new java.math.BigDecimal("3.15"),List.of(20.0,30.0,50.0));
     }
-    @Test void twentyFiveEurosDeductsProvisionalCommissionOnceBeforeSplitting() throws Exception {
+    @Test void twentyFiveEurosDeductsPercentageCommissionOnceBeforeSplitting() throws Exception {
         assertPoolCharge(false,2500,new java.math.BigDecimal("3.15"));
     }
     @Test void tinySharesAreRejectedBeforeCheckoutOrAllocationWrites() {
@@ -30,7 +30,7 @@ class PoolCheckoutTest {
         assertPoolCharge(covered,tip,rate,List.of(50.0,50.0));
     }
     private void assertPoolCharge(boolean covered,long tip,java.math.BigDecimal rate,List<Double> distribution) throws Exception {
-        var expected=TipPricing.poolQuote(tip,covered,rate,25,45);
+        var expected=TipPricing.poolQuote(tip,covered,rate,25,TipPricing.DEFAULT_PLATFORM_PERCENT);
         UUID owner = UUID.randomUUID(), first = new UUID(0,1), second = new UUID(0,2), third = new UUID(0,3);
         var members=new ArrayList<PoolDistributionClient.Member>();
         members.add(new PoolDistributionClient.Member(first,"A",distribution.get(0),true));
@@ -88,6 +88,7 @@ class PoolCheckoutTest {
         assertTrue(form.contains("line_items%5B0%5D%5Bprice_data%5D%5Bunit_amount%5D="+expected.totalAmountMinor()));
         assertTrue(form.contains("payment_intent_data%5Btransfer_group%5D=gratilo_"));
         assertFalse(form.contains("transfer_data%5Bdestination%5D"));
+        assertFalse(form.contains("application_fee_amount"));
         assertFalse(form.contains("payment_method_types"));
         service.createPool(owner,new TipPaymentRequest(tip,"Team danke","pool-key",covered));
         assertEquals(1,calls.stream().filter(c->c.contains("unit_amount")).count());
@@ -96,7 +97,7 @@ class PoolCheckoutTest {
         assertEquals(expected.recipientAmountMinor(),TipPricingSnapshot.from(stored.get()).recipientMinor());
         if(tip==2500&&rate.toString().equals("3.15")) {
             var actual=snapshots.stream().sorted(java.util.Comparator.comparing(a->a.getRecipientUserId().toString())).map(PoolTransferEntity::getAmountMinor).toList();
-            assertEquals(distribution.size()==3?(covered?List.of(491L,737L,1227L):List.of(470L,705L,1176L)):(covered?List.of(1228L,1227L):List.of(1176L,1175L)),actual);
+            assertEquals(distribution.size()==3?(covered?List.of(475L,713L,1187L):List.of(454L,681L,1136L)):(covered?List.of(1188L,1187L):List.of(1136L,1135L)),actual);
         }
         assertEquals(1,auditRows.size());var audit=auditRows.get(stored.get().getId());
         assertEquals(expected.totalAmountMinor(),audit.getChargedMinor());assertEquals(expected.serviceFeeMinor(),audit.getSurchargeMinor());

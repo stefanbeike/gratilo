@@ -20,7 +20,7 @@ public class StripeCheckoutService {
     private final RecipientAvailability recipients; private final TransactionRepository transactions; private final ConnectedAccountRepository accounts; private final StripeConnectService connect; private final String secret, successUrl, cancelUrl; private final BigDecimal feePercent; private final long fixedFeeMinor;
     private final StripeFeeAuditService feeAudit;
     private final BigDecimal platformPercent;
-    private final long poolCommissionMinor;
+
     private final boolean pricingEnabled;
     private final PoolDistributionClient poolClient; private final PoolTransferRepository poolTransfers;
     public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect, @Value("${stripe.secret-key:}") String secret, @Value("${stripe.success-url}") String successUrl, @Value("${stripe.cancel-url}") String cancelUrl, @Value("${stripe.fee-percent:3.15}") BigDecimal feePercent, @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor, RecipientAvailability recipients) {
@@ -31,7 +31,7 @@ public class StripeCheckoutService {
     }
     public StripeCheckoutService(TransactionRepository transactions,ConnectedAccountRepository accounts,StripeConnectService connect,String secret,String successUrl,String cancelUrl,BigDecimal percent,long fixed,RecipientAvailability recipients,PoolDistributionClient pools,PoolTransferRepository transfers,StripeFeeAuditService audit){this(transactions,accounts,connect,secret,successUrl,cancelUrl,percent,fixed,recipients,pools,transfers,audit,TipPricing.DEFAULT_PLATFORM_PERCENT);}
     public StripeCheckoutService(TransactionRepository transactions,ConnectedAccountRepository accounts,StripeConnectService connect,String secret,String successUrl,String cancelUrl,BigDecimal feePercent,long fixedFeeMinor,RecipientAvailability recipients,PoolDistributionClient poolClient,PoolTransferRepository poolTransfers,StripeFeeAuditService feeAudit,BigDecimal platformPercent) {
-        this(transactions,accounts,connect,secret,successUrl,cancelUrl,feePercent,fixedFeeMinor,recipients,poolClient,poolTransfers,feeAudit,platformPercent,45,true);
+        this(transactions,accounts,connect,secret,successUrl,cancelUrl,feePercent,fixedFeeMinor,recipients,poolClient,poolTransfers,feeAudit,platformPercent,0,true);
     }
     @Inject
     public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect,
@@ -40,15 +40,15 @@ public class StripeCheckoutService {
             @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor, RecipientAvailability recipients,
             PoolDistributionClient poolClient, PoolTransferRepository poolTransfers, StripeFeeAuditService feeAudit,
             @Value("${gratilo.platform-fee-percent:5.00}") BigDecimal platformPercent,
-            @Value("${gratilo.pool-commission-fixed-minor:45}") long poolCommissionMinor,
+            @Value("${gratilo.platform-fee-fixed-minor:0}") long platformFixedMinor,
             @Value("${gratilo.new-pricing-enabled:false}") boolean pricingEnabled) {
-        if(platformPercent.compareTo(TipPricing.DEFAULT_PLATFORM_PERCENT)!=0||poolCommissionMinor<0)throw new IllegalArgumentException("Invalid commission configuration");
-        this.poolCommissionMinor=poolCommissionMinor;this.pricingEnabled=pricingEnabled;
+        if(platformPercent.compareTo(TipPricing.DEFAULT_PLATFORM_PERCENT)!=0||platformFixedMinor!=0)throw new IllegalArgumentException("Invalid commission configuration");
+        this.pricingEnabled=pricingEnabled;
         TipPricing.platformFee(100,platformPercent);this.platformPercent=platformPercent;this.feeAudit = feeAudit;
         this.recipients=recipients; this.transactions=transactions; this.accounts=accounts; this.connect=connect; this.poolClient=poolClient; this.poolTransfers=poolTransfers; StripeConnectService.requireTestKey(secret); this.secret=secret; this.successUrl=absoluteUrl(successUrl); this.cancelUrl=absoluteUrl(cancelUrl); this.feePercent=feePercent; this.fixedFeeMinor=fixedFeeMinor;
     }
     public TipQuote quote(long amount,boolean covered){return TipPricing.quote(amount,covered,feePercent,fixedFeeMinor,platformPercent);}
-    public TipQuote poolQuote(long amount,boolean covered){return TipPricing.poolQuote(amount,covered,feePercent,fixedFeeMinor,poolCommissionMinor);}
+    public TipQuote poolQuote(long amount,boolean covered){return TipPricing.poolQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent);}
     public boolean isConfigured() { return !secret.isBlank(); }
     public boolean isSandbox() { return true; }
 
@@ -128,7 +128,7 @@ public class StripeCheckoutService {
             tx = transactions.save(tx);
             if (feeAudit != null) feeAudit.snapshot(tx, quote);
         }
-        if(quote.pricingVersion()==4&&!Objects.equals(accountId,StripePaymentContext.account(tx)))
+        if(TipPricingSnapshot.isDirectVersion(quote.pricingVersion())&&!Objects.equals(accountId,StripePaymentContext.account(tx)))
             throw new CheckoutConflictException("CHECKOUT_ACCOUNT_CONTEXT_CHANGED",tx);
         // Let Stripe Dashboard dynamic payment-method settings determine Checkout methods.
         String form = param("mode", "payment")
@@ -263,7 +263,7 @@ public class StripeCheckoutService {
         if(tx.getStatus()!=TransactionStatus.PENDING)throw new CheckoutConflictException("CHECKOUT_ALREADY_PROCESSED",tx);
         if(tx.getProviderReference()!=null){var session=json(stripeRequest("/v1/checkout/sessions/"+enc(tx.getProviderReference()),null,null,StripePaymentContext.account(tx)));if(!Boolean.FALSE.equals(session.get("livemode"))||!tx.getProviderReference().equals(session.get("id")))throw new IllegalStateException("Invalid saved Checkout session");return Optional.of(new CheckoutResponse((String)session.get("url"),tx.getId().toString(),false,saved));}
         if(tx.getCreatedAt()!=null&&tx.getCreatedAt().isBefore(OffsetDateTime.now().minusHours(23)))throw new CheckoutConflictException("CHECKOUT_RECONCILIATION_REQUIRED",tx);
-        if(!pool&&TipPricingSnapshot.from(tx).version()!=4)throw new CheckoutConflictException("CHECKOUT_RECONCILIATION_REQUIRED",tx);
+        if(!pool&&!TipPricingSnapshot.isDirectVersion(TipPricingSnapshot.from(tx).version()))throw new CheckoutConflictException("CHECKOUT_RECONCILIATION_REQUIRED",tx);
         return Optional.empty();
     }
     private TipQuote quoteForAttempt(UUID owner,TipPaymentRequest request,boolean pool){

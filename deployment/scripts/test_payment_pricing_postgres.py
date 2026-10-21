@@ -27,7 +27,10 @@ try:
           IF (SELECT metadata FROM payment_mgmt.transactions WHERE id='00000000-0000-0000-0000-000000000001') <> '{}'::jsonb THEN RAISE EXCEPTION 'Legacy repriced'; END IF;
           IF EXISTS(SELECT 1 FROM payment_mgmt.payment_fee_audits) THEN RAISE EXCEPTION 'Unexpected backfill'; END IF;
         END $$;""")
-    for ident in ['00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000003']:
+    for version in (6,7):
+        must(f"INSERT INTO payment_mgmt.transactions(id,account_user_id,amount_minor,type,status,provider,metadata) VALUES ('00000000-0000-0000-0000-00000000000{version}','00000000-0000-0000-0000-000000000010',2500,'TIP','PENDING','STRIPE','{{\"pricingVersion\":{version},\"platformFeeMinor\":125}}');")
+        must(f"UPDATE payment_mgmt.transactions SET status='BOOKED' WHERE id='00000000-0000-0000-0000-00000000000{version}';")
+    for ident in ['00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-000000000007']:
         for update in ["metadata='{}'",'amount_minor=2600',"currency='USD'"]:
             r=sql("UPDATE payment_mgmt.transactions SET "+update+" WHERE id='"+ident+"';")
             assert r.returncode!=0 and 'Frozen pricing must not be rewritten' in r.stderr
@@ -35,6 +38,6 @@ try:
     for query in ["UPDATE payment_mgmt.payment_fee_events SET financial_data='changed'","DELETE FROM payment_mgmt.payment_fee_events"]:
         r=sql(query);assert r.returncode!=0 and 'append-only' in r.stderr
     r=sql("INSERT INTO payment_mgmt.payment_fee_events SELECT * FROM payment_mgmt.payment_fee_events;");assert r.returncode!=0 and 'duplicate key' in r.stderr
-    print('PASS: all 11 migration SQL files, no historical backfill, direct/pool snapshot immutability, mutable settlement status, append-only events and duplicate event constraint in isolated PostgreSQL 15.')
+    print('PASS: all migration SQL files, no historical backfill, direct/pool snapshot immutability, mutable settlement status, append-only events and duplicate event constraint in isolated PostgreSQL 15.')
 finally:
     subprocess.run(['docker','rm','--force','--volumes',name],capture_output=True)
