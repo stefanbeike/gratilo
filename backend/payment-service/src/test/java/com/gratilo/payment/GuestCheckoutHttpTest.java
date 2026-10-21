@@ -10,6 +10,31 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class GuestCheckoutHttpTest {
+    @Test void poolLimitsAndInvalidRawAmountsAreEnforcedOverAnonymousHttp()throws Exception {
+        var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null){
+            @Override public Optional<CheckoutResponse> createPool(UUID owner,TipPaymentRequest request){
+                return Optional.of(new CheckoutResponse("https://checkout.stripe.com/fake",UUID.randomUUID().toString(),false,poolQuote(request.tipAmountMinor(),request.feeCovered())));
+            }
+        };
+        var props=new HashMap<String,Object>();props.put("payments.enabled",true);props.put("features.tip-pools-enabled",true);props.put("stripe.secret-key","sk_test_fixture");props.put("stripe.webhook-secret","whsec_fixture");props.put("micronaut.server.port",-1);
+        props.put("datasources.default.enabled",false);props.put("jpa.default.enabled",false);props.put("liquibase.enabled",false);props.put("liquibase.datasources.default.enabled",false);
+        try(var context=ApplicationContext.builder().properties(props).environments("test").build()){
+            context.registerSingleton(StripeCheckoutService.class,service);context.start();var server=context.getBean(EmbeddedServer.class).start();var client=HttpClient.newHttpClient();
+            var limits=client.send(HttpRequest.newBuilder(server.getURI().resolve("/payment-service/tips/pool-limits")).GET().build(),HttpResponse.BodyHandlers.ofString());
+            assertEquals(200,limits.statusCode());assertTrue(limits.body().contains("\"minAmountMinor\":200"));assertTrue(limits.body().contains("\"maxAmountMinor\":50000"));
+            String path="/payment-service/tips/pools/"+UUID.randomUUID();
+            for(String amount:List.of("199","50001","-1","0","200.1","null","\"invalid\"","9223372036854775808")){
+                var response=client.send(HttpRequest.newBuilder(server.getURI().resolve(path+"/checkout")).header("Content-Type","application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString("{\"tipAmountMinor\":"+amount+",\"idempotencyKey\":\"test-raw\"}")).build(),HttpResponse.BodyHandlers.ofString());
+                assertTrue(response.statusCode()>=400&&response.statusCode()<500,"Invalid amount "+amount+" returned "+response.statusCode());
+            }
+            for(long amount:new long[]{200,201,50000}){
+                var response=client.send(HttpRequest.newBuilder(server.getURI().resolve(path+"/quote?amountMinor="+amount+"&feeCovered=true")).GET().build(),HttpResponse.BodyHandlers.ofString());
+                assertEquals(200,response.statusCode());
+                if(amount==50000)assertTrue(response.body().contains("\"totalAmountMinor\":51652"));
+            }
+        }
+    }
     @Test void oldPoolAttemptIsAConflictAndNeverAnUpstreamGatewayFailure() throws Exception {
         var tx=new com.gratilo.payment.domain.TransactionEntity();tx.setId(UUID.randomUUID());tx.setProviderReference("cs_test_prior");
         var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("1.5"),25,null) {

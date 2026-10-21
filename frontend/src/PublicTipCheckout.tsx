@@ -10,12 +10,12 @@ type CheckoutStatus = { status: 'PAID' | 'PENDING' | 'FAILED'; confirmed: boolea
 const MIN_TIP = 100
 const MAX_TIP = 1_000_000
 const money = (minor: number) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(minor / 100)
-const parseMoney = (raw: string): number | null => {
+const parseMoney = (raw: string, minimum = MIN_TIP, maximum = MAX_TIP): number | null => {
   const value = raw.trim().replace(',', '.')
   if (!/^\d+(?:\.\d{0,2})?$/.test(value)) return null
   const [euros, cents = ''] = value.split('.')
   const minor = Number(euros) * 100 + Number(cents.padEnd(2, '0'))
-  return Number.isSafeInteger(minor) && minor >= MIN_TIP && minor <= MAX_TIP ? minor : null
+  return Number.isSafeInteger(minor) && minor >= minimum && minor <= maximum ? minor : null
 }
 const savedFlow = (key: string, legacyKey: string, pool: boolean): SavedFlow => {
   try {
@@ -42,6 +42,8 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   const [recipient, setRecipient] = useState<Recipient | null>(null)
   const [recipientId, setRecipientId] = useState('')
   const [eligibility, setEligibility] = useState<boolean | null>(null)
+  const [poolLimits, setPoolLimits] = useState<{minAmountMinor:number;maxAmountMinor:number}|null>(null)
+  const [poolLimitsError,setPoolLimitsError] = useState('')
   const [quote, setQuote] = useState<Quote | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -53,7 +55,22 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   const headers = useMemo<Record<string, string>>(() => session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {} as Record<string, string>, [session?.accessToken])
   const isResult = (isSuccess || isCancelled) && !retrying
   const name = recipient?.poolName || [recipient?.firstName, recipient?.lastName].filter(Boolean).join(' ') || recipient?.organisation || 'deinen Service'
-  const validInputAmount = parseMoney(amountInput)
+  const minimum = isPool ? poolLimits?.minAmountMinor ?? 200 : MIN_TIP
+  const maximum = isPool ? poolLimits?.maxAmountMinor ?? 50000 : MAX_TIP
+  const validInputAmount = parseMoney(amountInput,minimum,maximum)
+  useEffect(()=>{
+    if(!isPool||isResult)return
+    let current=true
+    setPoolLimits(null);setPoolLimitsError('')
+    fetch('/payment-service/tips/pool-limits',{cache:'no-store'}).then(async response=>{
+      if(!response.ok)throw Error()
+      const value=await response.json()
+      if(!Number.isSafeInteger(value.minAmountMinor)||!Number.isSafeInteger(value.maxAmountMinor)
+        ||value.minAmountMinor<200||value.maxAmountMinor>50000||value.minAmountMinor>value.maxAmountMinor)throw Error()
+      if(current)setPoolLimits(value)
+    }).catch(()=>{if(current)setPoolLimitsError('Die Team-Zahlungsgrenzen konnten nicht geladen werden. Bitte lade die Seite erneut.')})
+    return()=>{current=false}
+  },[isPool,isResult])
 
   useEffect(() => { sessionStorage.setItem(flowStorageKey, JSON.stringify(flow)) }, [flow, flowStorageKey])
   useEffect(() => {
@@ -83,19 +100,19 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
     return () => { current = false }
   }, [recipientId, headers, isResult, isPool])
   useEffect(() => {
-    if (!recipientId || isResult || !validInputAmount) { setQuote(null); return }
+    if (!recipientId || isResult || !validInputAmount || (isPool && !poolLimits)) { setQuote(null); return }
     let current = true
     setQuote(null)
     fetch(`/payment-service/tips/${isPool ? `pools/${recipientId}` : recipientId}/quote?amountMinor=${validInputAmount}&feeCovered=${flow.feeCovered}`, { headers, cache: 'no-store' })
       .then(async response => {
         const value = await response.json()
-        if (!response.ok) throw new Error(value.code === 'TIP_TOO_SMALL_AFTER_FEES' ? value.message : 'Der Betrag konnte gerade nicht berechnet werden. Bitte versuche es erneut.')
+        if (!response.ok) throw new Error(['TIP_TOO_SMALL_AFTER_FEES','POOL_TIP_OUT_OF_RANGE'].includes(value.code) ? value.message : 'Der Betrag konnte gerade nicht berechnet werden. Bitte versuche es erneut.')
         return value
       })
       .then(value => { if (current) { setQuote(value); setError('') } })
       .catch(failure => { if (current) { setQuote(null); setError(failure instanceof Error ? failure.message : 'Der Betrag konnte gerade nicht berechnet werden. Bitte versuche es erneut.') } })
     return () => { current = false }
-  }, [recipientId, validInputAmount, flow.feeCovered, headers, isResult, loadRevision, isPool])
+  }, [recipientId, validInputAmount, flow.feeCovered, headers, isResult, loadRevision, isPool, poolLimits])
   const sessionId = new URLSearchParams(location.search).get('session_id') || flow.pendingSessionId
   useEffect(() => {
     if (!isResult || !sessionId) return
@@ -180,8 +197,11 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
       {isPool && <p className="pool-public-members"><strong>Trinkgeld für das gesamte Team</strong><br/>Ein gemeinsames Danke für euren Service.</p>}
       {eligibility !== true && <p role="status">{eligibility === null ? 'Zahlungsberechtigung wird geprüft …' : isPool ? 'Dieser Pool ist noch nicht zahlungsbereit. Alle vorgesehenen Mitglieder benötigen die Stripe-Transferfreigabe.' : 'Dieser Empfänger kann derzeit keine Trinkgelder empfangen oder der Stripe-Status konnte nicht geprüft werden.'}</p>}
       {error && <div className="message error" role="alert">{error}</div>}
-      <div className="tip-amounts">{[100, 200, 500, 1000].map(value => <button type="button" key={value} aria-pressed={flow.amount === value} className={flow.amount === value ? 'selected' : ''} onClick={() => { update({ amount: value }); setAmountInput((value / 100).toFixed(2).replace('.', ',')) }}>{money(value)}</button>)}</div>
-      <label className="other-amount" htmlFor="checkout-amount">Anderer Betrag (mindestens 1,00 €)<div className="euro-input"><input id="checkout-amount" inputMode="decimal" min="1" max="10000" step="0.01" aria-invalid={validInputAmount === null} value={amountInput} onChange={event => { setAmountInput(event.target.value); const parsed = parseMoney(event.target.value); if (parsed !== null) update({ amount: parsed }) }} onBlur={() => { if (validInputAmount !== null) setAmountInput((validInputAmount / 100).toFixed(2).replace('.', ',')) }} /><span>€</span></div></label>
+      {isPool&&<p className="tip-note">Team-Trinkgeld: {money(minimum)} bis {money(maximum)}</p>}
+      {poolLimitsError&&<p role="alert">{poolLimitsError}</p>}
+      {isPool&&validInputAmount===null&&<p role="alert">Bitte wähle einen Team-Trinkgeldbetrag von {money(minimum)} bis {money(maximum)} mit höchstens zwei Nachkommastellen.</p>}
+      <div className="tip-amounts">{[100, 200, 500, 1000].filter(value=>value>=minimum&&value<=maximum).map(value => <button type="button" key={value} aria-pressed={flow.amount === value} className={flow.amount === value ? 'selected' : ''} onClick={() => { update({ amount: value }); setAmountInput((value / 100).toFixed(2).replace('.', ',')) }}>{money(value)}</button>)}</div>
+      <label className="other-amount" htmlFor="checkout-amount">Anderer Betrag (mindestens {money(minimum)})<div className="euro-input"><input id="checkout-amount" inputMode="decimal" min={minimum/100} max={maximum/100} step="0.01" aria-invalid={validInputAmount === null} value={amountInput} onChange={event => { setAmountInput(event.target.value); const parsed = parseMoney(event.target.value,minimum,maximum); if (parsed !== null) update({ amount: parsed }) }} onBlur={() => { if (validInputAmount !== null) setAmountInput((validInputAmount / 100).toFixed(2).replace('.', ',')) }} /><span>€</span></div></label>
       {flow.message && <div className="tip-note checkout-message-preview"><strong>Deine Nachricht:</strong> {flow.message}</div>}
       <label htmlFor="checkout-message">Nachricht <span>(optional)</span><textarea id="checkout-message" maxLength={500} value={flow.message} onChange={event => update({ message: event.target.value })} placeholder="Sag noch ein paar nette Worte …" /></label>
       <p className="tip-note">Stripe zeigt die verfügbaren Zahlungsmethoden im sicheren Checkout an.</p>

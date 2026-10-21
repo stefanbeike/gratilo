@@ -15,8 +15,11 @@ function installGuest(extra: (url: string, options?: RequestInit) => unknown = (
     }
     return extra(url, options) as ReturnType<typeof response>
   })
-  vi.stubGlobal('fetch', fetch)
+  stubCheckoutFetch( fetch)
   return fetch
+}
+function stubCheckoutFetch(fetch:(url:string,options?:RequestInit)=>Promise<unknown>){
+  vi.stubGlobal('fetch',(url:string,options?:RequestInit)=>url.includes('/pool-limits')?Promise.resolve(response({minAmountMinor:200,maxAmountMinor:50000,currency:'EUR'})):fetch(url,options))
 }
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); history.replaceState({}, '', '/'); sessionStorage.clear() })
 
@@ -40,7 +43,7 @@ it('uses the team QR route and creates a guest payment against the pool endpoint
     if (url.includes('/checkout')) return response({ transactionId: 'pool-tx' })
     return response({})
   })
-  vi.stubGlobal('fetch', fetch)
+  stubCheckoutFetch( fetch)
   history.replaceState({}, '', `/pay/team/${user}`)
   render(<DemoPayment />)
   expect(await screen.findByRole('heading', { name: 'Trinkgeld für Service-Team.' })).toBeInTheDocument()
@@ -106,7 +109,7 @@ it('starts a guest Checkout only after the summary and sends canonical amount, m
 
 it('keeps payment disabled if recipient eligibility is false', async () => {
   const fetch = vi.fn(async (url: string) => url.includes('/users/public/') ? response({ userId: user, firstName: 'Alex', paymentEnabled: true }) : response({ canReceiveTips: false }))
-  vi.stubGlobal('fetch', fetch)
+  stubCheckoutFetch( fetch)
   history.replaceState({}, '', `/pay/${user}`)
   render(<DemoPayment />)
   expect(await screen.findByText(/Dieser Empfänger kann derzeit keine Trinkgelder empfangen/)).toBeInTheDocument()
@@ -120,7 +123,7 @@ it('shows success only after Stripe status confirms payment', async () => {
   const fetch = vi.fn(async (url: string) => url.includes('/confirm')
     ? response({ status: 'PAID', confirmed: true, transactionId: 'tx-fixture', tipAmountMinor: 500, amountPaidMinor: 533 })
     : response({ userId: user, firstName: 'Alex', paymentEnabled: true }))
-  vi.stubGlobal('fetch', fetch)
+  stubCheckoutFetch( fetch)
   render(<DemoPayment />)
   expect(await screen.findByText(/wurde erfolgreich bezahlt/)).toBeInTheDocument()
   expect(screen.getByText(/nicht, dass das Geld bereits auf dem Bankkonto/)).toBeInTheDocument()
@@ -130,7 +133,7 @@ it('shows pending status and never offers another payment while Stripe is unclea
   history.replaceState({}, '', '/pay/cancelled?session_id=cs_test_fixture')
   sessionStorage.setItem('gratilo:last-recipient', user)
   const fetch = vi.fn(async (url: string) => url.includes('/confirm') ? response({ status: 'PENDING', confirmed: false }) : response({ userId: user, firstName: 'Alex' }))
-  vi.stubGlobal('fetch', fetch)
+  stubCheckoutFetch( fetch)
   render(<DemoPayment />)
   expect(await screen.findByRole('heading', { name: 'Bitte noch nicht erneut bezahlen.' })).toBeInTheDocument()
   expect(await screen.findByRole('button', { name: /Zahlungsstatus aktualisieren/ })).toBeEnabled()
@@ -142,7 +145,7 @@ it('allows a new attempt only after Stripe confirms the prior session failed', a
   sessionStorage.setItem('gratilo:last-recipient', user)
   sessionStorage.setItem(`gratilo:checkout:${user}`, JSON.stringify({ amount: 500, message: 'bleibt', feeCovered: true, step: 3 }))
   const fetch = vi.fn(async (url: string) => url.includes('/confirm') ? response({ status: 'FAILED', confirmed: false }) : response({ userId: user, firstName: 'Alex' }))
-  vi.stubGlobal('fetch', fetch)
+  stubCheckoutFetch( fetch)
   render(<DemoPayment />)
   fireEvent.click(await screen.findByRole('button', { name: /Erneut versuchen/ }))
   expect(await screen.findByRole('heading', { name: 'Trinkgeld für Alex.' })).toBeInTheDocument()
@@ -153,7 +156,7 @@ for (const pool of [false,true]) it(`returns a confirmed ${pool?'pool':'individu
   history.replaceState({},'', '/pay/success?session_id=cs_test_fixture')
   sessionStorage.setItem('gratilo:last-recipient',user); sessionStorage.setItem('gratilo:last-pool',String(pool))
   sessionStorage.setItem(`gratilo:checkout:${user}`,JSON.stringify({amount:1000,message:'old',feeCovered:true,step:3,attemptKey:'old-key',pendingSessionId:'cs_test_fixture'}))
-  vi.stubGlobal('fetch',vi.fn(async(url:string)=>{
+  stubCheckoutFetch(vi.fn(async(url:string)=>{
     if(url.includes('/confirm'))return response({status:'PAID',confirmed:true,amountPaidMinor:1041})
     if(url.includes('/pools/public/'))return response({ownerId:user,name:'Team',memberNames:['Alex','Sam']})
     if(url.includes('/eligibility'))return response({canReceiveTips:true})
@@ -189,7 +192,7 @@ for(const pool of [false,true])for(const status of ['PAID','PENDING'])it(`resolv
   if(url.includes('/checkout'))return response({code:'CHECKOUT_ALREADY_PROCESSED',message:'Prüfe den bestehenden Versuch.',transactionId:'prior-tx',sessionId:'cs_test_prior'},false)
   throw new Error('Unexpected request')
  })
- vi.stubGlobal('fetch',fetch);render(<DemoPayment/>);
+ stubCheckoutFetch(fetch);render(<DemoPayment/>);
  const next=await screen.findByRole('button',{name:/Weiter/});await waitFor(()=>expect(next).toBeEnabled());fireEvent.click(next)
  fireEvent.click(await screen.findByRole('button',{name:/Weiter zur Zusammenfassung/}));fireEvent.click(await screen.findByRole('button',{name:/Jetzt sicher bezahlen/}));
  await screen.findByRole('heading',{name:status==='PAID'?'Danke!':'Bitte noch nicht erneut bezahlen.'})
@@ -201,7 +204,7 @@ for(const pool of [false,true])for(const status of ['PAID','PENDING'])it(`resolv
 for(const pool of [true,false])it(`keeps the ${pool?'pool':'individual'} attempt separate from legacy state of the other payment type`,async()=>{
  sessionStorage.setItem('gratilo:last-pool',String(!pool));sessionStorage.setItem(`gratilo:checkout:${user}`,JSON.stringify({amount:1000,message:'Other payment',step:3,attemptKey:'other-attempt'}))
  history.replaceState({},'',`/pay/${pool?'team/':''}${user}`)
- vi.stubGlobal('fetch',vi.fn(async(url:string)=>url.includes('/pools/public/')?response({ownerId:user,name:'Team',memberNames:[]}):url.includes('/users/public/')?response({userId:user,firstName:'Alex',paymentEnabled:true}):url.includes('/eligibility')?response({canReceiveTips:true}):response({tipAmountMinor:500,totalAmountMinor:500,serviceFeeMinor:0,recipientAmountMinor:500})))
+ stubCheckoutFetch(vi.fn(async(url:string)=>url.includes('/pools/public/')?response({ownerId:user,name:'Team',memberNames:[]}):url.includes('/users/public/')?response({userId:user,firstName:'Alex',paymentEnabled:true}):url.includes('/eligibility')?response({canReceiveTips:true}):response({tipAmountMinor:500,totalAmountMinor:500,serviceFeeMinor:0,recipientAmountMinor:500})))
  render(<DemoPayment/>);await screen.findByRole('heading',{name:`Trinkgeld für ${pool?'Team':'Alex'}.`})
  const flow=JSON.parse(sessionStorage.getItem(`gratilo:checkout:${pool?'pool':'individual'}:${user}`)||'{}');expect(flow.amount).toBe(500);expect(flow.attemptKey).toBeUndefined()
  expect(JSON.parse(sessionStorage.getItem(`gratilo:checkout:${user}`)||'{}').attemptKey).toBe('other-attempt')
@@ -220,7 +223,7 @@ for (const pool of [false, true]) it(`uses the server's international-card estim
     if (url.includes('/checkout')) return response({ transactionId: 'fake' })
     return response({})
   })
-  vi.stubGlobal('fetch', fetch)
+  stubCheckoutFetch( fetch)
   render(<DemoPayment />)
   await screen.findByRole('heading', { name: `Trinkgeld für ${pool ? 'Team' : 'Alex'}.` })
   fireEvent.change(screen.getByLabelText(/Anderer Betrag/), { target: { value: '25,00' } })
@@ -245,7 +248,7 @@ for (const pool of [false, true]) it(`shows the server-calculated fee deduction 
     if (url.includes('/quote')) return response({ tipAmountMinor: 2500, serviceFeeMinor: 0, totalAmountMinor: 2500, recipientAmountMinor: 2396, estimatedStripeFeeMinor: 104, feeEstimated: true })
     return response({ transactionId: 'fake' })
   })
-  vi.stubGlobal('fetch', fetch); render(<DemoPayment />)
+  stubCheckoutFetch( fetch); render(<DemoPayment />)
   await screen.findByRole('heading', { name: `Trinkgeld für ${pool ? 'Team' : 'Alex'}.` })
   fireEvent.change(screen.getByLabelText(/Anderer Betrag/), { target: { value: '25,00' } })
   const next = screen.getByRole('button', { name: /Weiter/ }); await waitFor(() => expect(next).toBeEnabled()); fireEvent.click(next)
@@ -265,7 +268,7 @@ it('shows the actionable net-minimum error without allowing checkout', async () 
   const fetch = vi.fn(async (url: string) => url.includes('/users/public/') ? response({ userId: user, firstName: 'Alex', paymentEnabled: true })
     : url.includes('/eligibility') ? response({ canReceiveTips: true })
     : response({ code: 'TIP_TOO_SMALL_AFTER_FEES', message: 'Nach Gebührenabzug muss mindestens 0,01 € übrig bleiben.' }, false))
-  vi.stubGlobal('fetch', fetch); render(<DemoPayment />)
+  stubCheckoutFetch( fetch); render(<DemoPayment />)
   expect(await screen.findByRole('alert')).toHaveTextContent('0,01 €')
   expect(screen.getByRole('button', { name: /Weiter/ })).toBeDisabled()
   expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(false)
@@ -286,7 +289,7 @@ for (const pool of [false, true]) for (const covered of [false, true]) it(`shows
     }
     return response({ transactionId: 'fake' })
   })
-  vi.stubGlobal('fetch', fetch); render(<DemoPayment />)
+  stubCheckoutFetch( fetch); render(<DemoPayment />)
   await screen.findByRole('heading', { name: `Trinkgeld für ${pool ? 'Team' : 'Alex'}.` })
   fireEvent.change(screen.getByLabelText(/Anderer Betrag/), { target: { value: '25,00' } })
   await waitFor(() => expect(screen.getByRole('button', { name: /Weiter/ })).toBeEnabled())
@@ -311,7 +314,7 @@ it.each([false,true])('resolves preallocated team links by server mapping (team 
     if(url.includes('/quote'))return response({tipAmountMinor:500,serviceFeeMinor:0,totalAmountMinor:500,recipientAmountMinor:410})
     return response({transactionId:'pool-test'})
   })
-  vi.stubGlobal('fetch',fetch)
+  stubCheckoutFetch(fetch)
   history.replaceState({},'',`/pay/${explicitTeam?'team/':''}gratilo-002?recipient=manipulated`)
   render(<DemoPayment />)
   await screen.findByRole('heading',{name:'Trinkgeld für Bestandslink-Team.'})

@@ -136,7 +136,8 @@ def render(response, images, config):
                             require(secret["STRIPE_DIRECT_WEBHOOK_SECRET"]==direct_reference,"Direct webhook must use the same dedicated Stripe test secret")
                         secret["STRIPE_DIRECT_WEBHOOK_SECRET"]=direct_reference
                         container["secrets"]=[{"name":key,"valueFrom":value} for key,value in secret.items()]
-                        env.update(GRATILO_PLATFORM_FEE_PERCENT="5.00",GRATILO_PLATFORM_FEE_FIXED_MINOR="0")
+                        env.pop("GRATILO_POOL_COMMISSION_FIXED_MINOR",None)
+                        env.update(GRATILO_PLATFORM_FEE_PERCENT="5.00",GRATILO_PLATFORM_FEE_FIXED_MINOR="0",GRATILO_POOL_TIP_MIN_MINOR="200",GRATILO_POOL_TIP_MAX_MINOR="50000")
                 else:
                     require(not sandbox_payouts and not demo_enabled, "Payments and simulated payouts must remain disabled")
                     require(not payments_enabled, "Payments must remain disabled")

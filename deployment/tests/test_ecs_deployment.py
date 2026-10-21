@@ -141,6 +141,7 @@ class EcsDeploymentTest(unittest.TestCase):
         root="arn:aws:secretsmanager:eu-central-1:123456789012:secret:gratilo/prd/stripe-test-fixture"
         payment["secrets"].extend([{"name":name,"valueFrom":root+":"+field+"::"} for name,field in [
             ("STRIPE_SECRET_KEY","secret_key"),("STRIPE_WEBHOOK_SECRET","webhook_secret"),("PAYMENTS_TEST_ACTIVATION_CODE","activation_code")]])
+        payment["environment"].append({"name":"GRATILO_POOL_COMMISSION_FIXED_MINOR","value":"45"})
         config={**self.config,"STRIPE_TEST_MODE":"true","GRATILO_NEW_PRICING_ENABLED":"true"}
         rendered=renderer.render(response,self.images,config)
         result=rendered["containerDefinitions"][2]
@@ -149,6 +150,9 @@ class EcsDeploymentTest(unittest.TestCase):
         self.assertEqual("true",env["GRATILO_NEW_PRICING_ENABLED"])
         self.assertEqual("5.00",env["GRATILO_PLATFORM_FEE_PERCENT"])
         self.assertEqual("0",env["GRATILO_PLATFORM_FEE_FIXED_MINOR"])
+        self.assertNotIn("GRATILO_POOL_COMMISSION_FIXED_MINOR",env)
+        self.assertEqual("200",env["GRATILO_POOL_TIP_MIN_MINOR"])
+        self.assertEqual("50000",env["GRATILO_POOL_TIP_MAX_MINOR"])
         self.assertEqual(root+":direct_webhook_secret::",refs["STRIPE_DIRECT_WEBHOOK_SECRET"])
         self.assertNotIn("STRIPE_DIRECT_WEBHOOK_SECRET",env)
         payment["secrets"].append({"name":"STRIPE_DIRECT_WEBHOOK_SECRET","valueFrom":root+":webhook_secret::"})

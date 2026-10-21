@@ -9,6 +9,7 @@ import io.micronaut.security.rules.SecurityRule;
 import jakarta.validation.Valid;
 import java.util.UUID;
 @Controller("/payment-service/transactions") @Secured(SecurityRule.IS_AUTHENTICATED)
+@io.micronaut.scheduling.annotation.ExecuteOn(io.micronaut.scheduling.TaskExecutors.BLOCKING)
 public class TransactionController {
     private final TransactionService service;
     private final com.gratilo.payment.service.StripeFeeAuditService fees;

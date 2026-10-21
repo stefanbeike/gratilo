@@ -17,6 +17,7 @@ import com.gratilo.payment.repository.PoolTransferRepository;
 import jakarta.inject.Inject;
 @Singleton
 public class StripeCheckoutService {
+    @Inject PoolPaymentLimits poolLimits = new PoolPaymentLimits(200,50000);
     private final RecipientAvailability recipients; private final TransactionRepository transactions; private final ConnectedAccountRepository accounts; private final StripeConnectService connect; private final String secret, successUrl, cancelUrl; private final BigDecimal feePercent; private final long fixedFeeMinor;
     private final StripeFeeAuditService feeAudit;
     private final BigDecimal platformPercent;
@@ -48,7 +49,8 @@ public class StripeCheckoutService {
         this.recipients=recipients; this.transactions=transactions; this.accounts=accounts; this.connect=connect; this.poolClient=poolClient; this.poolTransfers=poolTransfers; StripeConnectService.requireTestKey(secret); this.secret=secret; this.successUrl=absoluteUrl(successUrl); this.cancelUrl=absoluteUrl(cancelUrl); this.feePercent=feePercent; this.fixedFeeMinor=fixedFeeMinor;
     }
     public TipQuote quote(long amount,boolean covered){return TipPricing.quote(amount,covered,feePercent,fixedFeeMinor,platformPercent);}
-    public TipQuote poolQuote(long amount,boolean covered){return TipPricing.poolQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent);}
+    public PoolPaymentLimits.Limits poolLimits(){return poolLimits.current();}
+    public TipQuote poolQuote(long amount,boolean covered){poolLimits.validate(amount);return TipPricing.poolQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent);}
     public boolean isConfigured() { return !secret.isBlank(); }
     public boolean isSandbox() { return true; }
 
@@ -168,6 +170,9 @@ public class StripeCheckoutService {
         if (poolClient == null || poolTransfers == null) throw new PoolNotReadyException();
         if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
         var resumed=resumeExisting(owner,request,true);if(resumed.isPresent())return resumed;
+        // Resume existing immutable sessions first; only a genuinely new payment gets new limits.
+        if(transactions.findByAccountUserIdAndIdempotencyKey(owner,request.idempotencyKey()).isEmpty())
+            poolLimits.validate(request.tipAmountMinor());
         var pool = poolClient.find(owner).orElseThrow(PoolNotReadyException::new);
         if (request.expectedPoolId()!=null && !request.expectedPoolId().equals(pool.poolId())) throw new PoolNotReadyException();
         if (pool.poolId() == null || pool.members().isEmpty()) throw new PoolNotReadyException();

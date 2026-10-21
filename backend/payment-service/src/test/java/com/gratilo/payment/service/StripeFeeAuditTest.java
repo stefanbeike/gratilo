@@ -18,10 +18,10 @@ class StripeFeeAuditTest {
    assertEquals(125L,f.audit.getPlatformFeeMinor());
    assertEquals(quote.recipientAmountMinor(),f.audit.getRecipientTotalMinor());
    assertEquals(actual,f.audit.getActualFeeMinor());assertNull(f.audit.getStripeApplicationFeeId());
-   assertEquals(125+(covered?107:104)-actual,f.audit.getPlatformNetRevenueMinor());
+   assertNull(f.audit.getPlatformNetRevenueMinor()); // no verified recipient transfers yet
    assertEquals(actual-(covered?107:104),f.audit.getUncoveredMinor());
    assertEquals(covered?2375:2271,TipPricingSnapshot.from(f.tx).recipientMinor());
-   assertEquals("DIFFERENCE",f.audit.getStatus());
+   assertEquals("POOL_SETTLEMENT_PENDING",f.audit.getStatus());
   }
  }
  @Test void observedTwentyFiveEuroPoolChargeRecordsFortyThreeCentPlatformUndercoverage()throws Exception{

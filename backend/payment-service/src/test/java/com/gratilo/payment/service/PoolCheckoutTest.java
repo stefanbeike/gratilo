@@ -9,6 +9,40 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PoolCheckoutTest {
+    @Test void poolLimitsAreInclusiveAndApplyBeforeTheGuestSurcharge()throws Exception {
+        for(long amount:new long[]{200,201,50000})for(boolean covered:new boolean[]{true,false})
+            assertPoolCharge(covered,amount,new java.math.BigDecimal("3.15"));
+        var limits=new PoolPaymentLimits(200,50000);
+        for(long amount:new long[]{-1,0,199,50001,Long.MAX_VALUE})assertThrows(PoolPaymentLimits.InvalidPoolAmount.class,()->limits.validate(amount));
+        assertThrows(IllegalArgumentException.class,()->new PoolPaymentLimits(100,50000));
+        assertThrows(IllegalArgumentException.class,()->new PoolPaymentLimits(200,50001));
+    }
+    @Test void historicalOutOfRangePoolSessionResumesItsOriginalFortyFiveCentAgreement()throws Exception {
+        var tx=new TransactionEntity();tx.setId(UUID.randomUUID());tx.setAmountMinor(100000);tx.setType(TransactionType.TIP);
+        tx.setProvider("STRIPE");tx.setProviderReference("cs_test_historical");tx.setStatus(TransactionStatus.PENDING);
+        var old=new com.gratilo.payment.api.TipQuote(100000,3278,103278,"EUR",new java.math.BigDecimal("3.15"),25,99955,true,3278,"Historical",5,java.math.BigDecimal.ZERO,45);
+        var data=TipPricingSnapshot.metadata(old,true);data.put("poolId",UUID.randomUUID().toString());data.put("chargeModel","POOL");
+        tx.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(data));var original=tx.getMetadata();
+        var repo=proxy(TransactionRepository.class,(p,m,a)->{assertEquals("findByAccountUserIdAndIdempotencyKey",m.getName());return Optional.of(tx);});
+        var allocations=proxy(PoolTransferRepository.class,(p,m,a)->{throw new AssertionError("Historical allocations must not be changed");});
+        var service=new StripeCheckoutService(repo,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null,new PoolDistributionClient("http://localhost","fixture",true),allocations){
+            @Override protected String stripeRequest(String path,String form,String key){assertNull(form);return "{\"id\":\"cs_test_historical\",\"livemode\":false,\"url\":\"https://checkout.stripe.com/old\"}";}
+        };
+        var result=service.createPool(UUID.randomUUID(),new TipPaymentRequest(100000L,null,"old",true)).orElseThrow();
+        assertEquals(5,result.quote().pricingVersion());assertEquals(45,result.quote().platformFeeMinor());assertEquals(99955,result.quote().recipientAmountMinor());
+        assertEquals(original,tx.getMetadata());
+    }
+    @Test void manipulatedNewPoolAmountsAreRejectedBeforeProviderOrAllocationOperations(){
+        var repo=proxy(TransactionRepository.class,(p,m,a)->{assertEquals("findByAccountUserIdAndIdempotencyKey",m.getName());return Optional.empty();});
+        var allocations=proxy(PoolTransferRepository.class,(p,m,a)->{throw new AssertionError("No allocation writes");});
+        var service=new StripeCheckoutService(repo,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null,new PoolDistributionClient("http://localhost","fixture",true),allocations);
+        for(long amount:new long[]{199,50001})for(boolean covered:new boolean[]{true,false}){
+            assertThrows(PoolPaymentLimits.InvalidPoolAmount.class,()->service.createPool(UUID.randomUUID(),new TipPaymentRequest(amount,null,"invalid",covered)));
+            var response=new com.gratilo.payment.controller.TipController(service,new java.math.BigDecimal("3.15"),25)
+                    .poolCheckout(UUID.randomUUID(),"false",new TipPaymentRequest(amount,null,"invalid",covered));
+            assertEquals(io.micronaut.http.HttpStatus.BAD_REQUEST,response.getStatus());
+        }
+    }
     @Test void coveredChargePreservesPoolTipAndFeeSnapshot() throws Exception { assertPoolCharge(true); }
     @Test void uncoveredChargePreservesPoolTipWithoutSurcharge() throws Exception { assertPoolCharge(false); }
     @Test void configuredGrossUpIsSharedByPoolCheckoutsAtTenAndTwentyFiveEuros() throws Exception {
@@ -24,7 +58,7 @@ class PoolCheckoutTest {
         assertPoolCharge(false,2500,new java.math.BigDecimal("3.15"));
     }
     @Test void tinySharesAreRejectedBeforeCheckoutOrAllocationWrites() {
-        assertThrows(TipPricing.NoDistributableTipException.class,()->assertPoolCharge(false,100,new java.math.BigDecimal("3.15"),List.of(99.99,0.01)));
+        assertThrows(TipPricing.NoDistributableTipException.class,()->assertPoolCharge(false,200,new java.math.BigDecimal("3.15"),List.of(99.99,0.01)));
     }
     private void assertPoolCharge(boolean covered,long tip,java.math.BigDecimal rate) throws Exception {
         assertPoolCharge(covered,tip,rate,List.of(50.0,50.0));

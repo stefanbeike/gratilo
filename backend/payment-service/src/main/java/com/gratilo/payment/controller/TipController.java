@@ -31,7 +31,11 @@ public class TipController {
         return checkoutService==null?TipPricing.quote(amountMinor,feeCovered,feePercent,fixedFeeMinor):checkoutService.quote(amountMinor,feeCovered);
     }
     @Get("/pools/{ownerUserId}/quote") public TipQuote poolQuote(UUID ownerUserId, @QueryValue @jakarta.validation.constraints.Min(100) @jakarta.validation.constraints.Max(1000000) long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) {
+        if(checkoutService==null)new com.gratilo.payment.service.PoolPaymentLimits(200,50000).validate(amountMinor);
         return checkoutService==null?TipPricing.poolQuote(amountMinor,feeCovered,feePercent,fixedFeeMinor,TipPricing.DEFAULT_PLATFORM_PERCENT):checkoutService.poolQuote(amountMinor,feeCovered);
+    }
+    @Get("/pool-limits") public HttpResponse<?> poolLimits(){
+        return HttpResponse.ok(checkoutService.poolLimits()).header("Cache-Control","no-store");
     }
     @Get("/checkout/confirm") public HttpResponse<?> confirm(@QueryValue String sessionId) {
         try { return HttpResponse.ok(checkoutService.checkoutStatus(sessionId)).header("Cache-Control", "no-store"); }
@@ -69,7 +73,6 @@ public class TipController {
         }
     }
     @Post("/pools/{ownerUserId}/checkout") public HttpResponse<?> poolCheckout(UUID ownerUserId, @QueryValue(value = "demo", defaultValue = "false") String demo, @Body @Valid TipPaymentRequest request) {
-        if (request.tipAmountMinor() < 100) return HttpResponse.badRequest(java.util.Map.of("message", "Mindesttrinkgeld: 1,00 EUR"));
         if ("1".equals(demo) || "true".equalsIgnoreCase(demo)) return HttpResponse.badRequest(java.util.Map.of("message", "Demo-Zahlungen sind deaktiviert."));
         try {
             var checkout = checkoutService.createPool(ownerUserId, request);
@@ -85,6 +88,8 @@ public class TipController {
             return HttpResponse.status(HttpStatus.CONFLICT).body(conflict.response());
         } catch (StripeCheckoutService.QuoteChangedException changed) {
             return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code","QUOTE_CHANGED","message",changed.getMessage()));
+        } catch (com.gratilo.payment.service.PoolPaymentLimits.InvalidPoolAmount invalid) {
+            return poolAmountInvalid(invalid);
         } catch (StripeCheckoutService.PoolNotReadyException unavailable) {
             return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code", "POOL_NOT_READY", "message", "Dieser Pool ist noch nicht zahlungsbereit. Alle aktiven Mitglieder mit Trinkgeldanteil müssen Stripe freigeschaltet haben."));
         } catch (Exception exception) {
@@ -97,6 +102,10 @@ public class TipController {
     @io.micronaut.http.annotation.Error(global = true, exception = TipPricing.NoDistributableTipException.class)
     public HttpResponse<?> tipTooSmall(TipPricing.NoDistributableTipException failure) {
         return HttpResponse.badRequest(java.util.Map.of("code","TIP_TOO_SMALL_AFTER_FEES","message",failure.getMessage()));
+    }
+    @io.micronaut.http.annotation.Error(global=true, exception=com.gratilo.payment.service.PoolPaymentLimits.InvalidPoolAmount.class)
+    public HttpResponse<?> poolAmountInvalid(com.gratilo.payment.service.PoolPaymentLimits.InvalidPoolAmount failure){
+        return HttpResponse.badRequest(java.util.Map.of("code","POOL_TIP_OUT_OF_RANGE","message",failure.getMessage()));
     }
     private static String safeLocation(Exception failure) {
         // Locations aid diagnostics without logging messages, request bodies, keys or personal details.

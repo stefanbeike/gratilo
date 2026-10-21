@@ -21,11 +21,17 @@ public class StripeFeeAuditService {
     private final TransactionRepository transactions;
     private final String secret;
     private final PaymentFeeEventRepository events;
+    private final PoolReconciliation poolLedger;
     public StripeFeeAuditService(PaymentFeeAuditRepository audits,TransactionRepository transactions,String secret){this(audits,transactions,secret,null);}
-    @jakarta.inject.Inject
     public StripeFeeAuditService(PaymentFeeAuditRepository audits, TransactionRepository transactions,
                                  @Value("${stripe.secret-key:}") String secret, PaymentFeeEventRepository events) {
+        this(audits,transactions,secret,events,null);
+    }
+    @jakarta.inject.Inject
+    public StripeFeeAuditService(PaymentFeeAuditRepository audits,TransactionRepository transactions,
+            @Value("${stripe.secret-key:}") String secret,PaymentFeeEventRepository events,PoolTransferRepository poolTransfers){
         StripeConnectService.requireTestKey(secret); this.audits=audits;this.transactions=transactions;this.secret=secret;this.events=events;
+        this.poolLedger=new PoolReconciliation(poolTransfers,this::get);
     }
     public void snapshot(TransactionEntity tx, TipQuote quote) {
         if(audits.findById(tx.getId()).isPresent())return;
@@ -37,7 +43,10 @@ public class StripeFeeAuditService {
     }
     @Scheduled(fixedDelay="PT60S") public void reconcile() {
         if(secret.isBlank())return;
-        for(var audit:audits.findByStatus("PENDING"))try { reconcile(audit); }
+        var candidates=new LinkedHashMap<UUID,PaymentFeeAuditEntity>();
+        for(String status:List.of("PENDING","POOL_SETTLEMENT_PENDING"))
+            for(var audit:audits.findByStatus(status))candidates.put(audit.getTransactionId(),audit);
+        for(var audit:candidates.values())try { reconcile(audit); }
         catch(Exception failure){audit.setLastError("STRIPE_FEE_RETRY_REQUIRED");audit.setCheckedAt(OffsetDateTime.now());audits.update(audit);
             LoggerFactory.getLogger(getClass()).warn("Fee audit retry transaction={} category={}",audit.getTransactionId(),failure.getClass().getSimpleName());}
     }
@@ -96,7 +105,19 @@ public class StripeFeeAuditService {
         long retained = Math.subtractExact(audit.getChargedMinor(),TipPricingSnapshot.from(tx).recipientMinor());
         audit.setUncoveredMinor(Math.subtractExact(actual,Math.subtractExact(retained,TipPricingSnapshot.from(tx).platformFeeMinor())));
         audit.setPlatformNetRevenueMinor(refunded>0||tx.getStatus()==TransactionStatus.DISPUTED||tx.getStatus()==TransactionStatus.CHARGEBACK?null:Math.subtractExact(retained,actual));audit.setBalanceTransactionId(balanceId);audit.setFeeDetails(JsonMapper.createDefault().writeValueAsString(details));
-        audit.setStatus(actual==audit.getEstimatedFeeMinor()?"MATCHED":"DIFFERENCE");audit.setLastError(null);audit.setCheckedAt(OffsetDateTime.now());audits.update(audit);
+        audit.setStatus(actual==audit.getEstimatedFeeMinor()?"MATCHED":"DIFFERENCE");audit.setLastError(null);audit.setCheckedAt(OffsetDateTime.now());
+        if(!PoolReconciliation.isPool(tx))audits.update(audit);
+        if(PoolReconciliation.isPool(tx)) {
+            var settlement=poolLedger.read(tx,audit);
+            audit.setPlatformNetRevenueMinor(settlement.economicNetRevenueMinor());
+            if(!"RECONCILED".equals(settlement.status())) {
+                // Do not finalize income while recipient liabilities or unverified ledger entries remain.
+                audit.setStatus("POOL_SETTLEMENT_PENDING");audit.setLastError(settlement.reason());
+            }
+            audits.update(audit);
+            LoggerFactory.getLogger(getClass()).info("Pool financial audit transaction={} commissionMinor={} residualMinor={} outstandingMinor={} revenueMinor={} status={} reason={}",
+                    tx.getId(),settlement.agreedCommissionMinor(),settlement.platformResidualMinor(),settlement.outstandingRecipientsMinor(),settlement.economicNetRevenueMinor(),settlement.status(),settlement.reason());
+        }
         LoggerFactory.getLogger(getClass()).info("Stripe fee audit transaction={} chargedMinor={} surchargeMinor={} estimatedMinor={} actualMinor={} differenceMinor={} uncoveredMinor={} status={}",
                 audit.getTransactionId(),audit.getChargedMinor(),audit.getSurchargeMinor(),audit.getEstimatedFeeMinor(),actual,audit.getDifferenceMinor(),audit.getUncoveredMinor(),audit.getStatus());
     }
@@ -150,14 +171,16 @@ public class StripeFeeAuditService {
 
     @Serdeable public record Report(UUID transactionId,String status,long chargedMinor,long surchargeMinor,long estimatedFeeMinor,
             Long actualFeeMinor,Long actualTotalFeeMinor,Long actualNetMinor,Long differenceMinor,Long uncoveredMinor,String balanceTransactionId,
-            String feeDetails,String estimateBasis,double estimatePercent,long estimateFixedMinor,String lastError,OffsetDateTime checkedAt,Long selectedAmountMinor,Long recipientAmountMinor,Boolean feeCovered,Long platformRetainedMinor,Long platformResultMinor,Long platformFeeMinor,java.math.BigDecimal platformFeePercent,String stripePaymentIntentId,String stripeChargeId,String stripeApplicationFeeId,Long applicationFeeMinor,Long refundedMinor,Long applicationFeeRefundedMinor,String commissionRefundStatus,Long platformNetRevenueMinor,String feeSourceReference){}
+            String feeDetails,String estimateBasis,double estimatePercent,long estimateFixedMinor,String lastError,OffsetDateTime checkedAt,Long selectedAmountMinor,Long recipientAmountMinor,Boolean feeCovered,Long platformRetainedMinor,Long platformResultMinor,Long platformFeeMinor,java.math.BigDecimal platformFeePercent,String stripePaymentIntentId,String stripeChargeId,String stripeApplicationFeeId,Long applicationFeeMinor,Long refundedMinor,Long applicationFeeRefundedMinor,String commissionRefundStatus,Long platformNetRevenueMinor,String feeSourceReference,PoolReconciliation.Report poolSettlement){}
     public Optional<Report> report(UUID id){return audits.findById(id).map(a->{
         var tx=transactions.findById(id).orElse(null);
         var pricing=tx==null?null:TipPricingSnapshot.from(tx);
         Long retained=pricing==null?null:Math.subtractExact(a.getChargedMinor(),pricing.recipientMinor());
         Long result=retained==null||a.getActualFeeMinor()==null?null:Math.subtractExact(retained,a.getActualFeeMinor());
         if(pricing!=null&&pricing.version()>=3)result=a.getPlatformNetRevenueMinor();
-        return new Report(a.getTransactionId(),a.getStatus(),a.getChargedMinor(),a.getSurchargeMinor(),a.getEstimatedFeeMinor(),a.getActualFeeMinor(),a.getActualTotalFeeMinor(),a.getActualNetMinor(),a.getDifferenceMinor(),a.getUncoveredMinor(),a.getBalanceTransactionId(),a.getFeeDetails(),a.getEstimateBasis(),a.getEstimatePercent(),a.getEstimateFixedMinor(),a.getLastError(),a.getCheckedAt(),pricing==null?null:pricing.selectedMinor(),pricing==null?null:pricing.recipientMinor(),pricing==null?null:pricing.feeCovered(),retained,result,pricing==null?null:pricing.platformFeeMinor(),pricing==null?null:pricing.platformPercent(),a.getStripePaymentIntentId(),a.getStripeChargeId(),a.getStripeApplicationFeeId(),a.getApplicationFeeMinor(),a.getRefundedMinor(),a.getApplicationFeeRefundedMinor(),a.getCommissionRefundStatus(),a.getPlatformNetRevenueMinor(),a.getFeeSourceReference());
+        var pool=tx!=null&&PoolReconciliation.isPool(tx)?poolLedger.read(tx,a):null;
+        if(pool!=null)result=pool.economicNetRevenueMinor();
+        return new Report(a.getTransactionId(),a.getStatus(),a.getChargedMinor(),a.getSurchargeMinor(),a.getEstimatedFeeMinor(),a.getActualFeeMinor(),a.getActualTotalFeeMinor(),a.getActualNetMinor(),a.getDifferenceMinor(),a.getUncoveredMinor(),a.getBalanceTransactionId(),a.getFeeDetails(),a.getEstimateBasis(),a.getEstimatePercent(),a.getEstimateFixedMinor(),a.getLastError(),a.getCheckedAt(),pricing==null?null:pricing.selectedMinor(),pricing==null?null:pricing.recipientMinor(),pricing==null?null:pricing.feeCovered(),retained,result,pricing==null?null:pricing.platformFeeMinor(),pricing==null?null:pricing.platformPercent(),a.getStripePaymentIntentId(),a.getStripeChargeId(),a.getStripeApplicationFeeId(),a.getApplicationFeeMinor(),a.getRefundedMinor(),a.getApplicationFeeRefundedMinor(),a.getCommissionRefundStatus(),pool==null?a.getPlatformNetRevenueMinor():pool.economicNetRevenueMinor(),a.getFeeSourceReference(),pool);
     });}
     /** Signed provider events are append-only evidence; no refund or reversal is initiated here. */
     public void recordEvent(TransactionEntity tx,String eventId,String type,Map<?,?> object){
