@@ -9,6 +9,9 @@ app:
 frontend:
   base-url: ${FRONTEND_BASE_URL:`http://localhost:3000`}
 
+notifications:
+  tip-payments-enabled: ${TIP_PAYMENT_EMAILS_ENABLED:false}
+
 micronaut:
   application:
     name: user-service

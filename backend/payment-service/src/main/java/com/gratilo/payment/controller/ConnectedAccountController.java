@@ -11,10 +11,18 @@ import com.gratilo.payment.service.StripeConnectService;
 @Controller("/payment-service/connect-account") @Secured(SecurityRule.IS_AUTHENTICATED)
 @io.micronaut.scheduling.annotation.ExecuteOn(io.micronaut.scheduling.TaskExecutors.BLOCKING)
 public class ConnectedAccountController {
+    @jakarta.inject.Inject @io.micronaut.core.annotation.Nullable
+    com.gratilo.payment.service.StripeBalanceService balances;
     private final ConnectedAccountRepository repository;
     private final StripeConnectService stripe;
     public ConnectedAccountController(ConnectedAccountRepository repository, StripeConnectService stripe) { this.repository = repository; this.stripe = stripe; }
     @Get public HttpResponse<?> get(Authentication authentication) { return repository.findByUserId(UUID.fromString(authentication.getName())).map(a -> HttpResponse.ok(ConnectedAccountResponse.from(a))).orElseGet(HttpResponse::notFound); }
+    @Get("/balance") public HttpResponse<?> balance(Authentication authentication){
+        try{
+            if(balances==null)return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE);
+            return balances.balance(UUID.fromString(authentication.getName())).map(value->HttpResponse.ok(value).header("Cache-Control","no-store")).orElseGet(HttpResponse::notFound);
+        }catch(Exception unavailable){return HttpResponse.status(HttpStatus.BAD_GATEWAY).body(java.util.Map.of("code","STRIPE_BALANCE_UNAVAILABLE","message","Dein Stripe-Guthaben konnte nicht geladen werden."));}
+    }
     @Post("/onboarding/start") public HttpResponse<?> start(Authentication authentication) {
         if (!stripe.isConfigured()) return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE);
         UUID userId = UUID.fromString(authentication.getName());

@@ -34,6 +34,7 @@ public class TipController {
         if(checkoutService==null)new com.gratilo.payment.service.PoolPaymentLimits(200,50000).validate(amountMinor);
         return checkoutService==null?TipPricing.poolQuote(amountMinor,feeCovered,feePercent,fixedFeeMinor,TipPricing.DEFAULT_PLATFORM_PERCENT):checkoutService.poolQuote(amountMinor,feeCovered);
     }
+    @io.micronaut.security.annotation.Secured(io.micronaut.security.rules.SecurityRule.IS_ANONYMOUS)
     @Get("/pool-limits") public HttpResponse<?> poolLimits(){
         return HttpResponse.ok(checkoutService.poolLimits()).header("Cache-Control","no-store");
     }

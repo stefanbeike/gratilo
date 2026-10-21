@@ -11,6 +11,12 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PoolTransferHistoryServiceTest {
+    @Test void poolIdentityComesOnlyFromHistoricalPaymentMetadata() {
+        var f=new Fixture(2500,1250,1250,"50","50");var pool=UUID.randomUUID();
+        f.tx.setMetadata("{\"poolName\":\"testpool\",\"poolId\":\""+pool+"\"}");
+        assertEquals(pool,f.history().poolId());
+        f.tx.setMetadata("{\"poolName\":\"testpool\"}");assertNull(f.history().poolId());
+    }
     @Test void returnsFrozenFiftyPercentAndWholePoolAmountInsteadOfPersonalAmount() throws Exception {
         var f=new Fixture(2500,1250,1250,"50","50");
         var result=f.history();

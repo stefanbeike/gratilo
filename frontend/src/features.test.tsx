@@ -32,7 +32,7 @@ it.each([false, undefined])('hides pools and skips pool requests when disabled o
 
 it('restores pool management and requests when enabled by the backend', async () => {
   const fetchMock = mount(true)
-  fireEvent.click(screen.getByRole('button',{name:'Mein Team'}))
+  fireEvent.click(screen.getByRole('button',{name:'Team'}))
   expect(await screen.findByText('Du bist noch keinem Team zugeordnet.')).toBeInTheDocument()
   await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === '/user-service/pools/memberships')).toBe(true))
 })

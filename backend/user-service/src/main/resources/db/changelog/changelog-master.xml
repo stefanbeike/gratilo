@@ -20,4 +20,5 @@
     <include file="user_mgmt/015_team_image.sql" relativeToChangelogFile="true"/>
     <include file="user_mgmt/016_pool_payment_links.sql" relativeToChangelogFile="true"/>
     <include file="user_mgmt/017_member_deactivation.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/018_tip_notification_inbox.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>

@@ -1,0 +1,300 @@
+= Stripe-Connect-Auszahlungsgebühren: Entscheidungsvorlage
+:toc:
+
+Stand: 21.10.2026. Nur Analyse; keine Payouts, Debits oder Konfigurationsänderungen.
+
+== Nachweise und Grenzen
+
+Ausgangsbranch `main`, HEAD `d3e8e7f`. Vorhandene lokale Dokumentationsänderungen
+bleiben unangetastet. Die früheren Berichte sind zeitgebundene Nachweise:
+`stripe-pool-application-fee-options.adoc` beschreibt Revision 24/V5;
+`pool-platform-retention.adoc` dokumentiert einen späteren V7-Nachweis/Revision 25.
+Keine dieser Angaben ersetzt einen aktuellen Deployment-Abgleich.
+
+Neue AWS-GET-/Describe-Prüfungen scheitern an abgelaufener SSO-Anmeldung. Ein lokal
+vorhandener Testschlüssel lieferte keinen bestätigten Kontext der früher geprüften
+Gratilo-Plattform; die Kontextprüfung wurde abgebrochen. Deshalb wurden keine
+neuen Connected-Account-Payouts oder Vertragskonditionen als aktuell bestätigt
+ausgegeben. Keine Schlüsselwerte werden dokumentiert.
+
+Frühere lesende Sandbox-Nachweise zeigen zwei Connect-v2-Konten mit
+`fees_collector=application`, und ein weiteres mit `fees_collector=stripe`.
+Der lokale Erstellungsweg fordert `dashboard=express`, Gebühren- und Verlustträger
+`application`. Das ist keine Bestätigung aller bestehenden Konten.
+
+== Lokaler Auszahlungsweg und Lücken
+
+* `StripeConnectService`: Accounts v2, API-Version `2026-09-30.endive`, Merchant-
+  und Recipient-Konfiguration. Persönliche Zahlung: Direct Charge; Pool: SCT.
+* `StripePayoutService`: `POST /payment-service/payouts` verwendet den angemeldeten
+  Benutzer und dessen Connected Account. Reale Variante liest `available` EUR
+  über dessen Stripe-Kontext und würde Standard-Payouts im selben Kontext erstellen.
+* Tatsächlich ist `stripe.sandbox-payouts=true` voreingestellt. `SandboxConfiguration`
+  verhindert bei aktivierten Zahlungen reale Payout-Konfiguration. Die normale
+  Sandbox-Auszahlung erzeugt eine lokale simulierte PAYOUT-Transaktion, keine
+  Bankbewegung und keine reale Auszahlungsgebühr.
+* `transactions` speichert negative PAYOUT-Beträge, Status und Providerreferenz.
+  Es fehlen ein eigener versionierter Payout-Kostensnapshot, Debitreferenz,
+  tatsächlicher Gebührennachweis und eine belastbare Gebührenreservierung.
+* Neue Payout-Aufrufe erhalten zeitbasierte/neue lokale Idempotenzschlüssel.
+  Ein wiederholter Benutzerrequest ist damit nicht zuverlässig derselbe Auftrag.
+  DB-Transaktion allein serialisiert konkurrierende Stripe-Guthabenverwendung nicht.
+* Der generische Webhook kennt `payout.paid/failed/canceled`. Der vorherige
+  Direct-Charge-Kontextfilter erwartet jedoch `DIRECT`-Pricing-Metadaten;
+  der Payout-Service speichert diese nicht. Connected-Payout-Events können deshalb
+  vor dieser Behandlung verworfen werden. Vor realem Payout-Betrieb eigene
+  Payout-Kontobindung und Tests erforderlich.
+* Die Dashboard-Listen filtern PAYOUTs aus den persönlichen/Team-Trinkgeldansichten.
+  Es wurde kein vollständiger aktiver Auszahlungsdialog mit Gebührenquote gefunden.
+  Einnahmenhistorie ist kein zuverlässiges Stripe-available-Guthaben.
+* Vorhandene `payment_fee_audits` behandeln Checkout-Kosten, keine vollständige
+  Connect-Monatsabrechnung oder Payout-Kostenrechnung.
+
+== Wer zahlt welche Gebühren?
+
+`fees_collector` regelt laut Accounts-v2-Dokumentation die Zahlungsgebühren bei
+Direct Charges. Daraus folgt kein frei umschaltbarer Payout-Kostenträger.
+SCT-Zahlungsgebühren liegen bei der Plattform. Verantwortungseinstellungen sind
+nach Hinzufügen der Merchant-Konfiguration nicht nachträglich änderbar;
+Express verlangt `application` für Gebühren- und Verlustverantwortung.
+
+Die öffentliche deutsche Connect-Preisliste nennt beim Plattform-Preismodell
+2 EUR je aktivem Monat und Konto, 0,25 Prozent plus 0,10 EUR je Auszahlung,
+1 Prozent Instant-Payout-Volumen sowie zusätzliche grenzüberschreitende Kosten.
+Account Debits haben dort einen eigenen Preis von 1,4 Prozent des Debitvolumens.
+Dies sind veröffentlichte Standardpreise, *kein bestätigter Gratilo-Vertragstarif*.
+Die monatliche Aktivkontogebühr ist nicht eindeutig einer einzelnen Auszahlung
+zurechenbar. Tabellenpositionen nicht ungeprüft addieren: Paket und Tarif bestätigen.
+
+Im Plattform-Preismodell können Payout-/Connect-Kosten nachträglich und aggregiert
+der Plattform belastet werden. Ein Payout-Balance-Transaction-Feld `fee=0`
+beweist daher keine Kostenfreiheit. Es sind Kontokontext, Gebührenbericht und
+gegebenenfalls monatliche Rechnung zu prüfen. Zahlungsempfänger und Poolmitglieder
+können denselben Payout-Weg nutzen; ihre unterschiedlichen Zuflüsse ändern nicht
+automatisch ihren Auszahlungsvertrag.
+
+== Vorab-Abfrage und tatsächliche Kosten
+
+Für normale manuelle/automatische SEPA-Payouts wurde keine allgemein verfügbare
+verbindliche Fee-Quote-API gefunden. `POST /v1/payouts` ist keine Vorschau und darf
+nicht zur Gebührenermittlung probeweise aufgerufen werden. Kalkulation nur anhand
+bestätigter Konditionen, Währung, Auszahlungsart und Rundung; späterer Ist-Abgleich.
+Dasselbe gilt für Plattform-Payouts: kein Nachweis einer universellen Vorabquote.
+
+Für Instant Payouts gibt es eine konkrete Alternative: Stripe Platform Pricing
+Tools können eine Payout-Application-Fee einziehen. Die expandierte Balance
+`instant_available.net_available` liefert je berechtigtem Ziel den verfügbaren
+Nettobetrag nach dieser konfigurierten Plattformgebühr. Das ist keine universelle
+Quote sämtlicher späterer Stripe-/Connect-/Monatskosten. Für Plattformkonten ist
+diese Expansion nicht verfügbar; Instant-Eignung ist kontospezifisch.
+
+Nachträgliche Belege: Payout, dessen Balance Transaction und Failure-Buchung,
+Application Fee bei Instant, Plattformgebührenbericht/Itemized Fees mit
+`incurred_by=po_...`, Steuer-/Rechnungspositionen. Der Fees Report kann verzögert
+sein und deckt separat fakturierte Gebühren nicht vollständig ab. Gratilo benötigt
+einen Import-/Abgleichspfad, statt alle Kosten aus der Charge-Buchung abzuleiten.
+
+== Geldfluss und Optionen
+
+Eine Auszahlung von 99,65 EUR aus 100 EUR lässt zunächst 0,35 EUR im Connected
+Account. Ohne automatische Gebührenbelastung oder unterstützten Kosteneinzug
+erhält Gratilo keinen Ausgleich. Das Restguthaben gehört weiterhin dem Mitarbeiter.
+
+=== A1: Stripe belastet den Connected Account
+
+Nur auswählbar, wenn Stripe die konkrete Payout-Gebührenzuordnung für Gratilo
+bestätigt. Es wurde kein separater, allgemein unterstützter Schalter nachgewiesen,
+der die Standard-Payout-Kosten bestehender Express-v2-Konten umstellt.
+Ein Wechsel auf `fees_collector=stripe` wäre eine Änderung des gesamten
+Zahlungs-/Kontomodells und bei bestehenden Merchant-Konten nicht einfach möglich.
+Er verändert auch die bisherige Direct-Charge-Kostenausgleichsrechnung.
+*Für bestehende Gratilo-Konten derzeit nicht als sofort umsetzbar bestätigt.*
+
+=== A2: Unterstützter Kostenausgleich durch Account Debit
+
+Stripe dokumentiert Debits von Connected-Guthaben zur Plattform, wenn die Plattform
+Verlustverantwortung trägt, Region/Währung passen und rechtsverbindliche Zustimmung
+vorliegt. Technisch ist das eine Plattform-API-Charge mit Connected Account als
+`source`; kein beliebiger ausgehender Connect-Transfer vom Mitarbeiter.
+Es entsteht ein Payment auf der Plattform und ein Transfer beim Connected Account.
+Deutschland/SEPA ist grundsätzlich dokumentiert; konkrete v2-Kontenberechtigung,
+Schlüsselrechte und Tarif bleiben mit Stripe zu bestätigen.
+
+Vor Payout: Betrag und Kosten reservieren, einen eindeutigen Auszahlungsauftrag
+speichern, unterstützten Debit ausführen, dann reduzierten Bank-Payout erstellen.
+Der Debit muss tatsächlich die Plattform erreichen. Auch Debits kosten Gebühren:
+nur die Payout-Gebühr abzubuchen kann Gratilo weiterhin einen Restkostenbetrag lassen.
+Zusätzlichen Debit-Kostenersatz transparent genehmigen; keine neue Gratilo-Provision.
+Zwei externe Geldbewegungen sind nicht atomar: bei Payout-Fehler Debit-Erstattung
+oder Guthabenrückführung mit eigener Idempotenz und Reconciliation notwendig.
+Bestehende Pool-Transfers nicht als Kosteneinzug zweckentfremdet rückgängig machen.
+
+=== A3: Kosten schon bei Trinkgeldzahlung zurückhalten
+
+Technisch kann eine zusätzliche Reserve bei Direct-Application-Fee oder vor
+Poolallokation berücksichtigt werden. Zukünftige Payout-Anzahl und Art sind aber
+unbekannt. Deshalb keine exakte Kostenweitergabe pro Trinkgeld. Nur mit eigenem
+Mitarbeiter-Reservekonto, Zustimmung, Rückerstattung ungenutzter Reserven und
+späterem Ist-Abgleich vertretbar. Das würde die aktuelle Gebührenvereinbarung
+erweitern. Als einfache pauschale Zusatzgebühr *nicht auswählbar*.
+
+=== A4: Stripe Instant-Payout-Application-Fee
+
+Offiziell dokumentierte gemeinsame Gebühreneinziehung und Auszahlung; optional
+über Pricing Tools plus `net_available`. Beim Fehlschlag erstattet Stripe diese
+Application Fee automatisch. Diese Payout-Gebühr muss ausschließlich bestätigte
+Kosten erstatten, die bestehende 5-Prozent-Trinkgeldprovision bleibt separat.
+Keine eigene neue 5-Prozent-Gebühr bei der Auszahlung.
+Eignung, Limits, Bankziel und Pricing-Tool-Freischaltung nicht für Gratilo bewiesen.
+Löst Standard-SEPA-Auszahlungen nicht allgemein; nur bedingt auswählbare Ergänzung.
+
+== Vollständige Modellrechnungen, keine bestätigten Gratilo-Konditionen
+
+Alle Beispiele sind EUR, ohne FX, Steuern, monatliche Aktivkontogebühr oder andere
+Zusatzkosten. Sie garantieren keine Gesamtkostenfreiheit für Gratilo.
+
+A1: rein hypothetischer automatisch dem Mitarbeiter belasteter Festpreis 0,35 EUR.
+
+[cols="8*",options="header"]
+|===
+|Guthaben |Gebühr |Bank |Rest Konto |Plattformbelastung |Erstattung |Mitarbeiterkosten |Gratilokosten
+|10,00 |0,35 |9,65 |0 |0 |0 |0,35 |0
+|25,00 |0,35 |24,65 |0 |0 |0 |0,35 |0
+|100,00 |0,35 |99,65 |0 |0 |0 |0,35 |0
+|500,00 |0,35 |499,65 |0 |0 |0 |0,35 |0
+|===
+
+A2: hypothetische Payout-Kosten 0,35 EUR auf der Plattform plus zusätzlich
+angenommener Debitpreis 1,4 Prozent, kaufmännisch auf Cent. Debit 0,36 EUR ergibt
+0,01 EUR Debitkosten und 0,35 EUR Nettoausgleich. Reale Stripe-Rundung bestätigen.
+
+[cols="8*",options="header"]
+|===
+|Guthaben |Payout + Debitkosten |Bank |Rest Konto |Plattformbelastung |Brutto-Debit an Gratilo |Mitarbeiterkosten |Gratilokosten netto
+|10,00 |0,35 + 0,01 |9,64 |0 |0,36 |0,36 |0,36 |0
+|25,00 |0,35 + 0,01 |24,64 |0 |0,36 |0,36 |0,36 |0
+|100,00 |0,35 + 0,01 |99,64 |0 |0,36 |0,36 |0,36 |0
+|500,00 |0,35 + 0,01 |499,64 |0 |0,36 |0,36 |0,36 |0
+|===
+
+A4: ausschließlich angenommen 1 Prozent tatsächliche Instant-Kosten auf den
+Bankbetrag und entsprechende Payout-Application-Fee; keine weiteren Kosten.
+Der konkrete Tarif und die Basis sind vor Umsetzung zu bestätigen.
+
+[cols="8*",options="header"]
+|===
+|Guthaben |Gebühr |Bank |Rest Konto |Plattformbelastung |Payout-App-Fee an Gratilo |Mitarbeiterkosten |Gratilokosten netto
+|10,00 |0,10 |9,90 |0 |0,10 |0,10 |0,10 |0
+|25,00 |0,25 |24,75 |0 |0,25 |0,25 |0,25 |0
+|100,00 |0,99 |99,01 |0 |0,99 |0,99 |0,99 |0
+|500,00 |4,95 |495,05 |0 |4,95 |4,95 |4,95 |0
+|===
+
+A3 hat ohne festgelegte Auszahlungspolitik keine belastbare vollständige Rechnung.
+Sie darf nicht durch eine erfundene Anzahl zukünftiger Payouts ersetzt werden.
+
+== Vergleich
+
+[cols="2,2,2,2,2",options="header"]
+|===
+|Kriterium |A1 direkt |A2 Account Debit |A3 Vorabreserve |A4 Instant App Fee
+|Technisch/Stripe-konform |Kontoumstellung unbestätigt |Dokumentiert, v2 prüfen |Reserveprojekt nötig |Dokumentiert, Eignung prüfen
+|Exakte Gesamtkosten vorab |Tarif abhängig |Tarif + Debitkosten nötig |Nein |Eigene Gebühr ja, alle Istkosten nein
+|Mitarbeiter trägt Kosten |Wenn bestätigt |Bei vollständigem Ausgleich |Nur nach späterem Abgleich |Bei geeignetem Tarif
+|Gratilo ohne Restkosten |Nicht bewiesen |Nicht für Monats-/weitere Kosten garantiert |Nicht garantiert |Nicht für weitere Kosten garantiert
+|Kein Doppelabzug |Automatik prüfen |Ledger/Deduplizierung nötig |Hohe Komplexität |Stripe + eigener Abgleich
+|Einzel/Pool geeignet |Nur nach Kontoprüfung |Beide auf gleichem Konto |Beide, Checkoutänderung |Beide bei Instant-Eignung
+|Buchhaltung |Gebührenabgleich |Payout + Debit + Kompensation |Zusätzliches Reserveledger |Payout + App Fee + Istkosten
+|Aufwand/Risiko |Kontomigration hoch |Mittel bis hoch; zwei Schritte |Hoch, Fairness/Reserve |Mittel, nur Instant
+|===
+
+== Sonderfälle und Implementierungsplan nach Entscheidung
+
+Für jede realisierbare Variante: echte Stripe-available-/net-available-Beträge
+verwenden; pending und negative Salden ausschließen. Ganzzahlige Minor Units,
+versionierte Tarifquote mit Ablaufzeit, Servervalidierung, Mindestnetto und
+zustimmungspflichtige neue Quote bei Preisanpassung. Teilauszahlungen belassen
+den nicht beauftragten Rest beim Mitarbeiter; jede weitere Auszahlung kann erneut
+Kosten verursachen. Tages-/Instant-Limits und Währung/Ziel berücksichtigen.
+
+Persistierter Auftrag mit Client-Idempotenzschlüssel, DB-Reservierung/Lock,
+stabilen Stripe-Schlüsseln pro Teilschritt. Nach Timeout erst vorhandene Objekte
+abgleichen, niemals blind erneut belasten. Fehlgeschlagene, stornierte und
+zurückgebuchte Payouts mit Failure-Balance-Transactions und Gebührenkorrekturen
+abgleichen. Wiederholte Webhooks über Stripe-Event-ID deduplizieren. Keine
+historischen Payouts oder 5-Prozent-Snapshots nachträglich umpreisen.
+
+Automatische Stripe-/Express-Dashboard-Payouts können eine reine Gratilo-API-
+Gebührenlogik umgehen. Für A2 müsste die zulässige Auszahlungssteuerung aller
+betroffenen Konten geprüft und gegebenenfalls nach Freigabe auf kontrollierte
+manuelle Auszahlungen umgestellt werden. A4-Pricing muss auch andere Instant-
+Auszahlungskanäle korrekt abdecken. Balance Settings API ist für v2 vorgesehen.
+
+* A1: Stripe-Bestätigung zu bestehenden Konten, Migration und Gebührenträger;
+  Auswirkung auf Direct-Charge-Kostenmodell; eigener Rollout-/Bestandsschutzplan.
+* A2: Tarif/Zustimmung bestätigen; Payout-Auftrag und Debit-Kostenledger entwerfen;
+  Debit/Payout/Kompensation und Event-Kontobindung implementieren; alle Fehlerfälle
+  mit Fakes testen; erst danach separate Sandbox-Operationsfreigabe.
+* A4: Eignung und Pricing Tools bestätigen; `net_available`-Quote und Payout-
+  Application-Fee-Abgleich ergänzen; Fehlererstattung testen. Kein Standardersatz.
+
+== Empfehlung und offene Entscheidungen
+
+Für reguläre Bankauszahlungen A2 zuerst mit Stripe verifizieren; A1 wäre einfacher,
+ist für die bestehenden Konten aber nicht nachgewiesen. Für optionale Instant-
+Auszahlungen A4 bevorzugt gegenüber einem zusätzlichen Debit. A3 nicht empfehlen.
+Noch keine Variante erfüllt nachweislich sämtliche Gratilo-Anforderungen.
+
+Vor Implementierung bei Stripe prüfen: Settings > Plans and fees, Connect-
+Preisgestaltung, individuelle Vereinbarung und All-fees-/Monatsberichte.
+Schriftlich klären: normale/Instant-Gebühr, Bemessungsgrundlage, Rundung, Steuer,
+Aktivkontokosten, Debitkosten, v2-Berechtigung, automatische Payout-Kanäle und
+Behandlung fehlgeschlagener Payouts. Die Vertragslage zur Kostenweitergabe und
+rechtsverbindlichen Debit-Zustimmung ist rechtlich zu prüfen; technische
+Unterstützung ist keine rechtliche Freigabe. AGB werden nicht geändert.
+
+== Offizielle Quellen
+
+Lokale Bestandsprüfungen: 18 Payment-Service-Tests in `StripeTestAccessTest`,
+`GuestCheckoutHttpTest`, `NetSandboxPayoutTest` und `SandboxSecurityTest`, alle
+erfolgreich. Keine dieser Prüfungen erzeugt einen echten Stripe-Payout oder
+bestätigt einen individuellen Vertragstarif.
+
+* https://stripe.com/de/connect/pricing[Deutsche öffentliche Connect-Preise, nicht Gratilo-Vertragsnachweis]
+* https://docs.stripe.com/connect/accounts-v2/connected-account-configuration[Accounts-v2-Verantwortung]
+* https://docs.stripe.com/connect/account-debits[Account Debits und Zustimmung]
+* https://docs.stripe.com/connect/instant-payouts[Instant Payouts und net_available]
+* https://docs.stripe.com/connect/platform-pricing-tools[Pricing Tools und Payout Application Fees]
+* https://docs.stripe.com/api/payouts/create[Payout API, keine allgemeine Gebührenvorschau]
+* https://docs.stripe.com/reports/all-fees[Gebührenberichte und Grenzen]
+* https://docs.stripe.com/connect/manage-payout-schedule[Auszahlungszeitpläne und Balance Settings]
+* https://stripe.com/legal/connect-account[Stripe Connected Account Agreement]
+
+== Fortschreibung A2: technische und buchhalterische Verifikation
+
+A2 wurde zur weiteren Prüfung ausgewählt, nicht zur Gebührenabbuchung. Der Code
+von `StripePayoutService`, Charge-Arten, Checkout-Kosten und 5-Prozent-Provision
+bleibt unverändert. Der im Dashboard-Auftrag ergänzte private Balance-GET ist
+ausschließlich lesend und zieht keine Auszahlungsgebühren ab.
+
+Die technische Zerlegung ist bestätigt: Connected-Balance, unterstützter Account
+Debit zur Plattform, externe Debitkosten und Payout sind getrennte Vorgänge. Eine
+Verringerung des Bankbetrags allein ist kein Plattform-Kostenausgleich. Für einen
+bestätigten Payout-Tarif F und Debitkosten K muss der tatsächliche Brutto-Debit D
+so bestimmt werden, dass D - K(D) = F oder eine transparent ausgewiesene Cent-
+Abweichung entsteht. Ein normaler Plattform-Transfer ist kein beliebiger
+Rücktransfer vom Connected Account. Die rechtlich erforderliche Zustimmung und
+die Unterstützung der konkreten v2-Konten sind weiterhin Freigabebedingungen.
+
+Buchungsmodell: getrennte Forderung für belegte Auszahlungs-/Debitkosten,
+Connected-Guthabenminderung um Bankbetrag plus tatsächlichen Gebühreneinzug,
+Plattform-Kostenausgleich gegen diese Forderung, spätere Stripe-Istkosten und
+Korrekturen. Keine zweite Provisionsbuchung. Monatliche Aktivkontokosten benötigen
+eine eigenständige vereinbarte Zuordnungsregel und dürfen nicht pro Payout
+mehrfach berechnet werden. Unbekannte Istkosten sind keine belegten Nullkosten.
+
+Blocker für eine operative Zusage bleiben: erneuter autorisierter Kontokontext-
+Abgleich, Gratilo-Vertragstarif, v2-Debitberechtigung, Debit-Zustimmung, Steuer-/
+Rundungsregeln, Umgang mit automatischen Payout-Kanälen und Kompensationen.
+Kein Account Debit, neuer Payout-Parameter oder Gebühreneinzugs-Worker wurde
+implementiert oder ausgelöst.

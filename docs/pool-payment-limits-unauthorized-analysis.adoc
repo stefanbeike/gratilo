@@ -1,0 +1,115 @@
+= Öffentliche Pool-Zahlungsgrenzen: Unauthorized
+:toc:
+
+Stand: 21.10.2026. Analyse und anschließend freigegebene Korrektur.
+
+Fortschreibung: C1 ist lokal umgesetzt. Die exakte GET-Ausnahme und anonyme
+Methodenberechtigung bestehen den HTTP-Test unter aktiver prd-Security-Regel;
+geschützte Nachbarrouten einschließlich des privaten Balance-GET bleiben gesperrt.
+Der folgende Bericht erhält die ursprünglichen Diagnose- und Entscheidungsschritte.
+
+== Bestätigtes Ergebnis
+
+Die lokale zusätzliche Micronaut-Security-Regel `StripeTestAccessRule` lehnt
+`GET /payment-service/tips/pool-limits` ausdrücklich ab. Sie ist bei Profil `prd`
+und `payments.enabled=true` aktiv, läuft mit `Integer.MIN_VALUE + 100` vor den
+üblichen Regeln und lässt unter `/tips/` nur bestimmte Empfänger-Routen zu.
+`pool-limits` passt nicht zu deren Segmentstruktur und führt zu `REJECTED`.
+Damit kann die bereits vorhandene anonyme URL-Konfiguration nicht greifen.
+
+Reproduktion mit unverändertem kompiliertem Code, ohne Datenbank oder Netzwerk:
+`evaluate(GET(pool-limits), null) = REJECTED`, ebenso mit authentifiziertem Benutzer.
+Hier wird keine Empfängerfreigabe abgefragt; der Ablehnungspfad ist deterministisch.
+
+Lesende öffentliche HTTP-Prüfung gegen `https://gratilo.eu`:
+
+[cols="3,1",options="header"]
+|===
+|Aufruf |Status
+|GET pool-limits ohne Authorization |401, gemeldeter Micronaut-Fehlerbody
+|GET pool-limits mit absichtlich ungültigem Bearer-Token |401
+|GET /payment-service/transactions ohne Token |401
+|===
+
+Der Live-Fehler ist damit reproduziert; seine genaue deployed Codeversion ist
+wegen abgelaufener AWS-SSO-Sitzung aktuell nicht neu nachgewiesen. Die lokale Regel
+erklärt exakt das Verhalten. Eine zusätzliche vorgeschaltete Ablehnung ist ohne
+aktuellen Infrastruktur-/Containerabgleich nicht formal ausgeschlossen.
+
+== Code- und Datenfluss
+
+* `frontend/src/PublicTipCheckout.tsx`: direkter `fetch` auf den relativen GET-Pfad,
+  `cache: no-store`, kein Authorization-Header. Standardmäßig same-origin credentials;
+  dieser Aufruf ergänzt weder den Login-Token noch einen leeren Bearer-Header.
+  Allgemeiner Fehler bei nicht erfolgreicher Response; Checkout bleibt gesperrt.
+* `backend/payment-service/.../controller/TipController.java`: GET `/pool-limits`.
+* `.../service/PoolPaymentLimits.java`: DTO mit ausschließlich `minAmountMinor`,
+  `maxAmountMinor`, `currency`. Keine Secrets, Mitglieder oder Kontostände.
+* `.../config/StripeTestAccessRule.java`: vorgezogene, profilabhängige Ablehnung.
+* `.../resources/application.yml`: bereits vorhandenes anonymes `/tips/**`-Mapping;
+  eine weitere pauschale Freigabe würde den konkreten Konflikt nicht lösen.
+
+Die serverseitigen Poolgrenzen sind 200/50000 Cent und werden aus
+`GRATILO_POOL_TIP_MIN_MINOR` / `GRATILO_POOL_TIP_MAX_MINOR` geladen. Sie betreffen
+neue reine Trinkgeldbeträge. Gebührenaufschläge und historische Sessions werden
+gesondert behandelt. Der Endpunkt wurde mit Commit `d3e8e7f` übernommen.
+
+Die bestehende HTTP-Regression in `GuestCheckoutHttpTest` verwendet Profil `test`.
+Dort ist die nur für `prd` aktivierte Zusatzregel nicht vorhanden. Das erklärt,
+warum dieser Test erfolgreich sein kann, obwohl die produktionsähnliche Sandbox
+401 liefert. Ein laufender Frontend-/Backend-Versionsvergleich wurde nicht als
+erfolgreich behauptet. `/api/status` liefert über die öffentliche Domain HTML
+und ist für einen Backend-Versionsnachweis ungeeignet.
+
+Wichtig: Persönliche Grenzwerte 2–200 EUR sind eine gewünschte Vorgabe aus dem
+Auftrag. Der aktuelle `PublicTipCheckout` verwendet persönlich weiterhin die
+vorhandenen Konstanten 1–10000 EUR. Diese separate Abweichung darf bei einer
+401-Korrektur weder verdeckt noch durch neue Frontend-Fallbacks ersetzt werden.
+
+== Empfohlene Variante C1
+
+. In `StripeTestAccessRule.evaluate` ausschließlich für die exakte Kombination
+  `GET` und `/payment-service/tips/pool-limits` die Zusatzprüfung überspringen:
+  `UNKNOWN`, damit die nachfolgenden Micronaut-Regeln entscheiden.
+. Die öffentliche Berechtigung gezielt am GET-Handler oder als exaktes GET-Mapping
+  ausdrücken. Kein neues anonymes `/payment-service/tips/**`-Wildcard einführen.
+. Die vorhandenen Empfängerfreigaben für Quote, Eligibility und Checkout erhalten.
+. Fehlertexte und fail-closed Verhalten des Frontends erhalten; keine erfundenen
+  Ersatzlimits und keine Backend-Validierung entfernen.
+
+Keine Datenbank-, Stripe-, ALB- oder Gatewayänderung ist durch die vorliegenden
+Nachweise erforderlich. C2 ist nicht die primäre Lösung: dieser Fetch sendet keinen
+Token. C3/C4 erst verfolgen, falls der gezielte lokale Fix bei abgestimmter Version
+den Live-Fehler nicht beseitigt. Keine dieser Änderungen wurde umgesetzt.
+
+== Test- und Abnahmeplan nach Freigabe
+
+* Rule-Unit-Test: anonymer und authentifizierter GET sind `UNKNOWN`; POST, PUT,
+  weitere Segmente und ähnlich benannte Pfade werden nicht mit freigegeben.
+* HTTP-Test unter `prd` + payments enabled mit sicheren Repository-/Stripe-Fakes:
+  anonym 200 und ausschließlich öffentliches DTO; gültiger Test-JWT ebenfalls 200.
+* Ungültige/abgelaufene JWTs gesondert prüfen. Eine gezielte anonyme Autorisierung
+  garantiert nicht, dass eine vorgeschaltete Token-Authentifizierung ungültige
+  Tokens ignoriert. 401 mit ungültigem Token ist zulässig, solange Gäste ohne Token
+  sicher 200 erhalten; keinen globalen JWT-Bypass einführen.
+* Geschützte Transactions, Payouts, Connect-Verwaltung und fremde Pooldaten bleiben
+  geschützt; deaktivierte Empfänger starten weiterhin keinen Checkout.
+* Pool 1,99/500,01 abweisen; 2/500 inklusive zulassen; JSON-Nachkommastellen und
+  Overflow ablehnen; Gebührenaufschlag darf Gesamtbetrag über 500 EUR bringen.
+* Persönliche Grenzen separat gegen die tatsächlich beschlossene Regel prüfen;
+  dieser Fix ändert deren bestehende Implementierung nicht.
+* Anonymer mobiler Browser, QR-Link und angemeldete Sitzung; keine Stripe-POSTs.
+
+== Offene Nachweise
+
+Aktuelle ECS-Revision, Image-Digests, genaue prd-Overrides sowie gültiger und
+abgelaufener echter JWT sind in diesem Lauf nicht verfügbar. AWS meldet
+`Token has expired and refresh failed`. Nach erneuerter SSO-Anmeldung ausschließlich
+Describe-/Get-Abgleich, anschließend separat freizugebende Implementierung.
+
+Entscheidung: C1, exakte GET-Ausnahme mit produktionsähnlichen Security-Tests.
+
+Ausgeführte lokale Prüfungen: `StripeTestAccessTest`, `GuestCheckoutHttpTest`,
+`NetSandboxPayoutTest`, `SandboxSecurityTest`: zusammen 18 Tests erfolgreich.
+Zusätzliche direkte Rule-Reproduktion bestätigt die Ablehnung beider GET-Varianten.
+Diese Tests sind Bestandsprüfungen, kein Nachweis eines bereits implementierten Fixes.

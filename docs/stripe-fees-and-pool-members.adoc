@@ -1,5 +1,8 @@
 = Stripe-Gebührenschätzung und Pool-Mitglieder
 
+Aktuelle Ergänzungen zu Pool-Limits, Ledger-Abgleich, offenen Verpflichtungen
+und Sandbox-Nachweisen: link:pool-platform-retention.adoc[Pool-Plattformprovision].
+
 == Aktuelle Gebührenregel: einheitlich 5 Prozent ohne Festgebühr (21.10.2026)
 
 Neue persönliche und Poolzahlungen verwenden dieselbe zentrale Berechnung:

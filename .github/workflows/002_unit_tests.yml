@@ -24,6 +24,8 @@ jobs:
       run: python3 deployment/scripts/test_registration_postgres.py
     - name: Payment-link inventory migration and concurrency regression
       run: python3 deployment/scripts/test_pool_link_inventory_postgres.py
+    - name: Notification outbox and inbox concurrency regression
+      run: python3 deployment/scripts/test_tip_notification_outbox_postgres.py
     - uses: actions/upload-artifact@v4
       if: always()
       with:

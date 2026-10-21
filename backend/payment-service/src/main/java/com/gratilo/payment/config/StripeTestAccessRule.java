@@ -50,6 +50,9 @@ public class StripeTestAccessRule implements SecurityRule<HttpRequest<?>> {
         // This endpoint only confirms an unguessable Stripe test session, never creates a payment.
         if (path.equals("/payment-service/tips/checkout/confirm") && request.getMethod() == HttpMethod.GET)
             return SecurityRuleResult.UNKNOWN;
+        // Public configuration only; no payment, account or recipient data.
+        if (path.equals("/payment-service/tips/pool-limits") && request.getMethod() == HttpMethod.GET)
+            return SecurityRuleResult.UNKNOWN;
         String prefix = "/payment-service/tips/";
         if (path.startsWith(prefix)) {
             String[] parts = path.substring(prefix.length()).split("/", -1);

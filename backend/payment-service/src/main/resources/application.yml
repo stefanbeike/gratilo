@@ -1,3 +1,6 @@
+notifications:
+  tip-payments-enabled: ${TIP_PAYMENT_EMAILS_ENABLED:false}
+
 payments:
   enabled: ${PAYMENTS_ENABLED:false}
   test-user-ids: ${PAYMENTS_TEST_USER_IDS:}

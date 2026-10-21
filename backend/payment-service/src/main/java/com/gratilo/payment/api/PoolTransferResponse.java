@@ -13,11 +13,12 @@ public record PoolTransferResponse(UUID id, UUID transactionId, String poolName,
                                    @Nullable BigDecimal historicalSharePercent, @Nullable Long poolDistributionAmountMinor,
                                    @Nullable Long selectedTipAmountMinor, @Nullable Long personalGrossAmountMinor,
                                    @Nullable Long personalFeeAmountMinor, @Nullable String guestPaymentStatus,
-                                   @Nullable Long platformFeeMinor,@Nullable Long estimatedStripeFeeMinor,@Nullable Boolean feeCovered) {
+                                   @Nullable Long platformFeeMinor,@Nullable Long estimatedStripeFeeMinor,@Nullable Boolean feeCovered,
+                                   @Nullable UUID poolId) {
     public PoolTransferResponse(UUID id,UUID transactionId,String poolName,long amountMinor,long reversedAmountMinor,String status,
                                 String stripeTransferId,String stripeReversalId,OffsetDateTime createdAt,String settlementReason,
                                 OffsetDateTime fundsAvailableAt,OffsetDateTime lastAttemptAt) {
         this(id,transactionId,poolName,amountMinor,reversedAmountMinor,status,stripeTransferId,stripeReversalId,createdAt,
-                settlementReason,fundsAvailableAt,lastAttemptAt,null,null,null,null,null,null,null,null,null);
+                settlementReason,fundsAvailableAt,lastAttemptAt,null,null,null,null,null,null,null,null,null,null);
     }
 }

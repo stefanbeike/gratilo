@@ -10,6 +10,44 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class GuestCheckoutHttpTest {
+    @Test void productionSandboxRuleAllowsOnlyPublicLimitsWithoutLogin()throws Exception {
+        var props=new HashMap<String,Object>();
+        props.put("payments.enabled",true);props.put("payments.test-user-ids",UUID.randomUUID().toString());
+        props.put("stripe.secret-key","sk_test_fixture");props.put("stripe.webhook-secret","whsec_fixture");
+        props.put("internal.api-key","private-internal-test");props.put("micronaut.server.port",-1);
+        props.put("micronaut.security.token.jwt.signatures.secret.validation.secret","private-jwt-test-key-at-least-thirty-two-characters");
+        props.put("datasources.default.enabled",false);props.put("jpa.default.enabled",false);
+        props.put("liquibase.enabled",false);props.put("liquibase.datasources.default.enabled",false);
+        var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null);
+        try(var context=ApplicationContext.builder().properties(props).environments("test","prd").build()){
+            context.registerSingleton(StripeCheckoutService.class,service);context.start();
+            assertTrue(context.containsBean(com.gratilo.payment.config.StripeTestAccessRule.class));
+            var server=context.getBean(EmbeddedServer.class).start();var client=HttpClient.newHttpClient();
+            var limits=server.getURI().resolve("/payment-service/tips/pool-limits");
+            var response=client.send(HttpRequest.newBuilder(limits).GET().build(),HttpResponse.BodyHandlers.ofString());
+            assertEquals(200,response.statusCode());
+            assertEquals(Map.of("minAmountMinor",200,"maxAmountMinor",50000,"currency","EUR"),io.micronaut.json.JsonMapper.createDefault().readValue(response.body(),Map.class));
+            for(String path:List.of("/payment-service/transactions","/payment-service/payouts","/payment-service/connect-account","/payment-service/connect-account/balance","/payment-service/tips/pool-limits/private")){
+                int status=client.send(HttpRequest.newBuilder(server.getURI().resolve(path)).GET().build(),HttpResponse.BodyHandlers.discarding()).statusCode();
+                assertTrue(status==401||status==403,"Protected route "+path+": "+status);
+            }
+            assertEquals(401,client.send(HttpRequest.newBuilder(limits).POST(HttpRequest.BodyPublishers.ofString("{}")).build(),HttpResponse.BodyHandlers.discarding()).statusCode());
+            String validToken=jwt("private-jwt-test-key-at-least-thirty-two-characters",System.currentTimeMillis()/1000+600);
+            for(String token:List.of("invalid-token",jwt("private-jwt-test-key-at-least-thirty-two-characters",System.currentTimeMillis()/1000-600),validToken)){
+                int status=client.send(HttpRequest.newBuilder(limits).header("Authorization","Bearer "+token).GET().build(),HttpResponse.BodyHandlers.discarding()).statusCode();
+                if(token.equals(validToken))assertEquals(200,status);
+                else assertTrue(status==200||status==401); // Token rejection is distinct from public authorization.
+                int privateStatus=client.send(HttpRequest.newBuilder(server.getURI().resolve("/payment-service/connect-account/balance")).header("Authorization","Bearer "+token).GET().build(),HttpResponse.BodyHandlers.discarding()).statusCode();
+                assertTrue(privateStatus==401||privateStatus==403);
+            }
+        }
+    }
+    private static String jwt(String secret,long expires)throws Exception{
+        var b64=Base64.getUrlEncoder().withoutPadding();
+        String data=b64.encodeToString("{\"alg\":\"HS256\",\"typ\":\"JWT\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8))+"."+b64.encodeToString(("{\"sub\":\"11111111-1111-1111-1111-111111111111\",\"exp\":"+expires+"}").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        var mac=javax.crypto.Mac.getInstance("HmacSHA256");mac.init(new javax.crypto.spec.SecretKeySpec(secret.getBytes(java.nio.charset.StandardCharsets.UTF_8),"HmacSHA256"));
+        return data+"."+b64.encodeToString(mac.doFinal(data.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    }
     @Test void poolLimitsAndInvalidRawAmountsAreEnforcedOverAnonymousHttp()throws Exception {
         var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null){
             @Override public Optional<CheckoutResponse> createPool(UUID owner,TipPaymentRequest request){

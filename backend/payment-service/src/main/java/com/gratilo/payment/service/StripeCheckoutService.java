@@ -17,6 +17,7 @@ import com.gratilo.payment.repository.PoolTransferRepository;
 import jakarta.inject.Inject;
 @Singleton
 public class StripeCheckoutService {
+    @Inject @io.micronaut.core.annotation.Nullable TipNotificationOutbox tipNotifications;
     @Inject PoolPaymentLimits poolLimits = new PoolPaymentLimits(200,50000);
     private final RecipientAvailability recipients; private final TransactionRepository transactions; private final ConnectedAccountRepository accounts; private final StripeConnectService connect; private final String secret, successUrl, cancelUrl; private final BigDecimal feePercent; private final long fixedFeeMinor;
     private final StripeFeeAuditService feeAudit;
@@ -77,6 +78,7 @@ public class StripeCheckoutService {
             tx.setStatus(TransactionStatus.BOOKED);
             tx.setBookedAt(OffsetDateTime.now()); tx.setCompletedAt(OffsetDateTime.now());
             transactions.update(tx);
+            if(tipNotifications!=null)tipNotifications.enqueue(tx);
         }
         if (expired && (tx.getStatus() == TransactionStatus.PENDING || tx.getStatus() == TransactionStatus.AUTHORIZED)) {
             tx.setStatus(TransactionStatus.FAILED);

@@ -18,6 +18,8 @@ import javax.crypto.spec.SecretKeySpec;
 @Controller("/payment-service/webhooks/stripe")
 @io.micronaut.scheduling.annotation.ExecuteOn(io.micronaut.scheduling.TaskExecutors.BLOCKING)
 public class StripeWebhookController {
+    @jakarta.inject.Inject @Nullable
+    com.gratilo.payment.service.TipNotificationOutbox tipNotifications;
     private final TransactionRepository transactions;
     private final String secret;
     private final boolean testOnly;
@@ -113,6 +115,10 @@ public class StripeWebhookController {
                         if (next == TransactionStatus.BOOKED) tx.setBookedAt(java.time.OffsetDateTime.now());
                         if (next != TransactionStatus.PENDING) tx.setCompletedAt(java.time.OffsetDateTime.now());
                         transactions.update(tx);
+                        if(tipNotifications!=null && tip && next==TransactionStatus.BOOKED
+                                && (event.equals("payment_intent.succeeded") || event.equals("checkout.session.completed")
+                                    || event.equals("checkout.session.async_payment_succeeded")))
+                            tipNotifications.enqueue(tx);
                     } else if (!java.util.Objects.equals(previousIntent, tx.getStripePaymentIntentId())
                             || !java.util.Objects.equals(previousCharge, tx.getStripeChargeId())) {
                         transactions.update(tx);

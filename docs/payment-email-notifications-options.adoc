@@ -1,0 +1,174 @@
+= Trinkgeld-E-Mails über Amazon SES: Entscheidungsvorlage
+:toc:
+
+Stand: 21.10.2026. Ursprüngliche Analyse.
+
+Fortschreibung: B3 wurde anschließend lokal ausgewählt und implementiert; siehe
+link:payment-email-notifications.adoc[Umsetzung, Konfiguration und sichere Versandgrenzen].
+Der folgende Vergleich dokumentiert die Entscheidungsgrundlage. Kein echter Versand.
+
+== Vorhandener Stand
+
+Der User-Service besitzt `EmailSendService` mit Micronaut Email/JavaMail,
+Textvorlagen für Registrierung/Passwort und Pool-Einladungsnachrichten im
+`PoolService`. Produktionskonfiguration: SES SMTP Frankfurt, Port 587,
+verpflichtendes STARTTLS, Serverzertifikatsprüfung und injizierte SMTP-Credentials.
+Absender `Gratilo <noreply@gratilo.eu>`, allgemeine Kommunikation `info@gratilo.eu`.
+Lokal ist MailHog vorgesehen.
+
+`EmailController` bietet `/user-service/internal/notifications/email` und
+`/email/general`, geschützt durch `X-Internal-Secret`. Die aktuelle API akzeptiert
+Empfänger/Betreff/Text und versendet synchron. Sie hat keine persistente
+Nachrichten-Idempotenz oder Versand-Outbox. Sie sollte für Zahlungshinweise nicht
+ungeprüft direkt aus dem Stripe-Webrequest aufgerufen werden.
+
+Im Payment-Service fehlt eine Zahlungshinweis-Integration. `StripeWebhookController`
+verarbeitet verifizierte Zahlungserfolge und unterscheidet bezahlte Checkout-
+Sessions von noch unbezahlten/fehlgeschlagenen. `StripeDirectWebhookController`
+bindet Direct-Events an den gespeicherten Kontokontext. `PoolTransferSettlementService`
+kennt tatsächliche Transferergebnisse. Pricing-Snapshots und Allokationen liefern
+die Beträge; aktuelle Mitgliedschaft oder Quote darf sie nicht ersetzen.
+
+Benutzer besitzen E-Mail-Adressen und `newsletter`; ein eigenes Feld für
+transaktionale Trinkgeldhinweise wurde nicht gefunden. Newsletter-Einwilligung
+ist keine geeignete technische Abbildung dieser neuen Benachrichtigungspräferenz.
+Ein robustes Outbox-/SQS-Notification-System wurde im Projektcode nicht gefunden.
+Das schließt externe AWS-Ressourcen nicht aus.
+
+== Tatsächlicher AWS-/DNS-Nachweis und offene Punkte
+
+Die vorhandenen Dokumente `amazon-ses.md`, `registration-smtp-fix.md` und
+`manual-ecs-production.md` beschreiben einen vorhandenen SES-/SMTP-Weg. Frühere
+Prüfungen dokumentieren Produktionszugang, freigegebene Domain und DKIM-Erfolg.
+Aktuelle `GetAccount`, Identity-, IAM-, Queue- und Event-Abfragen waren wegen
+abgelaufener AWS-SSO-Anmeldung nicht möglich. Versandlimits, heutiger DKIM-Status,
+SMTP-Berechtigung und Bounce-/Complaint-Verarbeitung sind somit nicht aktuell
+bestätigt. Es wurde kein Authentifizierungstest und kein Mailversand gestartet.
+
+Öffentliche DNS-TXT-Prüfung am 21.10.2026: Apex-SPF enthält
+`v=spf1 include:zohomail.eu ~all`; für `_dmarc.gratilo.eu` wurde kein TXT-Eintrag
+zurückgegeben. Daraus folgt nicht automatisch SES-Versandunfähigkeit: DKIM kann
+Alignment herstellen und MAIL-FROM kann eine andere Subdomain sein. SES-DKIM-
+Selektoren und Custom MAIL FROM müssen anhand der tatsächlichen Identity geprüft
+werden. Keine vorschnelle SPF-Änderung; bestehendes Zoho-Mail berücksichtigen.
+
+Nach erneuerter Anmeldung nur lesend prüfen: SESv2 GetAccount (Frankfurt),
+GetEmailIdentity, ConfigurationSets/EventDestinations; IAM SMTP-Benutzerpolicy
+`ses:SendRawEmail` und beschränkte Absenderdomain; Execution-Role Secret-Injektion;
+SQS/EventBridge/SNS, DKIM/MAIL-FROM/DMARC, Kontosuppression und Quoten. SMTP-Pfad
+braucht keine SES-API-Schreibrechte für den ECS-Task; ein Wechsel zum SES-SDK würde
+die IAM-Anforderungen verändern.
+
+== Richtiger Auslöser und Inhalt
+
+Empfehlung: eine Benachrichtigung bei bestätigter Gastzahlung, mit korrekter
+Statusformulierung. Persönlich gespeicherter Empfängerbetrag; beim Pool je
+eingefrorener Allokation an deren Benutzer, auch wenn das Mitglied später
+deaktiviert wird. Neue deaktivierte Mitglieder ohne Allokation erhalten nichts.
+Fehlende/gelöschte Empfängerkonten nicht durch eine andere Person ersetzen.
+
+Bei noch offenem Pooltransfer: „Dein vorgesehener Anteil beträgt … Die Verteilung
+wird verarbeitet.“ Kein „ausgezahlt“ oder „auf deinem Bankkonto“. Optional nach
+bestätigtem persönlichen Transfer eine getrennte Statusnachricht mit eigenem
+Dedup-Schlüssel. Alternativ nur nach Transfer senden: präziser für Guthaben,
+aber bei dauerhaftem Fehler fehlt die gewünschte unmittelbare Zahlungshinweise-Mail.
+Diese Produktentscheidung ist vor der Umsetzung zu bestätigen.
+
+Beispiel persönlich, aus eingefrorenem Snapshot:
+Trinkgeld 10 EUR, Provision 0,50 EUR. Bei Gebührenübernahme kommen 9,50 EUR an;
+ohne Gebührenübernahme ist der Anteil zusätzlich um die gespeicherte geschätzte
+Stripe-Gebühr vermindert. Keine unabhängige Gebührenneuberechnung im Template.
+
+Poolbeispiel: 100 EUR gewählt, einmalig 5 EUR Provision, Gast trägt Stripe-Kosten,
+95 EUR verteilbar, historische 50/50-Allokation jeweils 47,50 EUR. Die Provision
+ist eine Gesamtzahlungsposition, kein zweiter Abzug beim Mitglied. Nur eigener
+Anteil, keine E-Mail-Adressen oder vertraulichen Daten anderer Mitglieder.
+
+Nachrichten trennen geschätzte Stripe-Kosten, vereinbarte Nettozuteilung,
+erfolgreiche Gastzahlung, Transfer und Bankauszahlung. Die tatsächliche Stripe-
+Gebühr ist nicht zwingend beim ersten Webhook bekannt und ändert den Anteil nicht.
+Historische V5-/Alt-Snapshots werden unverändert gelesen, nicht mit 5 Prozent ersetzt.
+
+== Variantenvergleich
+
+[cols="2,3,3,3",options="header"]
+|===
+|Kriterium |B1 asynchrones Backend |B2 Outbox/SQS/Worker |B3 Infrastruktur erweitern
+|Vorhandenes wiederverwendbar |SES/JavaMail |SES/JavaMail + neue Pipeline |User-Service/EmailSendService
+|Dauerhaftigkeit |Ohne Outbox Prozessverlust möglich |Persistierte Outbox + Queue |Mit DB-Outbox gut
+|Deduplizierung |Zusätzlich nötig |Producer und Consumer nötig |Zusätzlich nötig
+|Aufwand |Niedrig, Zuverlässigkeitslücke |Höher; Queue/IAM/DLQ/Worker |Mittel mit DB-Worker
+|Kosten |SES + bestehender Prozess |SES + Queue/Worker |SES + bestehende DB/Prozesse
+|Wartung |Einfach, verlorene Jobs riskant |Mehr Infrastruktur, gut skalierbar |Weniger Infrastruktur, DB-Polling
+|Empfehlung |Nicht rein in-memory |Für Skalierung geeignet |Zunächst mit persistenter Outbox
+|===
+
+Konkrete Kosten nicht als Tarifangebot angegeben: Empfängerzahl und Region,
+Nachrichtengröße, SES-Abrechnung sowie vorhandene Ressourcen zuerst bestätigen.
+
+== Empfohlene Umsetzung nach Freigabe: B3 plus persistente Outbox
+
+. In derselben lokalen DB-Transaktion wie der bestätigte Zahlungsstatus eine
+  Outbox-Nachricht je Snapshot-Empfänger anlegen. Eindeutiger Constraint auf
+  `(paymentId, recipientUserId, notificationKind)`; bei Pool-Allokationsnachricht
+  zusätzlich die stabile Allokationsidentität verwenden.
+. Minimaler immutable Payload: Preisversion, Beträge/Status, Empfänger-User-ID,
+  Payment-/Allokations-ID, Templateversion. Keine Kartendaten, Gastnachricht oder
+  Stripe-Secrets in E-Mail/Logs; kein öffentlich zugänglicher Geld-Claim-Link.
+. Payment-Outbox-Worker nach Commit, mit Lease/Lock, Backoff, Versuchszähler und
+  terminalem Fehlerstatus. Stripe-Webhooks warten nicht auf SMTP.
+. User-Service-internen Versand um einen stabilen Notification-Key und eigene
+  persistente Deduplizierung erweitern. E-Mail serverseitig über Benutzer-ID
+  auflösen, verifizierte Adresse und transaktionale Präferenz prüfen. Keine
+  beliebige vom Browser übergebene Empfängeradresse verwenden.
+. Bestehenden SMTP-Transport und Absender wiederverwenden; Template als deutsch-
+  sprachigen Text und optional barrierearmes HTML. Link auf das normale Dashboard,
+  keine Tokens oder personenbezogenen Beträge in URL-Queryparametern.
+. Status `PENDING/PROCESSING/SENT/RETRY/FAILED/SUPPRESSED`, Zeitpunkte und sichere
+  Providerkorrelation speichern. `SENT` bedeutet SES/SMTP angenommen, nicht
+  im Postfach zugestellt. Delivery/Bounce/Complaint getrennt behandeln.
+. SES-Feedback nach Freigabe über ConfigurationSet/SNS oder passende vorhandene
+  Integration verarbeiten. Signaturen/Absender verifizieren, Event deduplizieren,
+  Hard-Bounce-/Complaint-Suppression respektieren; keine Endlosschleifen.
+. Keine historischen Sammelbenachrichtigungen ohne separate Entscheidung.
+
+Wichtige Grenze: DB-Outbox, SQS und stabile Message-ID allein garantieren keine
+exakt einmalige Zustellung bei SMTP-Timeout nach Annahme. SQS FIFO verhindert
+diesen SMTP-Seiteneffekt ebenfalls nicht. Providerkorrelation, Statusabgleich
+und Behandlung unklarer Ergebnisse sind erforderlich; keine falsche absolute
+„niemals doppelt“-Garantie abgeben. Normale wiederholte Webhooks lassen sich
+durch Constraints zuverlässig deduplizieren.
+
+== B2-Plan als Alternative
+
+Gleiche Payment-Outbox als Quelle; Publisher bestätigt erst nach Queue-Annahme.
+SQS-Consumer mit persistenter Inbox, Visibility Timeout und DLQ, danach vorhandenen
+User-Service-Transport nutzen. Doppelte Queue-Zustellung deduplizieren. Least-
+Privilege Rollen für Queueaktionen, Verschlüsselung und Aufbewahrung festlegen.
+SQS ersetzt weder DB-Atomizität noch Empfänger-/SMTP-Deduplizierung.
+AWS-Ressourcen erst nach ausdrücklicher Infrastrukturfreigabe anlegen.
+
+== Testplan und offene Entscheidungen
+
+Nur Fakes/MailHog: beide Preisvarianten, Direct-Kontobindung, Pool mehrere Mitglieder,
+Snapshotänderung nach Zahlung, deaktiviertes historisches Mitglied, fehlende Adresse,
+abgebrochene/fehlgeschlagene Zahlung, doppelte und vertauschte Webhooks, DB-Rollback,
+SES-Throttling/Fehler/unklare SMTP-Annahme, Worker-Neustart, Concurrent Claims,
+Dead Letter, Bounce/Complaint, Suppression und sichere Links. Zahlung darf bei
+Mailfehler nicht scheitern. Wiederholte Trigger legen keinen zweiten normalen Job an.
+
+Offen: Versand bei Zahlung oder Transfer; optionale zweite Nachricht; Präferenzen,
+Aufbewahrung und rechtliche Einordnung transaktionaler Nachrichten; SMTP-Ambiguität;
+aktuelle SES-Konfiguration und Last/Quoten. Keine dieser Regeln stillschweigend
+implementiert. Keine Migration angelegt und keine E-Mail verschickt.
+
+== Quellen
+
+Lokale Bestandsprüfungen: `EmailSendServiceTest` und `EmailControllerTest`,
+acht Tests erfolgreich mit Test-Doubles. Keine E-Mail über SES versandt;
+die Tests bestätigen keine aktuelle AWS-Versandberechtigung.
+
+* https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html[Transactional Outbox, Atomizität und Duplikate]
+* https://docs.aws.amazon.com/ses/latest/dg/event-publishing-retrieving-sns-contents.html[SES-Delivery-, Bounce- und Complaint-Ereignisse]
+* https://docs.aws.amazon.com/ses/latest/dg/manage-sending-quotas.html[Regionale SES-Quoten]
+* Lokale Dokumente: `amazon-ses.md`, `registration-smtp-fix.md`, `manual-ecs-production.md`.

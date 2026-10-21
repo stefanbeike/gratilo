@@ -20,6 +20,7 @@ public class PoolTransferHistoryService {
     public List<PoolTransferResponse> list(UUID userId) {
         return transfers.findByRecipientUserIdOrderByCreatedAtDesc(userId).stream().map(item -> {
             String poolName = "Team-Trinkgeld";
+            UUID poolId=null;
             Long selected = null, distribution = null, commission=null,stripeFee=null;
             Boolean covered=null;
             var transaction = transactions.findById(item.getTransactionId()).orElse(null);
@@ -27,6 +28,7 @@ public class PoolTransferHistoryService {
                 try {
                     var metadata = JsonMapper.createDefault().readValue(transaction.getMetadata(), Map.class);
                     if (metadata.get("poolName") instanceof String name) poolName = name;
+                    if (metadata.get("poolId") instanceof String id) poolId=UUID.fromString(id);
                 } catch (Exception ignored) { }
                 if (transaction.getAmountMinor() > 0) selected = transaction.getAmountMinor();
                 try {
@@ -51,7 +53,7 @@ public class PoolTransferHistoryService {
             return new PoolTransferResponse(item.getId(), item.getTransactionId(), poolName, item.getAmountMinor(),
                     item.getReversedAmountMinor(), item.getStatus(), item.getStripeTransferId(),
                     item.getStripeReversalId(), item.getCreatedAt(), item.getFailureCode(), item.getFundsAvailableAt(), item.getLastAttemptAt(),
-                    historicalShare, distribution, selected, gross, fee, transaction == null || transaction.getStatus() == null ? null : transaction.getStatus().name(),commission,stripeFee,covered);
+                    historicalShare, distribution, selected, gross, fee, transaction == null || transaction.getStatus() == null ? null : transaction.getStatus().name(),commission,stripeFee,covered,poolId);
         }).toList();
     }
 

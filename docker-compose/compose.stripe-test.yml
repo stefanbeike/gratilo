@@ -49,6 +49,7 @@ services:
       MAIL_SMTP_STARTTLS_REQUIRED: "false"
       MAIL_FROM_EMAIL: noreply@gratilo.local
       MAIL_GENERAL_FROM_EMAIL: info@gratilo.local
+      TIP_PAYMENT_EMAILS_ENABLED: ${TIP_PAYMENT_EMAILS_ENABLED:-false}
 
   payment-service:
     build:
@@ -65,6 +66,7 @@ services:
       <<: *backend-env
       USER_SERVICE_URL: http://user-service:8081
       PAYMENTS_ENABLED: "true"
+      TIP_PAYMENT_EMAILS_ENABLED: ${TIP_PAYMENT_EMAILS_ENABLED:-false}
       STRIPE_TEST_ONLY: "true"
       STRIPE_SANDBOX_PAYOUTS: "true"
       STRIPE_DEMO_ENABLED: "false"

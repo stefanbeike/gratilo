@@ -1,0 +1,97 @@
+= Dashboard: persönliches Konto, Trinkgelder und Teamansicht
+:toc:
+
+Stand: 21.10.2026. Auftrag D mit ergänzend freigegebenem privatem Balance-GET
+und historischer Pool-ID. Keine Zahlungs-, Provisions- oder Payout-Rechenänderung.
+
+== Vorher und neue Hierarchie
+
+Bisher standen persönliche und Team-Einnahmen unter „Mein Profil / Mein Team“;
+eine separate echte Stripe-Guthabenanzeige fehlte. Der Stripe-Status war bereits
+zentral und die Transaktionshistorien waren nach Zahlungsart getrennt.
+
+Neu oberhalb der Ansichtswahl: `PersonalAccountPanel` mit tatsächlichem verfügbarem
+persönlichem EUR-Stripe-Guthaben, separat pending, Kontofreigabe, zentralem
+`StripeStatusCard` und „Auszahlung verwalten“. Ein kompakter Umschalter folgt:
+„Meine Trinkgelder | Team“. Die bestehende Hash-Navigation bleibt erhalten:
+`#team`, `#overview`, Profilbearbeitung über `#profile`.
+
+== Daten und Autorisierung
+
+`GET /payment-service/connect-account/balance` ist authentifiziert und liest nur
+das Connected Account, das serverseitig dem angemeldeten Benutzer zugeordnet ist.
+Keine Account-ID aus Queryparametern und kein öffentlicher Balance-Endpunkt.
+Der Stripe-Aufruf ist ausschließlich GET mit dessen Stripe-Account-Kontext.
+Ausgaben: availableMinor, pendingMinor, EUR, checkedAt. Bei Fehler unbekannt,
+keine Null aus Trinkgeldstatistiken. Fremdwährungen werden nicht in EUR umgerechnet.
+
+Frontend lädt Guthaben unabhängig von Tab und ausgewähltem Team. Fokuswechsel
+aktualisiert; Team-/Tabwechsel löst keine erneute Balance-Abfrage aus.
+Guthaben ist niemals aus Einnahmensummen oder noch offenen Pooltransfers abgeleitet.
+Bestehende Statusabfragen und Onboarding-Komponenten bleiben zentral. Veraltete
+oder unbekannte Kontostatusinformationen geben keine Auszahlungsfreigabe vor.
+
+Die vorhandene PAYOUT-Historie wird in einer separaten Verwaltung angezeigt.
+Sie ruft keinen Payout-POST auf. Die Umgebung bleibt bei simulierten Payouts;
+Gebührenweitergabe und reale Bankauszahlung bleiben Auftrag A2 vorbehalten.
+Ein neuer realer Auszahlungsdialog wurde nicht nebenbei eingeführt.
+
+Persönliche Transaktionen: bestehende persönliche API-Einträge, keine Poolanteile.
+Teamtransaktionen: ausschließlich eigene Allokationen aus dem authentifizierten
+Pool-Transfer-Endpunkt. Dieser liefert zusätzlich eine nullable historische poolId
+vom unveränderten Zahlungssnapshot, niemals aus der aktuellen Mitgliedschaft.
+
+Die Teamauswahl unterscheidet aktuelle/bekannte Mitgliedschaften, frühere Teams
+mit gespeicherter ID, alle eigenen Teamanteile und Alttransaktionen ohne Team-ID.
+Gleichnamige Teams werden über IDs unterschieden. Fehlende IDs werden nicht anhand
+des Namens geraten. Prozentanteile und Beträge bleiben die historische API-Angabe.
+Fehlende historische Prozentanteile bleiben unbekannt und werden nicht als 0 ausgegeben.
+
+Administrationsaktionen erscheinen nur für den tatsächlich eigenen Pool und dessen
+aktive Verwaltungsansicht. Historische Teams erhalten keine aus alten Zahlungen
+abgeleiteten QR-Codes oder Verwaltungsrechte. Mehrere widersprüchliche aktive
+Mitgliedschaften bleiben als Konflikt sichtbar; keine automatische Bereinigung und
+keine Änderung der serverseitigen Ein-Pool-Regel.
+
+== Team-Motive
+
+Die gesamte Motiv-/Upload-/Vorschaufunktion wurde nur aus den Team-Einstellungen
+entfernt. Keine Bild-API wird beim Öffnen oder Entfernen der UI aufgerufen.
+Gespeicherte Bilder, bestehende QR-Codes und öffentliche Teamseiten bleiben bestehen.
+`TeamAvatar` wird weiterhin verwendet. Das gemeinsame Modul und dessen isoliert
+getesteter Editor bleiben erhalten; keine gemeinsame Datei wird gelöscht.
+Teamname, Mitgliederverwaltung, Status, Anteilseinstellungen und Löschaktionen
+bleiben im bestehenden administrativen Bereich erreichbar.
+
+== Gestaltung und Bedienbarkeit
+
+Helles Gratilo-Design, eigener Kontobereich, zurückhaltende Karten, klare aktive
+Segment-Auswahl, tabellarische Geldwerte und separate Statusinformationen.
+Mobile Kontokarten stehen untereinander; lange Überschriften dürfen umbrechen.
+Steuerelemente haben mindestens 44 Pixel Höhe. Guthaben besitzt Live-Region,
+Abschnitte sprechende Labels, Dropdown ein Label und Verwaltung aria-expanded.
+Bestehende Dialog-Escape- und Tastaturbedienung bleibt erhalten.
+
+== Prüfungen und Grenzen
+
+Tests für anhaltendes persönliches Guthaben beim Teamwechsel, getrennte Historien,
+mehrere Team-IDs, Rollen/Adminrechte, API-Fehler, unbekanntes Guthaben, fehlende
+Konten, Payout-Freigabe, historische Anteile, Deep Links und entfernte Motivfelder.
+Browserprüfung mit kontrollierten API-Fakes bei 1440, 390 und 320 Pixeln: Navigation,
+Status, Details/Escape, Verwaltung und kein horizontales Dokument-Overflow.
+Keine echten Stripe-/AWS-Aufrufe aus diesen Browsertests.
+
+Geändert: `Dashboard.tsx`, neue `PersonalAccountPanel.tsx`, `dashboard.css` und
+zugehörige Tests; Backend zusätzlich `StripeBalanceService`, gezielter Controller-
+GET und historisches poolId-Feld in Transferantwort/Mapping. Keine Migration für D.
+Die beiden neuen Benachrichtigungstabellen gehören ausschließlich zum separat
+freigegebenen Auftrag B.
+
+Offen für operativen Betrieb: tatsächliche Stripe-Guthaben-/Payout-Eignung und
+Vertragskonditionen müssen im eigenen Sandbox-Kontext geprüft werden. Der lokale
+AWS-SSO-Zugang war während der Analyse abgelaufen. Unit-/Browser-Fakes sind keine
+Bestätigung individueller Stripe-Vertragskonditionen.
+
+Lokale Abschlussprüfungen: 134 Frontend-Tests erfolgreich, TypeScript/Vite-Build
+erfolgreich, Browserprüfung bei 1440/390/320 Pixeln erfolgreich. Die Backend-
+Balance-/Historien- und Security-Tests sind ebenfalls erfolgreich.

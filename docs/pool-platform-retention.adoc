@@ -1,0 +1,181 @@
+= Poolzahlungen: 5 Prozent Provision im Stripe-Plattformguthaben
+:toc:
+
+Stand: 21.10.2026. Lokale Ergänzungen; kein Push, Deployment oder externer Schreibzugriff.
+
+== Bestandsaufnahme
+
+Bereits vorhanden und unverändert: `TipPricing.poolQuote` mit Pricing V7,
+5 Prozent ohne Festbetrag, versionierte historische Snapshots, Plattform-Checkout,
+Separate Charges and Transfers, eingefrorene Mitgliederbeträge, `source_transaction`,
+stabile Allokations-Idempotenz, Retry, Stripe-Abgleich und Transfer-Reversals.
+Die persönliche Direct-Charge-Architektur bleibt unverändert.
+
+Der frühere Bericht `stripe-pool-application-fee-options.adoc` beschreibt einen
+älteren Laufzeitstand. Beim ausschließlich lesenden Abgleich am 21.10.2026 war
+bereits ECS-Revision 25 stabil: neue Preislogik aktiv, Provisionssatz 5,00 und
+Festbetrag 0. Diese Revision wurde nicht im Rahmen dieses Auftrags deployed.
+Die noch vorhandene Laufzeitvariable `GRATILO_POOL_COMMISSION_FIXED_MINOR=45`
+wird von der neuen Berechnung nicht verwendet. Der lokale Task-Renderer entfernt
+sie künftig ausdrücklich.
+
+== Preis- und Geldfluss
+
+Alle Beträge werden serverseitig in Cent berechnet. Die Provision lautet
+`HALF_UP(originalTipMinor * 0.05)`; sie wird einmal je Zahlung berechnet.
+Die Stripe-Schätzung bleibt getrennt: 3,15 Prozent plus 25 Cent.
+
+[cols="3,1,1",options="header"]
+|===
+|100-EUR-Beispiel |feeCovered=true |feeCovered=false
+|Gastzahlung |103,51 EUR |100,00 EUR
+|Gratilo-Provision |5,00 EUR |5,00 EUR
+|Geschätzte Stripe-Kosten |3,51 EUR |3,40 EUR
+|Eingefrorener Empfängerbetrag |95,00 EUR |91,60 EUR
+|Zwei Transfers bei 50/50 |je 47,50 EUR |je 45,80 EUR
+|Plattformrest bei exakt geschätzten Istkosten |5,00 EUR |5,00 EUR
+|===
+
+Die Checkout Session wird ohne Connected-Account-Header, Destination und
+Application Fee auf der Plattform erstellt. Transfers verwenden dieselbe
+Charge als `source_transaction` und die Gruppe `gratilo_<transactionId>`.
+Es gibt keinen zusätzlichen Transfer an Gratilo und kein Application-Fee-Objekt.
+
+Istkostenabweichungen verändern die vereinbarte Provision und eingefrorene
+Empfängerbeträge nicht: der zahlungsbezogene Nettoerlös weicht entsprechend ab.
+Stripe-Guthaben und buchhalterischer Gewinn sind unterschiedliche Größen.
+
+== Neu ergänzte Absicherung
+
+* Neue Poolzahlungen: 200 bis 50000 Cent, inklusive. Der Aufschlag zählt nicht
+  gegen diese Grenzen. Backendkonfiguration: `gratilo.pool-tip-min-minor` /
+  `GRATILO_POOL_TIP_MIN_MINOR` und entsprechendes `max` / `MAX`, Vorgaben 200/50000.
+  Konfiguration kann innerhalb dieser Geschäftsgrenzen enger gefasst werden.
+* Öffentliches `GET /payment-service/tips/pool-limits` liefert die Grenzen.
+  Das Frontend lädt diese vor Freigabe der Team-Betragsauswahl und zeigt Fehler
+  bei nicht verlässlich verfügbaren Grenzen. Ungültige Presets werden entfernt.
+* Quote und Checkout validieren serverseitig. Ungültige neue Beträge ergeben
+  HTTP 4xx; Bereichsfehler tragen `POOL_TIP_OUT_OF_RANGE`.
+* Der JSON-Deserializer verlangt ganze Centbeträge, statt 200.1 stillschweigend
+  auf 200 zu kürzen. Ungültige Zahlen und Überläufe werden abgewiesen.
+* Bereits angelegte Sessions werden anhand ihres unveränderlichen Snapshots
+  fortgesetzt. Neue Limits ändern keine historischen Gebühren oder Transfers.
+
+== Transaktionsbezogene Reconciliation und Audit
+
+Der bestehende, authentifizierte und auf eigene Transaktionen beschränkte
+Endpunkt `GET /payment-service/transactions/{id}/fees` enthält zusätzlich
+`poolSettlement`. Die Prüfung liest ausschließlich Stripe-GET-Endpunkte und
+verändert keine Allokation oder Stripe-Buchung.
+
+`PoolReconciliation` prüft Charge, PaymentIntent-Zuordnung, Währung, Testmodus,
+Transfergruppe und eingefrorene Allokationssumme. Sie gleicht paginierte
+Transferlisten mit Empfänger, Charge, Allokations-ID und dauerhaft gespeicherter
+Transfer-ID ab. Balance Transactions müssen zu ihren Quellen passen;
+Refunds und Transfer-Reversals werden mit eigenen Balance Transactions erfasst.
+Unvollständige oder widersprüchliche Nachweise ergeben unbekannte Beträge,
+keine erfundenen Nullwerte.
+
+Wichtige Reportfelder:
+
+* `agreedCommissionMinor`: unveränderliche vertragliche Provision.
+* `platformResidualMinor`: belegter zahlungsbezogener Rest aus Charge-Netto,
+  tatsächlichen Transfers, Refunds und Reversals.
+* `outstandingRecipientsMinor`: noch nicht erfüllte Empfängeransprüche.
+* `pendingReversalsMinor`: noch zurückzuholende Empfängerbeträge.
+* `economicNetRevenueMinor`: erst nach vollständigem Abgleich verfügbar.
+* `entries`: belegte Balance-Transaction-IDs, Beträge, Gebühren, Nettowerte und
+  Verfügbarkeitsstatus; `checkedAt` kennzeichnet den Abfragezeitpunkt.
+
+Ein fehlender zweiter Transfer ergibt `TRANSFERS_PENDING`, keine vollständige
+Ertragsrealisierung. Ein in Stripe vorhandener, lokal noch nicht dauerhaft
+bestätigter Transfer ergibt `LOCAL_SETTLEMENT_PENDING`. Der Bericht erstellt
+keine zusätzlichen Transfers und schreibt keine Transfer-IDs nach.
+
+Der vorhandene Fee-Audit-Scheduler wiederholt offene Nachweise mit Status
+`POOL_SETTLEMENT_PENDING`. Die bestehenden Tabellen speichern weiterhin
+Pricing-Snapshots, Charge-/PaymentIntent-/Balance-Transaction-IDs, tatsächliche
+Gebühren, Transfer-IDs und den verifizierten Nettoerlös. Zusätzliche Ledgerdetails
+werden im Bericht aus Stripe gelesen; keine doppelte Buchungsstruktur und keine
+neue Datenbankmigration sind erforderlich.
+
+== Refunds, Disputes und Reserven
+
+Bestehende Refund-/Reversal-Ausführung bleibt unverändert. Voll- und Teilrefunds
+werden lesend gegen die eingefrorenen Empfängerbeträge abgeglichen. Nicht von
+Stripe erstattete Gebühren bleiben Kosten. Die fachliche Entscheidung zur
+Provisionserstattung bleibt offen: `REFUND_REVIEW_REQUIRED`, kein behaupteter
+endgültiger Nettoerlös. Bei offenen Refunds, nicht vollständig geprüften
+fehlgeschlagenen Refund-Buchungen oder Dispute-Korrekturen ist auch der
+vollständige Plattformrest unbekannt.
+
+Der Bericht umfasst die überprüften Buchungen dieser Zahlung. Weitere separat
+abgerechnete Connect-Kosten, Steuern und andere Betriebskosten sind keine
+automatisch mitgeprüften Gewinnbestandteile.
+
+Die Anwendung führt reale Auszahlungen nur im Kontext eines Connected Accounts
+aus. Diese greifen nicht auf das Plattformguthaben zu. Beim lesenden Abgleich
+war für die Plattform jedoch ein täglicher Stripe-Payout-Zeitplan mit sieben
+Tagen Verzögerung konfiguriert. Eine dauerhafte Reserve für offene Poolansprüche
+ist damit nicht bewiesen. Vor einem operativen Rollout müssen Plattform-Payouts,
+Reserven und Verantwortlichkeiten gesondert geprüft werden. Es wurde keine
+Payout-Einstellung geändert und keine Funds-Segregation-Architektur eingeführt.
+
+== Vorhandener Sandbox-Nachweis
+
+Ausschließlich GET-Abfragen einer bereits bestehenden V7-Poolzahlung:
+
+* Gratilo: `43201780-78b1-429e-b056-126e754afc15`
+* PaymentIntent: `pi_3USz6PJnhDgmiMAM0tTfcHmq`
+* Charge: `ch_3USz6PJnhDgmiMAM0IgFQ8q4`
+* Charge-Balance-Transaction: `txn_3USz6PJnhDgmiMAM0EHEDULf`
+* Ausgewähltes Trinkgeld: 250,00 EUR; Gastzahlung: 258,39 EUR.
+* Tatsächliche Stripe-Gebühr: 8,39 EUR; eingefrorene Provision: 12,50 EUR.
+* Zwei source-gebundene Transfers: `tr_3USz6PJnhDgmiMAM0j3AUfvz`
+  und `tr_3USz6PJnhDgmiMAM02oBw0e6`, jeweils 118,75 EUR.
+
+Rechnung: `258,39 - 8,39 - 118,75 - 118,75 = 12,50 EUR`.
+Die Charge-Balance-Transaction war noch `pending`: wirtschaftlicher Nachweis
+ist nicht mit sofort verfügbarer Bankauszahlung gleichzusetzen.
+
+Im Stripe-Dashboard sind Plattformzahlung, Zahlungsgebühr und zugehörige Transfers
+über Charge, PaymentIntent und Transfergruppe zu prüfen. Unter „Erhobene Gebühren“
+wird für diese SCT-Provision kein Application-Fee-Eintrag erwartet.
+
+== Geänderte Dateien und Prüfungen
+
+Backend: `TipPaymentRequest`, neuer `MinorUnitsDeserializer`, `TipController`,
+`TransactionController`, `StripeCheckoutService`, neuer `PoolPaymentLimits`,
+neue `PoolReconciliation`, `StripeFeeAuditService`, `application.yml`.
+Tests: `GuestCheckoutHttpTest`, `PoolCheckoutTest`, `StripeFeeAuditTest`,
+neuer `PoolReconciliationTest`.
+
+Frontend: `PublicTipCheckout.tsx`, `StripePayment.test.tsx`, neuer
+`PoolCheckoutLimits.test.tsx`. Konfiguration: `.env.example`,
+`docker-compose/compose.stripe-test.yml`, `deployment/scripts/render_task_definition.py`
+und `deployment/tests/test_ecs_deployment.py`. Dokumentation: diese Datei und
+Verweis in `stripe-fees-and-pool-members.adoc`.
+
+Tests verwenden Stripe-Fakes ohne echte Zahlungen oder Transfers. Abgedeckt:
+beide Gebührenvarianten, vollständige/teilweise Verteilung, Kostendifferenzen,
+historische 45-Cent-Snapshots, Refunds/Reversals, Disputes, Pagination,
+Idempotenz-/Timeout-Abgleich, HTTP-Limits einschließlich Nachkommastellen und
+Frontend-Betragsauswahl. Testergebnisse siehe Abschlussbericht.
+
+== Späterer Sandbox-Rollout
+
+. Erfolgreiche lokale Prüfungen und offene Refund-/Reserveentscheidungen bewerten.
+. Separate Freigabe für Push und Deployment einholen.
+. Neue Task-Konfiguration mit 5 Prozent, 0 Festbetrag und Poolgrenzen 200/50000
+  rendern; alten unbenutzten Pool-Festgebührparameter entfernen.
+. Nach Rollout öffentliche Limits, neue V7-Snapshots und eigenen Fee-Report prüfen.
+. Historische Snapshots und Transferbeträge nicht neu berechnen. Bestehende
+  Settlement-Worker dürfen weiterhin berechtigte offene Allokationen bearbeiten;
+  diese Änderung führt keine manuelle Freigabe oder neue Transfer-Ausführung ein.
+
+== Offizielle Stripe-Referenzen
+
+* https://docs.stripe.com/connect/separate-charges-and-transfers[Separate Charges and Transfers]
+* https://docs.stripe.com/api/transfers/list[Transfers auflisten]
+* https://docs.stripe.com/api/refunds/object[Refund und zugehörige Balance Transactions]
+* https://docs.stripe.com/api/transfer_reversals/object[Transfer Reversals]

@@ -15,6 +15,14 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StripeTestAccessTest {
+    @Test void onlyExactPoolLimitsGetBypassesTestEnrollment() {
+        var rule=new StripeTestAccessRule(null,null);
+        var path="/payment-service/tips/pool-limits";
+        assertEquals(SecurityRuleResult.UNKNOWN,rule.evaluate(HttpRequest.GET(path),null));
+        assertEquals(SecurityRuleResult.UNKNOWN,rule.evaluate(HttpRequest.GET(path),Authentication.build(UUID.randomUUID().toString())));
+        for(var request:List.of(HttpRequest.POST(path,"{}"),HttpRequest.PUT(path,"{}"),HttpRequest.GET(path+"/private"),HttpRequest.GET(path+"-admin")))
+            assertEquals(SecurityRuleResult.REJECTED,rule.evaluate(request,null));
+    }
     private final UUID tester = UUID.randomUUID(), other = UUID.randomUUID();
     private final String code = "private-test-fixture-" + "a".repeat(32);
     private final Map<UUID, ConnectedAccountEntity> stored = new HashMap<>();
