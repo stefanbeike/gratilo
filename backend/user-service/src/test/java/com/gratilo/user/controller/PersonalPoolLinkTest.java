@@ -19,7 +19,7 @@ class PersonalPoolLinkTest {
         when(members.findByPoolId(any())).thenReturn(List.of()); when(members.findByPoolIdAndUserId(any(),any())).thenReturn(Optional.empty());
         var stored=new java.util.concurrent.atomic.AtomicReference<PoolEntity>();
         when(pools.findByOwnerId(owner)).thenAnswer(i->Optional.ofNullable(stored.get()));
-        when(pools.findById(any())).thenAnswer(i->Optional.ofNullable(stored.get()));
+        when(pools.findByIdForUpdate(any())).thenAnswer(i->Optional.ofNullable(stored.get()));
         when(pools.save(any())).thenAnswer(i->{var p=(PoolEntity)i.getArgument(0);stored.set(p);return p;});
         doAnswer(i->{stored.set(null);return null;}).when(pools).deleteById(any());
         var service=new PoolService(pools,members,users,mock(EmailSendService.class),"http://localhost",true);

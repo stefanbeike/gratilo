@@ -1,0 +1,561 @@
+= Gratilo: Application Fees für Poolzahlungen – Prüfung und Optionen
+:toc:
+:sectnums:
+
+Stand: 21.10.2026. Reiner Prüf- und Konzeptauftrag. Keine Änderung der Zahlungsarchitektur.
+
+== Ergebnis und Empfehlung
+
+Die derzeitige Standard-Poolarchitektur erhebt ihre Provision durch reduzierte
+Transfers. Dieser Einbehalt ist kein Stripe-Application-Fee-Objekt. Deshalb entsteht
+daraus kein Eintrag unter »Erhobene Gebühren«. Das bedeutet nicht, dass der
+wirtschaftliche Einbehalt fehlt.
+
+Empfehlung: kurzfristig *Separate Charges and Transfers beibehalten* und ein
+transaktionsbezogenes Provisionsreporting ergänzen (Lösung A). Wenn echte
+Application-Fee-Objekte zwingend sind, zuerst *Funds segregation mit transferbasierten
+Application Fees* mit Stripe klären (Lösung D). Dafür ist eine Private Preview
+dokumentiert; ihre Verfügbarkeit für Gratilo und die konkrete Dashboard-Darstellung
+sind nicht nachgewiesen. Für eine reine Anzeigeverbesserung sind Destination Charges
+oder ein Mitarbeiterkonto als Zwischenstation für das ganze Team keine gute Migration.
+
+Wichtige Abweichung: *Die laufende Sandbox verwendet noch die frühere Provision.*
+Der lokale Code berechnet bereits einheitlich 5 % ohne Festbetrag als V6/V7;
+die aktuell geprüften Stripe-Zahlungen verwenden V4/V5. Insbesondere die neueste
+100-EUR-Poolzahlung behielt 0,45 EUR ein, nicht 5,00 EUR. Dieser Unterschied muss
+vor einem späteren, separat freigegebenen Rollout berücksichtigt werden.
+
+== Umfang und Grenzen der Nachweise
+
+Lokaler Ausgangsstand: Commit `72d97e41b4f16402c25766c34452b828231c2d0c`.
+Zusätzlich bestehen uncommittete Änderungen des vorher begonnenen Auftrags zur
+Mitglieder-Reaktivierung in User-Service und Frontend einschließlich einer dort
+vorbereiteten Migration `017_member_deactivation.sql`. Sie wurden während dieser
+Analyse nicht weiter verändert und sind kein Bestandteil des Architekturvorschlags.
+
+Während dieses Auftrags wurden ausschließlich diese neue Berichtsdatei geschrieben,
+vorhandene lokale Tests ausgeführt sowie AWS-Describe-/Get-Operationen und
+Stripe-GET-Abfragen verwendet. Keine neuen Sessions, Transfers, Refunds,
+Reversals, Migrationen oder Deployments ausgeführt. Keine Secrets ausgegeben.
+
+Der erste Stripe-Leselauf umfasste 46 GETs; anschließend wurden gezielt
+Kontoverantwortung und drei Transfer-Balance-Transactions nachgelesen.
+Die vollständigen Listen seit dem 20.10.2026 enthielten drei Application Fees,
+drei erfolgreiche Direct Charges und 15 erfolgreiche Plattform-PaymentIntents
+(`has_more=false`). Die acht neuesten erfolgreichen Plattformzahlungen wurden
+im Detail gelesen. Keine Aussage über ungeprüfte weitere Plattformzahlungen.
+
+Eine aktuelle Datenbankabfrage war nicht möglich, weil der lokale RDS-Tunnel auf
+Port 15432 nicht lief. Es wurde keine neue SSM-Sitzung gestartet. Aussagen zu
+aktuell gespeicherten Audits basieren daher auf dem vorhandenen Code und den
+lokalen Tests; Stripe-Zahlungsmetadaten und Geldbewegungen wurden aktuell gelesen.
+Die konkrete Browseransicht des Nutzers wurde nicht geöffnet.
+
+== Lokal, deployed und tatsächlich bezahlt
+
+[cols="2,3,3",options="header"]
+|Ebene |Persönlich |Pool
+|Lokaler Payment-Service |Direct Charges, V6, 5 %, Festbetrag 0 |Separate Charges and Transfers, V7, 5 %, Festbetrag 0
+|Laufender ECS-Service |Task-Definition `gratilo-prd-app:24`, ein Task, Deployment COMPLETED |Gleiche Revision; `GRATILO_POOL_COMMISSION_FIXED_MINOR=45`
+|Geprüfte erfolgreiche neue Sandbox-Zahlungen |V4: 45 Cent + 5 % |V5: einmalig 45 Cent
+|Application Fee |Drei reale Objekte nachgewiesen |Bei geprüften Pool-Charges keine
+|===
+
+Der aktuelle Task verwendet `STRIPE_TEST_ONLY=true` und
+`GRATILO_NEW_PRICING_ENABLED=true`. Der Payment-Service ist durch Image-Digest
+`sha256:cdbf726b1f6f74a3c96a3e281924a9c3d02b947c091c008e59a41240d501e46e`
+festgelegt. Ein exakter Build-Commit wurde daraus nicht abgeleitet. Die tatsächlichen
+V4-/V5-Metadaten belegen das alte Pricing unabhängig vom lokalen Git-Stand.
+
+Plattformkonto der geprüften laufenden Anwendung: `acct_1UQNErJnhDgmiMAM`.
+Die ältere Diagnose stellte für die lokalen Stripe-Schlüssel ein anderes
+Plattformkonto fest; dieser lokale Schlüsselvergleich wurde hier nicht wiederholt.
+Alle nachstehend aktuell gelesenen Zahlungsnachweise stammen vom Laufzeitkonto.
+
+== Persönliche Zahlungen als nachgewiesene Referenz
+
+=== Code und tatsächliche Objekte
+
+`backend/payment-service/src/main/java/com/gratilo/payment/service/StripeCheckoutService.java`:
+
+* Zeilen 123–127 frieren `chargeModel=DIRECT`, Connected Account, Gebührenverantwortung
+  sowie Application-Fee- und Stripe-Kostenanteil in der Transaktion ein.
+* Zeile 152 setzt `payment_intent_data[application_fee_amount]` auf
+  `totalAmountMinor - recipientAmountMinor`.
+* Zeile 156 verwendet den gespeicherten Connected-Account-Kontext.
+* Zeilen 377–383 setzen `Stripe-Account` und die API-Version `2026-09-30.endive`.
+* Neue persönliche Sessions enthalten keine Destination-Transfer-Parameter.
+
+Das entspricht dem dokumentierten Direct-Charge-Verfahren. Die Zahlung liegt auf
+dem Connected Account, die Application Fee wird dem Plattformkonto zugeordnet.
+Application-Fee-Objekte sind in der Stripe-Ansicht »Collected fees« vorgesehen;
+ihre Erstellung kann asynchron erfolgen.
+Quelle: https://docs.stripe.com/connect/direct-charges?platform=web&ui=stripe-hosted[Direct Charges].
+
+Aktuell vorhandene, ausschließlich lesend verifizierte Beispiele, alle EUR und V4:
+
+[cols="2,1,1,1,1",options="header"]
+|PaymentIntent |Ausgewähltes Trinkgeld |Alte Gratilo-Provision |Geschätzter Stripe-Kostenanteil |Reale Application Fee
+|`pi_3USyFWJnhDfTGhs91KSVlMHr` |2,00 |0,55 |0,31 |0,86
+|`pi_3USyIWJnhDfTGhs91DilcWmd` |11,78 |1,04 |0,62 |1,66
+|`pi_3USy51JnhDfTGhs915NMWsai` |20,00 |1,45 |0,91 |2,36
+|===
+
+Die ersten beiden Zahlungen haben `feeCovered=false`, die letzte `true` und einen
+Gastzahlbetrag von 20,91 EUR. Das empfangende Konto ist jeweils
+`acct_1USFInJnhDfTGhs9`.
+
+Für die 11,78-EUR-Zahlung:
+
+* Charge `ch_3USyIWJnhDfTGhs91P2QUMsl` liegt auf dem Connected Account.
+* `application_fee_amount=166`, `transfer_data=null`.
+* Application Fee `fee_1USyIYJnhDfTGhs9q2pzCWE6` wurde im Plattformkontext gelesen.
+* Plattform-Balance-Transaction `txn_1USyIaJnhDgmiMAMNzoREdIT`:
+  Betrag und Netto jeweils 166 Cent, Kategorie `platform_earning`.
+* Connected-Account-Balance-Transaction: 1.178 Cent Zahlung minus 166 Cent
+  Application Fee = 1.012 Cent Empfängerbetrag.
+
+Damit sind Direct Charge, echtes Fee-Objekt und Plattformgutschrift nachgewiesen.
+Dasselbe ist noch kein Nachweis einer erfolgreichen V6-Zahlung ohne Festgebühr.
+Die drei Application Fees existieren im Plattformkonto; eine Aussage zu aktuell
+eingestellten Dashboard-Filtern oder zur konkreten Browserdarstellung wird nicht getroffen.
+
+=== Gebührenverantwortung und Audit
+
+Bei den beiden geprüften Accounts `acct_1USFInJnhDfTGhs9` und
+`acct_1USZOlJnhDeaeFtd` meldete Accounts v2:
+`fees_collector=application`, `losses_collector=application`,
+`requirements_collector=stripe`. Kartenannahme, Transfers und Auszahlungen sind
+jeweils aktiv. Das bestätigt bestehende Funktionen; es bestätigt keine
+Plattformrolle eines Connected Accounts für andere Mitarbeiter.
+
+Bei `fees_collector=application` soll die Application Fee eigene Provision und
+Stripe-Kostenausgleich enthalten. Stripe-Kosten werden der Plattform belastet;
+zusätzliche Connect- und Produktkosten bleiben davon getrennt.
+Quelle: https://docs.stripe.com/connect/direct-charges-fee-payer-behavior[Gebührenverantwortung].
+
+Der lokale `StripeFeeAuditService.java:103–145` unterscheidet
+`platformFeeMinor`, `applicationFeeMinor`, `actualFeeMinor` und
+`platformNetRevenueMinor`. Die Connected-Account-Zahlung beweist hier nicht die
+tatsächlichen Plattform-Processingkosten. Ohne gesonderten Nachweis bleibt das
+Audit auf `REPORT_REQUIRED`, Nettoerlös unbekannt. Die Fee-Gutschrift von
+1,66 EUR ist deshalb nicht automatisch 1,66 EUR Gewinn; auch der geschätzte
+Kostenanteil von 0,62 EUR ist kein Istkostenbeleg.
+
+Ein validierter Plattform-Gebührenreport kann über `recordPlatformFeeEvidence`
+zugeordnet werden. Die aktuelle Untersuchung hat keinen solchen Report importiert.
+Quelle: https://docs.stripe.com/connect/direct-charge-buy-rate-reporting-overview[Direct-Charge-Gebührenreports].
+
+== Pool-Geldfluss und lokale Gebührenregel
+
+=== Checkout, Allokation und Settlement
+
+`StripeCheckoutService.java:210–248` speichert V7-Pricing, Pool-ID und die
+eingefrorenen Mitglieder-/Betragsallokationen. Die Session wird im Plattformkontext
+erstellt: kein `Stripe-Account`, kein `application_fee_amount`, keine Destination.
+`transfer_group=gratilo_<Transaktions-ID>` verbindet den Vorgang.
+
+`TipPricing.java:47–65` berechnet für beide Zahlungsarten dieselbe einmalige
+Provision: `HALF_UP(ursprüngliche Cent * 5 / 100)`. Neue feste Provision: 0 Cent.
+Stripe-Schätzung und optionaler Gross-up bleiben getrennt. V4/V5 enthalten aus
+Gründen der historischen Lesbarkeit weiterhin ihre alten Regeln:
+`TipPricingSnapshot.java:54–67`. Das ist kein Festgebührenabzug bei neuen V6/V7-Zahlungen.
+
+`PoolTransferSettlementService.java:42–140` verarbeitet bestätigte Zahlungen,
+prüft Empfängerberechtigung und gleicht bestehende Transfers vor erneutem Senden ab.
+Die Transferparameter in Zeilen 116–120 enthalten `source_transaction`, eingefrorenes
+Zielkonto, Betrag, Transfergruppe und Allokations-ID. Der stabile Idempotenzschlüssel
+ist allokationsbezogen. Eine pauschale Prüfung des allgemeinen verfügbaren Guthabens
+wird nicht eingeführt. Mehrere source-gebundene Transfers sind bis zur zulässigen
+Charge-Gesamtsumme möglich. Das gilt unter den jeweiligen Stripe-Bedingungen und
+ist keine Zusage, dass jeder Transfer unabhängig von Risiken oder Kontosperren gelingt.
+Quelle: https://docs.stripe.com/connect/separate-charges-and-transfers.md?platform=web&integration=checkout&ui=stripe-hosted[Separate Charges and Transfers].
+
+=== Rechenregeln
+
+In Cent, `T` ursprüngliches Trinkgeld, `P=HALF_UP(T*0.05)`,
+`E(x)=HALF_UP(x*0.0315)+25` als gegenwärtige Stripe-Referenzschätzung:
+
+[source,text]
+----
+feeCovered=true:
+  S = kleinster Centaufschlag, für den S >= E(T+S)
+  Gastzahlung C = T+S
+  Empfängerbetrag R = T-P
+
+feeCovered=false:
+  S = 0
+  Gastzahlung C = T
+  Empfängerbetrag R = T-P-E(T)
+
+Plattformeinbehalt vor Istkosten = C-R
+Netto-Plattformergebnis nach bekannter Zahlungsgebühr F = C-R-F
+Abweichung = geschätztes Stripe-Kostenbudget - F
+----
+
+Die Provision ist immer P. Ein positives oder negatives Schätzungsergebnis ist
+gesondert davon auszuweisen. Refunds, Disputes und zusätzliche Connect-Kosten
+verändern die vollständige wirtschaftliche Abrechnung zusätzlich.
+
+=== Beispiele für die neue lokale V7-Regel
+
+Alle Werte EUR, keine bereits gebuchten Testzahlungen. Die tatsächliche Stripe-Gebühr
+kann von der Referenz abweichen. Rest-Cents werden deterministisch verteilt.
+
+[cols="1,1,1,1,1,1,2",options="header"]
+|Trinkgeld |feeCovered |Provision |Stripe-Schätzung |Gastzahlung |Pool-Netto |Beispiel 50/50
+|10,00 |true |0,50 |0,58 |10,58 |9,50 |4,75 + 4,75
+|10,00 |false |0,50 |0,57 |10,00 |8,93 |4,47 + 4,46
+|25,00 |true |1,25 |1,07 |26,07 |23,75 |11,88 + 11,87
+|25,00 |false |1,25 |1,04 |25,00 |22,71 |11,36 + 11,35
+|100,00 |true |5,00 |3,51 |103,51 |95,00 |47,50 + 47,50
+|100,00 |false |5,00 |3,40 |100,00 |91,60 |45,80 + 45,80
+|===
+
+Stimmt F mit der Schätzung überein, verbleiben genau 0,50 / 1,25 / 5,00 EUR
+nach Zahlungsgebühren. Bei 25 EUR ohne Gebührenübernahme, aber tatsächlichen
+1,14 EUR Stripe-Kosten, bleibt R unverändert 22,71 EUR; Gratilos Netto sinkt auf
+1,15 EUR. Die reine, vereinbarte Provision bleibt 1,25 EUR, die Kostenabweichung
+beträgt minus 0,10 EUR.
+
+=== Aktuell beobachtete Poolzahlung: andere historische Regel
+
+Die am 21.10.2026 um 14:12:56 CEST entstandene Zahlung
+`pi_3USyO4JnhDgmiMAM1UvmumKw` enthält V5 und `platform_fee_minor=45`:
+
+[cols="3,2,1",options="header"]
+|Objekt |Buchungsart |EUR
+|Charge `ch_3USyO4JnhDgmiMAM1Ivw7O4Q` |Gastzahlung |103,51
+|Balance `txn_3USyO4JnhDgmiMAM1nDuMq1k` |Stripe-Gebühr / Netto |3,51 / 100,00
+|Transfer `tr_3USyO4JnhDgmiMAM1DdI0BY3` |Empfängertransfer |99,55
+|Balance `txn_3USyO4JnhDgmiMAM1EziNVlq` |Transferabgang / Gebühr |−99,55 / 0,00
+|Differenz |Bei Gratilo verblieben |0,45
+|===
+
+Transfergruppe: `gratilo_8ee738a9-3c77-4218-8ad9-32d3f5327832`.
+Der Transfer ist source-gebunden. Für diese Zahlung ist ein Transfer nachgewiesen;
+die aktuelle Soll-Mitgliederliste wurde ohne Datenbankzugriff nicht bestimmt.
+Die Charge hat keine Application Fee. Die 5-EUR-Provision der neuen Regel darf
+dieser V5-Zahlung nicht nachträglich zugeschrieben oder zusätzlich entzogen werden.
+
+Auch der ältere 52-EUR-Poolvorgang `pi_3USxn0JnhDgmiMAM1wDBJJ5C`
+belegt das Modell mit mehreren Empfängern: 53,95 EUR Gastzahlung, 1,95 EUR
+Stripe-Gebühr, Transfers 25,77 + 25,78 EUR, verbleibend 0,45 EUR.
+Die jeweiligen Plattform-Abgangs-Balance-Transactions wurden gelesen:
+`txn_3USxn0JnhDgmiMAM1tDAKxQ2` und `txn_3USxn0JnhDgmiMAM1Kb6BjvU`.
+
+== Drei unterschiedliche Anforderungen
+
+[cols="1,3,3",options="header"]
+|Anforderung |Bedeutung |Aktueller Befund
+|A: wirtschaftlich erhoben |Empfängerbetrag ist um vereinbarte Provision reduziert |Bei geprüften V5-Zahlungen 45 Cent belegt; lokale V7-Berechnung 5 % getestet
+|B: in Stripe nachvollziehbar |Charge, Gebühren, Transfers und Metadaten sind abstimmbar |Ja, mittels gelesener Objekte und Balance-Transactions
+|C: echtes Application-Fee-Objekt |Stripe erzeugt ein `fee_…`-Objekt |Persönlich belegt; bei Standard-Pools nicht erzeugt
+|===
+
+Metadaten oder ein eigener Buchhaltungsreport sind keine Application-Fee-Objekte.
+Ein echter Geldfluss darf nicht allein zur Erzeugung eines Dashboard-Eintrags
+verdoppelt oder durch eine künstliche zusätzliche Zahlung ersetzt werden.
+
+== Lösungsoptionen
+
+=== A: Standard-Separate-Charges-and-Transfers beibehalten
+
+Die Zahlung liegt auf der Plattform. Der einmalige Provisionsabzug erfolgt vor der
+Aufteilung. Die bereits bestehende Architektur deckt mehrere Empfänger ab.
+Im Standardmodell wird eine Plattformgebühr durch die Differenz zu den Transfers
+einbehalten; daraus entsteht kein Application-Fee-Objekt. Die öffentliche
+Application-Fee-API bietet kein freies »Gebührenobjekt anlegen« für solche Einbehalte.
+Quellen: https://docs.stripe.com/connect/separate-charges-and-transfers.md?platform=web&integration=checkout&ui=stripe-hosted[Gebühreneinbehalt bei SCT],
+https://docs.stripe.com/api/application_fees[Application-Fee-Endpunkte].
+
+Für Transparenz reichen vorhandene Identifikatoren grundsätzlich aus:
+Transaktions-ID, Preisversion, Provisionsbetrag/-satz, Kostenbudget, Transfergruppe,
+Charge und Allokationen. Die Metadaten werden bereits an Session und PaymentIntent
+übermittelt (`StripeCheckoutService.java:276–279`). Transfermetadaten enthalten
+Transaktions- und Allokations-ID. Für einen leichteren Export könnten zusätzliche
+nicht personenbezogene Preisversion-/Provisionsmetadaten auf neuen Transfers
+ergänzt werden. Sie wären reine Referenzen, keine erneuten Abzüge.
+
+Die Stripe-Balanceübersicht beziehungsweise CSV-Exporte und optional Sigma können
+die Geldbewegungen zusammenführen. Ein spezieller Provisionsreport müsste die
+gespeicherte Vereinbarung mit Charge- und Transferbuchungen abgleichen. Stripe
+erstellt damit nicht automatisch eine eigene Berichtskategorie »5-%-Poolprovision«.
+Verfügbarkeit und zusätzliche Kosten von Sigma sind kontospezifisch zu prüfen.
+Quellen: https://docs.stripe.com/reports/balance[Balance-Report],
+https://docs.stripe.com/data/query-transactions[Transaktionsabfragen und Ledger].
+
+Empfohlene Reportspalten: vereinbarte Provision, Stripe-Schätzung, Stripe-Istkosten,
+Empfänger-Soll, tatsächlich übertragen, noch ausstehend, Reversals, Refunds und
+bekannter Netto-Plattformertrag. Während Transfers noch fehlen, ist der aktuelle
+Kontorest kein vollständig verdienter Plattformumsatz.
+
+=== B: Destination Charge mit Application Fee
+
+Eine Destination Charge besitzt ein primäres Zielkonto, keine Empfängerliste.
+Die Application Fee fließt von diesem Ziel zurück zur Plattform; Paymentgebühren,
+Refunds und Disputes belasten grundsätzlich die Plattform. Das ist ein unterstütztes
+Modell für einen primären Leistungserbringer, aber kein automatischer Mehrparteien-Split.
+Quelle: https://docs.stripe.com/connect/destination-charges.md?platform=web&ui=stripe-hosted[Destination Charges].
+
+Eine Umstellung des gesamten Poolbetrags auf das Konto des Poolinhabers überträgt
+zunächst auch die fremden Teamanteile an ihn. Zusätzliche Plattformtransfers an
+andere Mitglieder würden dieselben Ansprüche ein zweites Mal finanzieren, sofern
+die bereits beim Primärziel liegenden Mittel nicht zurückgeholt werden.
+
+Rechenbeispiel als konzeptionelle Warnung: 25 EUR mit Gebührenübernahme ergeben
+26,07 EUR Charge und 23,75 EUR vorgesehenes Team-Netto. Eine Destination Charge
+mit 2,32 EUR Application Fee lässt 23,75 EUR beim Primärziel. Zusätzlich 11,87 EUR
+an ein zweites Mitglied zu übertragen wäre eine Überverteilung. Erst eine passende
+Rückführung oder eine ausdrücklich unterstützte andere Parametrisierung könnte das
+verhindern. Die Kombination aus reduzierter `transfer_data[amount]` und zusätzlicher
+Application Fee wird hier nicht als freigegebene Lösung angenommen.
+
+Eine rechnerisch mögliche Hybridvariante wäre eine wesentlich höhere Application
+Fee, die zusätzlich den Anteil der übrigen Mitglieder zurück auf die Plattform
+holt: Beim selben Beispiel erhält Primärmitglied A 11,88 EUR, indem die Application
+Fee 14,19 EUR beträgt. Nach 1,07 EUR Processingkosten und einem weiteren Transfer
+von 11,87 EUR an B verbleiben 1,25 EUR bei Gratilo. Die Application Fee würde dann
+aber 14,19 EUR statt der reinen 1,25-EUR-Provision ausweisen und enthielte fremde
+Teamansprüche. Sie würde das gewünschte Provisionsreporting verfälschen. Ob und
+wann die weiteren Transfers finanziert werden können, ist gesondert zu prüfen;
+die ursprüngliche Destination Charge darf nicht ungeprüft nochmals als frei
+verfügbares Source-Budget für zusätzliche Transfers verwendet werden. Diese
+Variante ist ein Rechenmodell, kein nachgewiesener Gratilo-Sandbox-Ablauf.
+
+Ein hybrider Ablauf benötigt neue Rückführungs-, Liquiditäts- und Reconciliation-
+Regeln. Er ist für Gratilos gleichberechtigte Poolmitglieder unnötig riskant und
+kann eine manuelle Vorfinanzierung erforderlich machen. Keine Empfehlung.
+
+=== C: Direct Charge auf einem Pool-/Inhaberkonto mit anschließender Verteilung
+
+Die Charge und das zunächst verbleibende Netto lägen auf einem ausgewählten
+Connected Account, beispielsweise dem Inhaber. Damit würde dieses Konto den
+Gastzahlungs- und Reklamationskontext des gesamten Teams tragen.
+Bei den konkret geprüften Konten blieben Processingkosten aufgrund
+`fees_collector=application` wirtschaftlich bei Gratilo. Refund-/Dispute-Hauptbeträge
+belasten bei Direct Charges zunächst den Connected-Account-Kontext; die vereinbarte
+Verlustverantwortung der Plattform bleibt zusätzlich relevant.
+Quellen: https://docs.stripe.com/connect/charges[Charge-Arten und Verantwortlichkeit],
+https://docs.stripe.com/connect/direct-charges-fee-payer-behavior[Gebühren- und Dispute-Verantwortung].
+
+Ein normales Gratilo-Connected-Account wird durch aktive Karten- und
+Transferempfangs-Capabilities nicht zu einer Plattform für die anderen Konten.
+Der öffentlich dokumentierte Transferweg ist vom eigenen Plattformkontext zu
+verbundenen Zielen; eine frei verfügbare Geschwisterkonto-Überweisung ist damit
+für unsere Konten nicht nachgewiesen.
+Quelle: https://docs.stripe.com/api/transfers/create[Transfer-API].
+
+Zwei Varianten müssten mit Stripe getrennt geprüft werden:
+
+* Das rechtliche Team-/Betriebsunternehmen erhält ein eigenes Konto und einen
+  ausdrücklich genehmigten Verteilungsmechanismus. Ein Mitarbeiterkonto darf nicht
+  stillschweigend diese Rolle übernehmen.
+* Rückführung vom erstempfangenden Konto zur Plattform und danach separate
+  Transfers an die Mitglieder. Account Debits können bei entsprechender
+  Verlustverantwortung verfügbar sein, setzen jedoch Zustimmung voraus und können
+  zusätzliche Kosten und Guthabenbedingungen haben. Sie erzeugen keinen neuen
+  ursprünglichen Plattform-Kartencharge als `source_transaction`.
+  Quelle: https://docs.stripe.com/connect/account-debits[Account Debits].
+
+Das wäre eine erhebliche Rollen-, Vertrags- und Finanzierungsänderung. Ob der
+Poolinhaber rechtlich Trinkgelder anderer Mitarbeiter entgegennehmen und verteilen
+darf, ist nicht aus der API-Konfiguration ableitbar. Für die vorliegende
+Dashboard-Anforderung keine Empfehlung.
+
+=== D: SCT mit Funds segregation und transferbasierten Application Fees
+
+Stripe dokumentiert *Funds segregation als Private Preview*: Bei Transfers aus
+zugewiesenen Geldern kann `application_fee_amount` ein echtes Application-Fee-Objekt
+mit `fee_source.type=transfer` erzeugen. Erforderlich sind Preview-Zugriff,
+Preview-Header und Plattformverantwortung für Negativsalden. Gebühren werden als
+Standalone Fees gebucht; Zahlungsmethoden sind eingeschränkt. Das Dashboard
+kennzeichnet zugewiesene Gelder nicht gesondert. Für Gratilo sind Preview-Zugriff,
+Checkout-Integration und die konkrete Anzeige transferbasierter Gebühren unter
+»Erhobene Gebühren« nicht nachgewiesen.
+Quelle: https://docs.stripe.com/connect/funds-segregation[Funds segregation].
+
+Das ist die relevante Ausnahme zur Aussage über Standard-SCT. Eine Änderung auf
+Direct oder Destination Charges wäre dafür nicht grundsätzlich erforderlich.
+Der aktuelle Client sendet jedoch `2026-09-30.endive` ohne Preview-Erweiterung;
+es gibt keine Implementierung oder Sandbox-Freigabe für diese Option.
+
+Bewertung für Gratilo: als gezieltes Gespräch mit Stripe sinnvoll, keine
+sofort implementierbare oder bereits aktivierte Zusage. Vor Entwicklung müssen
+mindestens Transfer-/Fee-Betragssemantik, Kostenbudget, Restmittel und Refunds
+mit Stripe geklärt werden. Die einmal berechnete Gesamtprovision darf durch
+mehrere Fee-Objekte nicht mehrfach erhoben werden.
+
+Im Code fehlen dafür insbesondere ein passender Preview-Adapter sowie eine
+Zuordnung von Transfer-Fee-Objekten zu Allokationen. Der bestehende
+`StripeWebhookController.java:63–75` erwartet Application Fees einer Direct Charge
+mit Charge-/Account-Bindung und würde Pool-Fee-Events nicht passend zuordnen.
+Auch die bisherige Auditannahme »ein Fee-Objekt pro Zahlung« wäre zu überarbeiten.
+Eine bloße Ergänzung von `application_fee_amount` im heutigen Transfer-POST genügt nicht.
+
+Weitere Ansätze wie ein separates Abonnement, zusätzliche Gastzahlungen oder
+mehrere Einzelcharges pro Poolzahlung lösen die konkrete Anforderung nicht ohne
+neue Zahlungsvorgänge, Kosten und Vertragsänderungen. Sie werden nicht empfohlen.
+
+== Vergleich
+
+[cols="2,3,3,3,3",options="header"]
+|Kriterium |A: Standard-SCT |B: Destination |C: Direct auf Teamkonto |D: SCT-Preview
+|5-%-Provision möglich |Ja, einmal vor Aufteilung |Ja, für Primärziel |Ja, für erstempfangendes Konto |Konzeptionell; Gesamtsumme einmal einfrieren
+|Echtes Application-Fee-Objekt |Nein im aktuellen Standardablauf |Ja |Ja |Dokumentiert; Zugang ungeklärt
+|»Erhobene Gebühren« |Kein automatischer Fee-Eintrag |Für echte Fee vorgesehen |Für echte Fee vorgesehen |Für unseren Kontext zu bestätigen
+|Mehrere Poolmitglieder |Nativer Anwendungsfall |Nur ein primäres Ziel; Hybrid nötig |Weiterverteilung nicht nachgewiesen |Mehrparteienansatz; Abnahme nötig
+|Connect-v2-kompatibel |Aktuell nachgewiesen |Grundsätzlich, konkreter Hybrid ungeprüft |Direct nachgewiesen; Hub-Rolle nicht |Für Gratilo nicht nachgewiesen
+|Stripe-Gebührenzuordnung |Plattform |Plattform |Hier Plattform laut Account-Verantwortung |Geänderten Auditbedarf prüfen
+|Refunds/Disputes |Plattform; separate Transfer-Reversals |Plattform; Zielrückführung und Fee-Erstattung |Kontokontext und Plattformhaftung beachten |Neues Konzept nötig
+|Technischer Aufwand |Gering bis mittel für Reports |Hoch für sicheren Mehrparteien-Hybrid |Sehr hoch einschließlich Rollenmodell |Hoch für Preview-Integration
+|Migrationsrisiko |Gering; neue Reports, alte Snapshots behalten |Hoch |Sehr hoch |Hoch; explizit versionierter Opt-in
+|Wirtschaftliche Risiken |Gebührendifferenzen, Refund-/Dispute-Reserve |Überverteilung und Vorfinanzierung |Hub-Guthaben, Haftung, Zusatzkosten |Zugang und Wirtschaftlichkeit ungeklärt
+|Empfehlung |Jetzt bevorzugt |Für echte Pools ablehnen |Für Anzeigeziel ablehnen |Gezielt mit Stripe prüfen
+|===
+
+Die Tabelle ist keine Produktfreigabe. Insbesondere bedeutet »echtes Fee-Objekt«
+nicht, dass jede gewünschte Dashboard-Filterung in unserem Sandbox-Kontext
+bereits praktisch bestätigt wäre.
+
+== Refunds, Disputes und rechtliche Grenzen
+
+Der vorhandene Code verarbeitet bestätigte `charge.refunded`- und
+`charge.dispute.*`-Ereignisse. Er verteilt zunehmende Teilrefunds centgenau auf
+die eingefrorenen Allokationen (`StripeWebhookController.java:126–147`).
+Der Settlement-Service gleicht vorhandene Transfers ab und führt erforderliche
+Reversals anhand ihrer gespeicherten IDs durch (`PoolTransferSettlementService.java:235–260`).
+Ein gespeicherter persönlicher oder Pool-Anspruch wird dabei nicht aus aktuellen
+Mitgliedsgewichten neu berechnet.
+
+Diese Logik ist kein vollständig freigegebener automatischer Refund-Prozess:
+Die Entscheidung zur Erstattung der Gratilo-Provision ist weiterhin offen.
+`StripeFeeAuditService.java:36,165–171` markiert sie als
+`POLICY_UNDECIDED` beziehungsweise `REVIEW_REQUIRED` und setzt unbekannte
+Nettoergebnisse nicht auf fiktive Werte. `TransactionService.java:30–32` verhindert
+eine scheinbare Erstattung allein durch lokale Statusänderung. Ein Application-Fee-
+Refund darf nicht automatisch mit einer vollständigen Kostenerstattung durch Stripe
+gleichgesetzt werden.
+
+Für alle Optionen muss vor produktiver Einführung fachlich feststehen, wie
+Voll-/Teilrefunds, Provision, Kostenbudget, nicht erstattete Stripe-Kosten,
+Dispute-Verluste und nicht durchführbare Reversals behandelt werden. Ein Modellwechsel
+erfordert getrennte Geldfluss- und Event-Routen pro historischer Pricing-Version.
+Keine rückwirkende Umstellung bestehender Zahlungen.
+
+Die Poolverteilung findet beim heutigen SCT-Modell innerhalb von Stripe statt;
+ein Zwischenschritt über ein Gratilo-Bankkonto ist dafür nicht erforderlich.
+Die ausschließlich lesende Account-Abfrage ergab für die Plattform tatsächlich
+`payouts.schedule.interval=daily` und `delay_days=7`. Der Plan wurde nicht geändert;
+es wurden keine Payouts oder Bankbewegungen gelesen. Vor Live-Betrieb ist deshalb
+konkret zu prüfen, wie noch offene Poolansprüche und Gebührenreserven gegen
+Plattform-Payouts abgegrenzt werden. Source-gebundene Transfers helfen bei der
+Zuordnung, ersetzen aber keine vollständige Payout-/Reservepolitik.
+
+Technische Machbarkeit ersetzt keine rechtliche Einordnung. Insbesondere reicht
+»Geld liegt bei Stripe statt auf unserem Bankkonto« nicht aus, um Gratilos Rolle
+als bloßen technischen Dienstleister zu bestätigen. BaFin nennt Einfluss auf den
+Zahlungsfluss beziehungsweise Verfügungsbefugnis als relevante Abgrenzung.
+Zu prüfen sind tatsächliche Vertragsparteien, Verfügungsmacht, Negativsaldohaftung,
+Auftrag zur Teamverteilung und gegebenenfalls die Rolle eines Teamunternehmens.
+Quellen: https://bafin.de/SharedDocs/Veroeffentlichungen/DE/Merkblatt/mb_111222_zag.html[BaFin-ZAG-Merkblatt],
+https://www.gesetze-im-internet.de/zag_2018/__2.html[§ 2 ZAG].
+Dieser Bericht stellt keine rechtliche Freigabe des konkreten Geschäftsmodells dar.
+
+== Konkreter Umsetzungsvorschlag nach Entscheidung
+
+=== Empfohlene erste Stufe: A mit nachvollziehbarem Reporting
+
+. Die bereits lokal vorhandene V6-/V7-Umstellung getrennt von der Reportingfrage
+  abnehmen. Nur neue Checkouts erhalten die 5-%-Regel. Noch kein Deployment dieses Berichts.
+. Vorhandene Fee-Audit-Daten und Allokationen in einem autorisierten Finanzreport
+  zusammenführen. Einbehaltene Soll-Provision, offene Empfängerverbindlichkeiten und
+  tatsächlichen Nettoerlös ausdrücklich getrennt ausweisen.
+. Bei Bedarf Metadaten neuer Transfers für Stripe-Exports ergänzen und einen
+  gespeicherten Sigma-/CSV-Report vorbereiten. Keine alten Stripe-Objekte dafür ändern.
+. `StripeFeeAuditService` um den vollständigen Abgleich von Transfer- und Reversal-
+  Balance-Transactions erweitern. Für bisher unbekannte Daten nullable Referenzen
+  ergänzen, sofern die bestehenden Transfer-IDs als Lookup nicht ausreichen.
+  Keine zweite Provision buchen.
+. Den kontrollierten Import der tatsächlichen Plattformkosten für Direct Charges
+  abschließen. Bestehende Prüfungen des Reports beibehalten.
+. Refund-Provisionsregel und Dispute-Abrechnung entscheiden, dann idempotente
+  Finanzereignisse und Berichte entsprechend ergänzen.
+
+Für den reinen A-Report ist kein neuer Charge-Typ und grundsätzlich keine neue
+Pricing-Migration erforderlich. Die bereits lokal vorhandene
+`payment_mgmt/012_percentage_commission.sql` gehört zur vorherigen Gebührenumstellung,
+nicht zu dieser Analyse. Webhook-Signaturprüfung und bestehende Event-Verarbeitung
+bleiben unverändert; zusätzliche Reporting-Events benötigen eindeutige Event-IDs.
+
+=== Wenn echte Pool-Application-Fees unverzichtbar sind
+
+Zuerst Stripe um eine konkrete Aussage zu Option D für unser Plattformkonto bitten.
+Kein Supportkontakt wurde durch diesen Auftrag versendet. Danach wäre ein eigener
+Entwurf erforderlich: API-/Checkout-Freigabe, versionierte neue Zahlungen,
+Fee-zu-Allokation-Zuordnung, Summeninvarianten, Restgeldbehandlung, Kostenabgleich,
+Fee-Refunds, Events und idempotente Reconciliation. Wahrscheinlich werden zusätzliche
+nullable Fee-Referenzen auf Allokationsebene oder eine eindeutige 1:n-Zuordnung
+benötigt. Das ist hier nur ein Vorschlag, keine vorbereitete Migration.
+
+Weder alte Zahlungen noch vorhandene Transfers dürfen in dieses Modell übernommen
+werden. Bei einem Timeout müssen auch Fee-Ergebnisse vor erneutem Senden abgeglichen
+werden; die bestehende allokationsbezogene Idempotenz bleibt erforderlich.
+
+== Offene Entscheidungen und Abnahmekriterien
+
+* Reicht ein belastbarer Provisionsreport (B), oder ist der konkrete Dashboard-Eintrag
+  als Application Fee (C) eine zwingende Produktanforderung?
+* Soll eine Application Fee nur die reine Provision oder zusätzlich das
+  Processingkostenbudget darstellen? Bei persönlichen Zahlungen enthält sie beides.
+* Wann wird die neue 5-%-Regel separat abgenommen und ausgerollt? Laufende V4/V5-
+  Zahlungen bleiben historische Vereinbarungen.
+* Wie werden Provision und Kosten bei Refunds und Chargebacks erstattet beziehungsweise getragen?
+* Welche Plattform-Payout-/Reservepolitik schützt noch offene Teamansprüche?
+* Bestätigt Stripe Option D für dieses Plattformkonto und die tatsächlich verwendeten
+  Accounts v2, Länder, Zahlungsmethoden und Checkout-Integration?
+* Wie sieht die konkrete Dashboard- und Reportingdarstellung dieses Fee-Typs aus?
+* Sind Gebührenvereinbarungen, Team-Verteilungsauftrag und aufsichtsrechtliche Rollen
+  mit dem gewählten tatsächlichen Geldfluss abgestimmt?
+
+Abnahme muss vollständige Geldflussketten prüfen: ausgewähltes Trinkgeld,
+Preissnapshot, Charge, Kosten, alle Transfers, gegebenenfalls echte Fee-Objekte,
+Teilrefund, Dispute und mehrfach zugestellte Events. Unit-Tests allein sind kein
+Nachweis einer aktiven Sandbox-/Produktionskonfiguration.
+
+== Lokale Tests und unveränderter Arbeitsstand
+
+Erneut ausgeführt: 77 Payment-Service-Tests, 0 Fehler, 0 übersprungen.
+Geprüfte Klassen: DirectPricingTest, StripeCheckoutTest, PoolCheckoutTest,
+DirectFeeAuditTest, StripeFeeAuditTest, TipPricingSnapshotTest,
+PoolSourceSettlementTest und DirectWebhookTest. Stripe-Requests sind Fakes/Mocks.
+
+Die schon vor diesem Analyseauftrag gestarteten lokalen Läufe des vorherigen
+Mitgliedschaftsauftrags endeten ebenfalls erfolgreich: 62 User-Service-Tests und
+116 Frontend-Tests. Sie ersetzen keine noch ausstehenden gezielten Regressionen
+und Parallelitätstests für dessen neue Berechtigungsregel.
+
+Für die Reporting-/Architekturoptionen wurden keine Tests hinzugefügt, keine
+Codekorrekturen vorgenommen und keine Migration angewandt. Nur diese Datei neu angelegt.
+
+== Antworten auf die Entscheidungsfragen
+
+. Poolprovisionen fehlen in »Erhobene Gebühren«, weil Standard-SCT keine passenden
+  Application-Fee-Objekte erzeugt; es behält Geld durch geringere Transfers ein.
+. Der aktuelle Pool-Code erzeugt keine solchen Objekte. Das Standardmodell bietet
+  dafür keinen zusätzlichen frei erzeugbaren Gebührenbeleg.
+. Ein anderer Charge-Typ wäre ein Weg zu Fee-Objekten, ist aber nicht der einzige
+  dokumentierte Ansatz: Option D ist die ungeprüfte Preview-Alternative.
+. Für mehrere gleichberechtigte Empfänger passt SCT am besten zum vorhandenen Modell.
+. Deshalb jetzt A empfehlen, D bei zwingender Objektanforderung mit Stripe klären.
+. Ja, die Poolprovision lässt sich über tatsächliche Geldbewegungen plus eingefrorene
+  Pricing-Metadaten in Stripe-Reporting nachvollziehbar nachweisen.
+. Für A sind Reports, gegebenenfalls ergänzende Metadaten und vollständiger
+  Buchungsabgleich nötig, keine grundlegende Checkout-Änderung.
+. A benötigt keine neue Charge-/Webhook-Architektur; D hätte erhebliche Audit-,
+  Event-, Reconciliation- und Datenmodellfolgen.
+. Vor Implementierung sind Produktziel, Stripe-Freigabe, Gebühren-/Refund-Verträge,
+  Reserven und rechtliche Rolle zu entscheiden.
+
+*Auf eine Entscheidung zur Architektur wird gewartet. Keine Umsetzung oder
+Freischaltung einer dieser Optionen durch diesen Bericht.*

@@ -15,27 +15,27 @@ class TeamDashboardTest {
     final UserRepository users=mock(UserRepository.class);
     final PoolService service=new PoolService(pools,members,users,mock(EmailSendService.class),"http://localhost",true);
     TeamDashboardTest(){when(users.findByIdForUpdate(user)).thenReturn(Optional.of(new UserEntity()));}
-    PoolMemberEntity membership(UUID team,boolean active,String status){var m=new PoolMemberEntity();m.setId(UUID.randomUUID());m.setPoolId(team);m.setUserId(user);m.setActive(active);m.setStatus(status);m.setSharePercent(50);return m;}
-    PoolEntity pool(){var p=new PoolEntity();p.setId(teamId);p.setOwnerId(other);p.setName("Team");when(pools.findById(teamId)).thenReturn(Optional.of(p));return p;}
+    PoolMemberEntity membership(UUID team,boolean active,String status){var m=new PoolMemberEntity();m.setId(UUID.randomUUID());m.setPoolId(team);m.setUserId(user);m.setActive(active);m.setDeactivationReason(active?null:"SELF");m.setStatus(status);m.setSharePercent(50);return m;}
+    PoolEntity pool(){var p=new PoolEntity();p.setId(teamId);p.setOwnerId(other);p.setName("Team");when(pools.findById(teamId)).thenReturn(Optional.of(p));when(pools.findByIdForUpdate(teamId)).thenReturn(Optional.of(p));return p;}
     @Test void createRejectsAnotherActiveTeamBeforeWriting(){
         when(members.findByUserId(user)).thenReturn(List.of(membership(UUID.randomUUID(),true,"ACTIVE")));
         assertThrows(IllegalStateException.class,()->service.create(user,"New"));verify(pools,never()).save(any());
         var order=inOrder(users,members);order.verify(users).findByIdForUpdate(user);order.verify(members).findByUserId(user);
     }
     @Test void acceptingInvitationRejectsExistingOwnedTeam(){
-        var invitation=membership(teamId,true,"INVITED");when(members.findByInvitationToken("token")).thenReturn(Optional.of(invitation));
+        pool();var invitation=membership(teamId,true,"INVITED");when(members.findPoolIdByInvitationToken("token")).thenReturn(Optional.of(teamId));when(members.findByInvitationToken("token")).thenReturn(Optional.of(invitation));
         var owned=new PoolEntity();owned.setId(UUID.randomUUID());when(pools.findByOwnerId(user)).thenReturn(Optional.of(owned));
         assertThrows(IllegalStateException.class,()->service.respond("token",user,true));assertEquals("INVITED",invitation.getStatus());verify(members,never()).update(any());
     }
     @Test void selfReactivationRejectsDifferentActiveTeam(){
-        var m=membership(teamId,false,"ACTIVE");pool();when(members.findById(m.getId())).thenReturn(Optional.of(m));
+        var m=membership(teamId,false,"ACTIVE");pool();when(members.findById(m.getId())).thenReturn(Optional.of(m));when(members.findPoolIdByMemberId(m.getId())).thenReturn(Optional.of(teamId));
         when(members.findByUserId(user)).thenReturn(List.of(m,membership(UUID.randomUUID(),true,"ACTIVE")));
         assertThrows(IllegalStateException.class,()->service.setMemberActive(user,m.getId(),true));assertFalse(m.isActive());verify(members,never()).update(any());
     }
     @Test void ownerReactivationUsesTheSameMemberLockAndGuard(){
         var p=pool();var ownerMember=membership(teamId,true,"ACTIVE");ownerMember.setUserId(other);
         when(members.findByPoolIdAndUserId(teamId,other)).thenReturn(Optional.of(ownerMember));
-        var m=membership(teamId,false,"ACTIVE");when(members.findById(m.getId())).thenReturn(Optional.of(m));
+        var m=membership(teamId,false,"ACTIVE");when(members.findById(m.getId())).thenReturn(Optional.of(m));when(members.findPoolIdByMemberId(m.getId())).thenReturn(Optional.of(teamId));
         when(members.findByUserId(user)).thenReturn(List.of(membership(UUID.randomUUID(),true,"ACTIVE")));
         assertThrows(IllegalStateException.class,()->service.setActive(other,p.getId(),m.getId(),true));verify(users).findByIdForUpdate(user);assertFalse(m.isActive());
     }

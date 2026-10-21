@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MemberStripeBadge, memberTransferReady, memberPayoutReady, type MemberStripeStatus } from './poolStripeStatus'
 
-export interface PoolParticipant { id:string; userId:string; email:string; name:string; sharePercent:number; effectiveSharePercent?:number; status:string; active:boolean; invitationExpiresAt?:string|null; invitationToken?:string|null }
+export interface PoolParticipant { deactivationReason?:string|null; id:string; userId:string; email:string; name:string; sharePercent:number; effectiveSharePercent?:number; status:string; active:boolean; invitationExpiresAt?:string|null; invitationToken?:string|null }
 type Props={ members:PoolParticipant[]; ownerId:string; stripe:Record<string,MemberStripeStatus>; drafts:Record<string,string>;
  onDraft:(id:string,value:string)=>void; onToggle:(member:PoolParticipant,active:boolean)=>Promise<void>;
  onRemove:(member:PoolParticipant)=>Promise<void>; onResend:(member:PoolParticipant)=>Promise<void>; onDistribute:()=>void; onSave:()=>Promise<void> }
@@ -18,14 +18,14 @@ export function PoolMembersPanel({members,ownerId,stripe,drafts,onDraft,onToggle
  const notPayoutReady=activeMembers.filter(m=>!memberPayoutReady(stripe[m.userId])).length
  const basisPoints=activeMembers.reduce((sum,m)=>sum+Math.round((m.effectiveSharePercent||0)*100),0)
  function ask(title:string,description:string,run:()=>Promise<void>){setConfirmation({title,description,run})}
- function row(member:PoolParticipant){const owner=member.userId===ownerId,isActive=active(member),expired=member.status==='INVITED'&&!!member.invitationExpiresAt&&new Date(member.invitationExpiresAt)<=new Date()
+ function row(member:PoolParticipant){const owner=member.userId===ownerId,isActive=active(member),ownerBlocked=!member.active&&member.deactivationReason!=='SELF',expired=member.status==='INVITED'&&!!member.invitationExpiresAt&&new Date(member.invitationExpiresAt)<=new Date()
   return <li className={`pool-participant-row ${isActive?'':'pool-participant-muted'}`} key={member.id}>
-   <div className="pool-participant-person"><strong>{member.name||member.email}</strong>{owner&&<span className="status-pill owner-badge">★ Poolinhaber</span>}<small>{member.email}</small><span className={`status-pill ${isActive?'booked':'inactive'}`}>{isActive?'● Aktiv':member.status==='INVITED'?(expired?'◷ Einladung abgelaufen':'◷ Einladung offen'):member.status==='DECLINED'?'○ Abgelehnt':'Ⅱ Inaktiv'}</span></div>
+   <div className="pool-participant-person"><strong>{member.name||member.email}</strong>{owner&&<span className="status-pill owner-badge">★ Poolinhaber</span>}<small>{member.email}</small><span className={`status-pill ${isActive?'booked':'inactive'}`}>{isActive?'● Aktiv':member.status==='INVITED'?(expired?'◷ Einladung abgelaufen':'◷ Einladung offen'):member.status==='LEFT'?'○ Team verlassen':member.deactivationReason==='OWNER'?'Ⅱ Vom Besitzer deaktiviert':member.status==='DECLINED'?'○ Abgelehnt':'Ⅱ Inaktiv'}</span>{ownerBlocked&&<small>Nur du als Pool-Besitzer kannst die Reaktivierung freigeben.</small>}</div>
    <div className="pool-participant-share"><span className="participant-field-label">Effektiver Anteil</span><strong>{member.effectiveSharePercent!=null?percent(isActive?member.effectiveSharePercent:0):'Noch nicht ermittelt'}</strong><label>Verteilungsgewicht<input type="number" min="0" max="100" step="0.01" inputMode="decimal" aria-label={`Verteilungsgewicht für ${member.name||member.email}`} value={drafts[member.id]??String(member.sharePercent)} onChange={e=>onDraft(member.id,e.target.value)}/></label></div>
    <div className="pool-participant-stripe"><MemberStripeBadge status={stripe[member.userId]}/>{isActive&&member.sharePercent>0&&!memberTransferReady(stripe[member.userId])&&<p className="pool-blocking-member">! Verhindert derzeit neue Pool-Zahlungen.</p>}</div>
    <div className="pool-participant-actions" role="group" aria-label={`Aktionen für ${member.name||member.email}`}>
-    {member.status==='INVITED'&&<button className="text-button" onClick={()=>void onResend(member)}>Einladung erneut senden</button>}
-    {!owner&&member.status==='ACTIVE'&&<button className="outline-button" data-pool-action={`toggle-${member.id}`} onClick={()=>ask(isActive?'Mitglied deaktivieren?':'Mitglied reaktivieren?',`Das gespeicherte Gewicht von ${member.name||member.email} bleibt erhalten. Die effektiven Anteile werden proportional neu berechnet. Bestehende Zahlungen bleiben unverändert.`,()=>onToggle(member,!isActive))}>{isActive?'Deaktivieren':'Reaktivieren'}</button>}
+    {member.status==='INVITED'&&!ownerBlocked&&<button className="text-button" onClick={()=>void onResend(member)}>Einladung erneut senden</button>}
+    {!owner&&(member.status==='ACTIVE'||ownerBlocked)&&<button className="outline-button" data-pool-action={`toggle-${member.id}`} onClick={()=>ask(isActive?'Mitglied deaktivieren?':'Mitglied reaktivieren?',`Das gespeicherte Gewicht von ${member.name||member.email} bleibt erhalten. Die effektiven Anteile werden proportional neu berechnet. Bestehende Zahlungen bleiben unverändert.`,()=>onToggle(member,!isActive))}>{isActive?'Deaktivieren':member.status==='ACTIVE'?'Reaktivieren':'Erneut einladen'}</button>}
     {!owner&&<button className="text-button pool-remove-action" onClick={()=>ask('Mitglied entfernen?',`${member.name||member.email} wird aus dem Pool entfernt. Bestehende Zahlungen und Verteilungen bleiben erhalten.`,()=>onRemove(member))}>Entfernen</button>}
    </div>
   </li>

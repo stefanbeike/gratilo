@@ -24,7 +24,7 @@ class PoolWeightsTest {
  @Test void membershipActionsPreserveWeightsAndExposeNewEffectiveShares(){
   var a=member(1,30,true);var b=member(2,70,true);UUID poolId=UUID.randomUUID();a.setPoolId(poolId);b.setPoolId(poolId);
   var p=new PoolEntity();p.setId(poolId);p.setOwnerId(a.getUserId());p.setName("Team");
-  var pools=mock(PoolRepository.class);when(pools.findById(poolId)).thenReturn(Optional.of(p));
+  var pools=mock(PoolRepository.class);when(pools.findByIdForUpdate(poolId)).thenReturn(Optional.of(p));
   var members=mock(PoolMemberRepository.class);var stored=new ArrayList<>(List.of(a,b));when(members.findByPoolId(poolId)).thenAnswer(i->List.copyOf(stored));
   when(members.findById(b.getId())).thenReturn(Optional.of(b));when(members.findByPoolIdAndUserId(poolId,a.getUserId())).thenReturn(Optional.of(a));
   doAnswer(i->{stored.remove(b);return null;}).when(members).deleteById(b.getId());
