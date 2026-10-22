@@ -298,3 +298,208 @@ Abgleich, Gratilo-Vertragstarif, v2-Debitberechtigung, Debit-Zustimmung, Steuer-
 Rundungsregeln, Umgang mit automatischen Payout-Kanälen und Kompensationen.
 Kein Account Debit, neuer Payout-Parameter oder Gebühreneinzugs-Worker wurde
 implementiert oder ausgelöst.
+
+== Ergänzung: Auszahlungsverwaltung und Guthaben im Dashboard
+
+Prüfstand: 21.10.2026, lokaler Commit `87f4e2e`, Branch `main`; Arbeitsverzeichnis
+zu Beginn sauber. Nur Analyse und diese Berichtsergänzung. Keine Payout-Aufrufe,
+Stripe-Konfigurationsänderungen, Datenbankänderungen oder Deployments.
+Der vorherige Release-Lauf 39641533699 war erfolgreich; das ersetzt keinen
+aktuellen Zugriff auf den angemeldeten Mitarbeiter und dessen Stripe-Objekte.
+
+=== Bestätigte Befunde und Grenzen
+
+[cols="1,3",options="header"]
+|===
+|Frage |Nachweis beziehungsweise Ergebnis
+|Manuelle Funktion vorhanden?
+|Backend teilweise vorhanden: authentifizierter `POST /payment-service/payouts`
+mit optionalem `amountMinor`. Im Dashboard ist `Auszahlung verwalten` ausschließlich
+ein Auf-/Zuklappen der Historie. Kein Betragsfeld und kein Payout-Request.
+|Absichtlich im Testmodus begrenzt?
+|Ja. `StripePayoutService` wählt bei `stripe.sandbox-payouts=true` die lokale
+Simulation. `SandboxConfiguration` verhindert bei aktivierten Zahlungen den Start
+mit deaktivierter Simulation. Auch der Deployment-Renderer verlangt Simulation.
+Einfaches Ändern eines Flags ist kein sicherer Freischaltweg.
+|Automatische Stripe-Auszahlungen aktiv?
+|Für das konkrete Konto nicht nachgewiesen. Das lokale Feld
+`ConnectedAccountEntity.payoutScheduleInterval` und dessen SQL-Default `weekly`
+werden nicht aus Stripe Balance Settings synchronisiert. Im untersuchten Code
+existiert weder ein Setter-Aufruf noch ein Balance-Settings-Abgleich. Der lokale
+Wert beweist keinen aktiven wöchentlichen Stripe-Zeitplan. Die fehlende UI ist
+durch den bewusst rein lesenden Dialog erklärt, nicht durch nachgewiesene Automatik.
+|Was bedeutet vollständig aktiv?
+|`StripeStatusCard` wertet frischen gespeicherten Status sowie Karten-, Transfer-
+und Payout-Freigabe aus. `PersonalAccountPanel` leitet sein `ready` aus Testzugang,
+Connected Account und Payout-Freigabe ab. Keiner dieser Ausdrücke prüft verfügbare
+Mittel oder eine aktivierte manuelle Auszahlungsfunktion. `Verbunden und
+auszahlungsbereit` ist deshalb für die aktuelle Funktionslage zu weitgehend.
+|Warum Punkte statt Guthaben?
+|`PersonalAccountPanel` rendert bei `balanceLoading=true` das Zeichen `…`.
+Es gibt im untersuchten Quellcode keine Guthabenverbergung durch drei Punkte
+oder CSS-Maskierung. `Dashboard` setzt diesen Zustand beim Laden und jedem
+Fenster-Fokus. Während einer erneuten Abfrage bleibt der alte Pending-Wert sichtbar,
+während der verfügbare Betrag bereits durch `…` ersetzt wird. Das erklärt das
+gleichzeitige Auftreten beider Anzeigen im Code. Ob die konkret beobachteten
+`•••` dieses Ladezeichen sind, ist ohne DOM-/Netzwerkbeleg nicht abschließend bewiesen.
+|Warum kann der Ladezustand anhalten?
+|Der gemeinsame Frontend-API-Client verwendet `fetch` ohne eigenen Timeout oder
+Abbruchsignal. Erst bei Abschluss/Fehler wird `balanceLoading` zurückgesetzt.
+Mehrere Fokus-Ereignisse können parallele Abfragen auslösen. Kein Request-Zähler
+oder Schutz gegen überholte Antworten vorhanden. Der Stripe-GET im Backend hat
+10 Sekunden Timeout; das begrenzt nicht sämtliche Browser-/Proxy-Wartezeiten.
+Ein dauerhaftes Ladezeichen ist damit ein gesondert zu reproduzierender UI-Fehler,
+kein Beweis für einen verfügbaren Betrag von null.
+|Was sind die 857,72 EUR?
+|Der Datenfluss ist Stripe `GET /v1/balance` mit dem serverseitig zugeordneten
+`Stripe-Account`, Abschnitt `pending`, Währung EUR, nach `pendingMinor`, danach
+Formatierung durch das Frontend. Eine solche Anzeige entspricht 85772 Cent im
+zuletzt erhaltenen Antwortobjekt, nicht einer Summe aus Dashboard-Trinkgeldern.
+Der konkrete Betrag, dessen Aktualität und die zugrunde liegenden Buchungen wurden
+ohne authentifizierten Kontozugriff nicht unabhängig bestätigt. Er kann während
+einer Aktualisierung aus der vorherigen Antwort stammen.
+|Welche Auszahlungen fehlen in der Liste?
+|Die Liste filtert eigene Gratilo-Transaktionen vom Typ Auszahlung. Sie importiert
+nicht sämtliche Stripe-Payouts. `Noch keine Auszahlungen vorhanden` beweist deshalb
+nicht, dass Stripe nie automatisch oder über sein Dashboard ausgezahlt hat.
+|===
+
+=== Pending, available und Zeitpunkt der Freigabe
+
+Stripe trennt noch abzuwickelnde Mittel (`pending`) und verfügbares Guthaben
+(`available`). Ein freigeschaltetes Konto kann ausschließlich Pending-Guthaben
+haben. Eine erfolgreiche Gastzahlung oder ein erfolgreicher source-gebundener
+Pool-Transfer macht Mittel nicht zwangsläufig sofort bankauszahlbar. Ein regulärer
+Payout darf nur verfügbare Mittel nutzen; Instant-Eignung ist separat zu prüfen.
+Der Auszahlungszeitplan steuert nicht die vorgelagerte Settlement-Dauer.
+
+Für die konkrete Erklärung von 857,72 EUR sind ausschließlich lesend erforderlich:
+
+* Eigene authentifizierte Balance-Antwort mit `checkedAt`, `availableMinor` und
+  `pendingMinor`; im Browser-Netzwerkpanel Abschluss oder Fehler prüfen.
+* Im bestätigten Sandbox-Plattformkontext `GET /v1/balance` und
+  `GET /v1/balance_settings` jeweils mit dem richtigen Connected-Account-Kontext.
+  Bei Accounts v2 ist Balance Settings maßgeblich für den Zeitplan.
+* Connected-Account-Balance-Transactions seitenweise lesen und nach EUR,
+  `status`, `available_on`, `source`, Betrag und Gebühren abgleichen. Nicht alle
+  Pending-Mittel zwangsläufig einer einzelnen Poolzahlung zuordnen.
+* Bestehende Payouts lesend prüfen und mit eigener Historie vergleichen.
+  Erst daraus automatische Auszahlungen, ausstehende Bankauszahlungen oder
+  Reservierungen ableiten. Kein Abruf erzeugt oder beschleunigt einen Payout.
+
+Kein Freigabedatum aus dem Kontostatus oder einer pauschalen Wartezeit erfinden.
+Ohne einzelne Balance Transactions kann die aktuelle API-Antwort kein konkretes
+Freigabedatum erklären. Der Bericht bestätigt keine Tarif- oder Kontoeinstellung,
+die nur als lokaler Default vorliegt.
+
+=== Erforderliche spätere Änderungen, noch nicht umgesetzt
+
+. Zuerst A2-Voraussetzungen bestätigen: tatsächlicher Payout-Tarif,
+  Gebührenbelastung, konkrete v2-Debitberechtigung und rechtsverbindliche Zustimmung.
+  Kein hypothetisches 0,35-EUR-Modell als echten Tarif anzeigen.
+. Aktuelle Stripe-Freigabe, Bankziel, Währung, verfügbares Guthaben und tatsächlichen
+  Zeitplan serverseitig lesen. Automatische sowie Express-Dashboard-Auszahlungen
+  bei Reservierung und Kostenweitergabe berücksichtigen. Eine Änderung auf manuell
+  braucht eigene Freigabe; gesetzliche/Stripe-Haltefristen beachten.
+. Persistierten Auszahlungsauftrag mit ablaufender Kostenquote und Einwilligung
+  ergänzen: Brutto-Guthabenverbrauch, Bankbetrag, Payout-Kosten und gegebenenfalls
+  Debitkosten getrennt. Vor Bestätigung verfügbare Mittel erneut prüfen und gegen
+  konkurrierende Aufträge reservieren. Eigener stabiler Client-Idempotenzschlüssel.
+. A2-Kostenausgleich und Bank-Payout als getrennte, idempotente Schritte mit
+  Reconciliation und Kompensation behandeln. Bei unklarer Antwort zuerst bestehende
+  Stripe-Objekte abgleichen. Die heutige zeitbasierte/zufällige Payout-Idempotenz
+  reicht für wiederholte Benutzerrequests nicht aus.
+. Webhooks konto- und payoutbezogen autorisieren: Der derzeitige Direct-Charge-
+  Kontext wird aus Pricing-Metadaten ermittelt, die ein Payout nicht setzt.
+  Deshalb die vorhandenen Payout-Statuszweige nicht als vollständige Connected-
+  Payout-Unterstützung bewerten. Eigene Tests für Kontobindung, Wiederholungen,
+  `paid`, `failed`, `canceled` und Timeout-Abgleich erforderlich.
+. Dialog mit Betrag, verfügbarem Höchstbetrag, ausgewiesenen bestätigten oder
+  geschätzten Kosten, Bankbetrag und expliziter Bestätigung ergänzen. Gebühren-
+  quote und Finanzbeträge ausschließlich serverseitig verbindlich bestimmen.
+  Fehler, Pending und Bankankunft als getrennte Zustände anzeigen.
+
+Der lokale Simulator ist keine wirtschaftliche Abrechnung: Er verwendet primär
+gebuchte lokale Nettotransaktionen abzüglich simulierter Auszahlungen, erst bei
+fehlendem positivem Ledger-Saldo gegebenenfalls Stripe-available. Das kann von der
+heute oben angezeigten echten Stripe-Balance abweichen. Er darf deshalb nicht
+unverändert hinter einem scheinbar echten Auszahlungsdialog freigeschaltet werden.
+
+=== Gebührenzuordnung bei späterem A2
+
+Wenn Stripe Gratilo belastet, reicht ein kleinerer Bank-Payout nicht aus:
+100,00 EUR minus 99,65 EUR Bankbetrag lässt 0,35 EUR beim Mitarbeiter. Erst ein
+unterstützter, tatsächlich bei Gratilo eingehender Kostenersatz gleicht die
+Plattformbelastung aus. Account Debits sind laut Stripe unter Voraussetzungen
+dokumentiert und verursachen eigene Kosten; Unterstützung und Bedingungen der
+konkreten Gratilo-v2-Konten bleiben offen. Bereits automatisch von Stripe dem
+Mitarbeiter belastete Gebühren dürfen nicht noch einmal eingezogen werden.
+
+Die Kostenweitergabe benötigt eigene Payout-/Debitnachweise und getrennte
+Buchungen; die bestehende 5-Prozent-Provision bleibt unverändert. Monatliche
+Connect-Kosten oder später aggregiert abgerechnete Gebühren sind nicht automatisch
+eine exakt vorab bekannte Einzelauszahlungsgebühr. Falls verbindliche Vorabkosten
+nicht verfügbar sind, muss ein vereinbarter Schätz-/Abgleichprozess fachlich
+entschieden werden. Keine Garantie, dass Gratilo keinerlei Restkosten trägt,
+solange Vertragstarif, Steuerbehandlung und Debitkosten unbestätigt sind.
+
+=== Empfohlene Oberfläche ohne auszahlbares Guthaben
+
+* Kontostatus: `Stripe-Konto freigegeben`; separat `Auszahlungen im Testmodus
+  derzeit nur als Historie verfügbar`. Freigabe nicht mit Handlungsmöglichkeit
+  gleichsetzen.
+* Erfolgreich geladene Nullbalance als `Verfügbar: 0,00 EUR`, unbekannte Balance
+  als unbekannt, laufende Abfrage als `Guthaben wird aktualisiert` anzeigen.
+  Bei Aktualisierung vorhandenen Betrag mit Aktualisierungskennzeichen erhalten.
+* Bei ausschließlich Pending: `857,72 EUR werden noch von Stripe verarbeitet.
+  Sobald sie verfügbar sind, können sie ausgezahlt werden.` Den konkreten Betrag
+  nur aus der aktuellen Antwort einsetzen. Kein erfundenes Verfügbarkeitsdatum.
+* Künftigen Start-Button bei available kleiner Mindestnetto deaktivieren und Grund
+  nennen; bei Ladefehler erneut laden anbieten. Während der heutigen reinen
+  Informationsfunktion besser `Auszahlungsverlauf ansehen` beschriften.
+* Im künftigen Dialog Gebühren, Bankbetrag und Guthabenverbrauch getrennt zeigen;
+  bei Pending keine vorgetäuschte Betragsauswahl. Testmodus gut sichtbar belassen.
+
+=== Sichere Tests und Abnahme
+
+Jetzt zulässig: vorhandene lokale Unit-/Komponententests mit Fakes für Kontostatus,
+echte Balance-Datenform, Simulation und ausbleibenden Netzwerk-Payout. Zusätzlicher
+späterer Regressionstest: aktuelle Balance mit available=0 und pending=85772,
+erneutes Laden/Fokus, hängender Request, Fehler und wechselnde Kontoidentität.
+Für den Ladefehler wäre ein abbrechbarer Request mit Zeitlimit, Schutz gegen
+überholte Antworten und verständlicher Statusanzeige vorzubereiten, erst nach
+Implementierungsfreigabe.
+
+Später separat freizugebender Stripe-Sandboxtest: Stripe-Test-Payouts simulieren
+Bankverarbeitung und bewegen keine echten Bankgelder. Sie sind trotzdem externe
+Schreiboperationen und derzeit nicht erlaubt. Dafür wären bestätigter Sandbox-
+Kontokontext, ausschließlich Testschlüssel/Testbankdaten, ein ausdrücklich
+freigegebener dedizierter Testweg und Success-/Failure-/Retry-Webhooks nötig.
+Aktuelle Start- und Deployment-Sperren nicht einfach abschalten. Die rein lokale
+Ledger-Simulation und ein Stripe-Sandbox-Payout sind unterschiedliche Teststufen;
+keine davon beweist reale Bankgebühren oder produktive Settlement-Zeiten.
+
+=== Ergänzende offizielle Quellen
+
+* https://docs.stripe.com/connect/manual-payouts[Manual Payouts: available und Kontokontext]
+* https://docs.stripe.com/connect/manage-payout-schedule[Zeitplan versus Settlement, Accounts v2]
+* https://docs.stripe.com/api/balance-settings/retrieve[Balance Settings ausschließlich lesen]
+* https://docs.stripe.com/api/balance_transactions/object[Balance Transaction: status und available_on]
+* https://docs.stripe.com/connect/testing#payouts[Sandbox-Payouts ohne Bankverarbeitung]
+
+=== Entscheidungspunkt
+
+Erneute lokale Prüfungen für diese Ergänzung: 21 Frontend-Tests in
+`PersonalAccountPanel.test.tsx`, `DashboardAccountViews.test.tsx` und
+`StripeStatusCard.test.tsx` erfolgreich. 17 Backend-Tests in
+`NetSandboxPayoutTest`, `StripeBalanceServiceTest`, `SandboxSecurityTest` und
+`StripeTestAccessTest` erfolgreich; Gradle `BUILD SUCCESSFUL`. Die Stripe-Balance-
+Tests verwenden Fakes; der Simulator-Test erzeugt keine echte DB-/Stripe-Auszahlung.
+`git diff --check` erfolgreich. Ausschließlich diese Berichtsdatei geändert.
+Der erneute AWS-Identitätsabruf mit Profil `gratilo` scheiterte an abgelaufenem
+SSO-Token. Kein neuer Sandbox-Kontokontext, Gebührenvertrag oder konkreter
+Auszahlungszeitplan wurde dadurch bestätigt; keine Stripe-Payout-API aufgerufen.
+
+Keine Auszahlungsimplementierung freigegeben. Zuerst konkrete Gebührenzuordnung
+und A2-Berechtigung mit Stripe bestätigen, aktuellen Kontozustand lesend belegen
+und danach UI-, Auftrag-/Kostenledger- und Webhook-Änderungen separat freigeben.
