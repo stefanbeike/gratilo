@@ -191,3 +191,21 @@ Die SES-Profilvorgabe bleibt unverändert aktiviert. Ihre Konfiguration wird
 weiterhin in `ProductionPaymentTest` und `SmtpConfigurationTest` geprüft;
 Zahlungserfolg, Outbox, Deduplizierung und Versand werden durch die jeweiligen
 Benachrichtigungstests und den isolierten PostgreSQL-Test abgedeckt.
+
+Lokale Prüfung der Korrektur: beide Backend-Testsuiten erfolgreich,
+204 Payment-Service-Tests und 75 User-Service-Tests ohne Fehler oder Skips.
+Frontend in der betroffenen CI-Ausführung bereits erfolgreich: 138 Tests und Build.
+Kein erneuter Pipeline-Start, Push oder Deployment durch diese Korrektur.
+
+== Administrative Registrierungsbenachrichtigung
+
+Nach einer erfolgreich gespeicherten neuen Registrierung erhält `info@gratilo.eu`
+eine separate Nachricht über den bestehenden `EmailSendService` (SES im Profil
+`prd`, MailHog lokal). Auslöser ist ein transaktionales Registrierungsereignis
+mit `AFTER_COMMIT`; abgelehnte oder zurückgerollte Registrierungen erzeugen keine
+Admin-Nachricht. Inhalt: registrierte E-Mail-Adresse und interne Benutzer-ID,
+keine Passwörter oder Bestätigungslinks. Die E-Mail-Verifizierung kann noch ausstehen.
+Dieser Versand hängt nicht vom Schalter für Trinkgeld-Benachrichtigungen ab.
+Ein Versandfehler wird ohne E-Mail-Inhalt protokolliert und macht die Registrierung
+nicht rückgängig. Für diese schlanke Admin-Benachrichtigung besteht keine persistente
+Retry-Outbox. Auf ausdrücklichen Wunsch wurden hierfür keine Tests ergänzt.

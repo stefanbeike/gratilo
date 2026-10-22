@@ -7,6 +7,8 @@ import com.gratilo.user.repository.UserRepository;
 import com.gratilo.user.service.EmailVerificationService;
 import com.gratilo.user.service.PaymentUrlPoolService;
 import com.gratilo.user.service.PoolService;
+import com.gratilo.user.service.RegistrationNotificationService;
+import io.micronaut.context.event.ApplicationEventPublisher;
 import io.micronaut.http.HttpResponse;
 import io.micronaut.http.annotation.Body;
 import io.micronaut.http.annotation.Controller;
@@ -18,6 +20,7 @@ import io.micronaut.security.authentication.Authentication;
 import io.micronaut.security.rules.SecurityRule;
 import io.micronaut.transaction.annotation.Transactional;
 import jakarta.validation.Valid;
+import jakarta.inject.Inject;
 import org.mindrot.jbcrypt.BCrypt;
 
 import java.net.URI;
@@ -29,6 +32,9 @@ public class UserController {
     private final EmailVerificationService emailVerificationService;
     private final PaymentUrlPoolService paymentUrlPoolService;
     private final PoolService poolService;
+
+    @Inject
+    ApplicationEventPublisher<RegistrationNotificationService.Registered> registrationEvents;
 
     public UserController(UserRepository userRepository, EmailVerificationService emailVerificationService, PaymentUrlPoolService paymentUrlPoolService, PoolService poolService) {
         this.userRepository = userRepository; this.emailVerificationService = emailVerificationService; this.paymentUrlPoolService = paymentUrlPoolService; this.poolService = poolService;
@@ -72,6 +78,9 @@ public class UserController {
         UserEntity saved = userRepository.save(user);
         if (paymentUrlPoolService != null) { saved.setPaymentUrlPath(paymentUrlPoolService.assign(saved)); saved = userRepository.update(saved); }
         emailVerificationService.createAndSend(saved);
+        if (registrationEvents != null) {
+            registrationEvents.publishEvent(new RegistrationNotificationService.Registered(saved.getId(), saved.getEmail()));
+        }
         return HttpResponse.created(URI.create("/user-service/users/" + saved.getId()));
     }
 
