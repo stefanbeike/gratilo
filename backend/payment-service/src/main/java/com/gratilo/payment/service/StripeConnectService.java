@@ -8,8 +8,17 @@ import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
 @Singleton
 public class StripeConnectService {
+    public static final String STABLE_VERSION = "2026-09-30.endive";
+    public static final String STRIPE_PRICING_VERSION = "2026-06-24.preview";
+    private final boolean stripePricingEnabled;
     private final String secret, frontendBaseUrl;
-    public StripeConnectService(@Value("${stripe.secret-key:}") String secret, @Value("${frontend.base-url:http://localhost:3000}") String frontendBaseUrl) { requireTestKey(secret); this.secret = secret; this.frontendBaseUrl = frontendBaseUrl; }
+    public StripeConnectService(String secret, String frontendBaseUrl) { this(secret, frontendBaseUrl, false); }
+    @jakarta.inject.Inject
+    public StripeConnectService(@Value("${stripe.secret-key:}") String secret,
+            @Value("${frontend.base-url:http://localhost:3000}") String frontendBaseUrl,
+            @Value("${stripe.connect-stripe-pricing-enabled:false}") boolean stripePricingEnabled) {
+        requireTestKey(secret); this.secret = secret; this.frontendBaseUrl = frontendBaseUrl; this.stripePricingEnabled = stripePricingEnabled;
+    }
     public static void requireTestKey(String key) {
         if (!key.isBlank() && (!key.startsWith("sk_test_") || key.length() <= 8))
             throw new IllegalStateException("Only Stripe test keys are permitted");
@@ -19,7 +28,22 @@ public class StripeConnectService {
         String safeEmail = email == null ? "" : email.replace("\\", "\\\\").replace("\"", "\\\"");
         String profile = businessUrlJson(paymentUrl);
         String json = "{\"contact_email\":\"" + safeEmail + "\",\"display_name\":\"Gratilo-Kellner\",\"dashboard\":\"express\",\"identity\":{\"country\":\"DE\"},\"configuration\":{\"merchant\":{\"capabilities\":{\"card_payments\":{\"requested\":true}}},\"recipient\":{\"capabilities\":{\"stripe_balance\":{\"stripe_transfers\":{\"requested\":true}}}}},\"defaults\":{\"currency\":\"eur\"," + (profile.isEmpty() ? "" : "\"profile\":{" + profile + "},") + "\"responsibilities\":{\"fees_collector\":\"application\",\"losses_collector\":\"application\"}},\"include\":[\"configuration.merchant\",\"configuration.recipient\",\"defaults\",\"identity\",\"requirements\"]}";
-        return jsonCall("https://api.stripe.com/v2/core/accounts", json);
+        if (!stripePricingEnabled) return jsonCall("https://api.stripe.com/v2/core/accounts", json);
+        // Preview is deliberately isolated to creating NEW accounts; never retry using different responsibilities.
+        json = json.replace("\"fees_collector\":\"application\",\"losses_collector\":\"application\"",
+                "\"fees_collector\":\"stripe\",\"losses_collector\":\"stripe\"");
+        try {
+            String response=jsonCall("https://api.stripe.com/v2/core/accounts", json, STRIPE_PRICING_VERSION);
+            var account=io.micronaut.json.JsonMapper.createDefault().readValue(response,java.util.Map.class);
+            var defaults=account.get("defaults") instanceof java.util.Map<?,?> m?m:java.util.Map.of();
+            var responsibilities=defaults.get("responsibilities") instanceof java.util.Map<?,?> m?m:java.util.Map.of();
+            if(!"express".equals(account.get("dashboard"))||!"v2.core.account".equals(account.get("object"))
+                    ||!Boolean.FALSE.equals(account.get("livemode"))||!(account.get("id") instanceof String id)||!id.matches("acct_[A-Za-z0-9]+")
+                    ||!"stripe".equals(responsibilities.get("fees_collector"))||!"stripe".equals(responsibilities.get("losses_collector")))
+                throw new IllegalStateException("Unexpected Connect pricing response");
+            return response;
+        }
+        catch (Exception rejected) { throw new IllegalStateException("Stripe-Express-Onboarding mit Stripe-Gebührenmodell konnte nicht bestätigt werden. Preview-Berechtigung und Konfiguration prüfen; es wird kein anderes Gebührenmodell angelegt."); }
     }
     public String paymentUrl(String userId) { return frontendBaseUrl.replaceAll("/$", "") + "/pay/" + userId; }
     public void ensureBusinessWebsite(String accountId, String paymentUrl) throws Exception {
@@ -68,10 +92,33 @@ public class StripeConnectService {
         return "/v2/core/accounts/" + enc(accountId)
                 + "?include%5B0%5D=configuration.merchant&include%5B1%5D=configuration.recipient&include%5B2%5D=requirements&include%5B3%5D=defaults";
     }
-    protected String call(String url, String form) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30)).header("Authorization", "Bearer "+secret).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form)).build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned "+response.statusCode()); return response.body(); }
-    protected String jsonCall(String url, String json) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30)).header("Authorization", "Bearer " + secret).header("Stripe-Version", "2026-09-30.endive").header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json)).build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned " + response.statusCode() ); return response.body(); }
+    protected String call(String url, String form) throws Exception {
+        if (secret.isBlank()) return null;
+        return request(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + secret).header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(form)).build());
+    }
+    protected String jsonCall(String url, String json) throws Exception { return jsonCall(url, json, STABLE_VERSION); }
+    protected String jsonCall(String url, String json, String version) throws Exception {
+        if (secret.isBlank()) return null;
+        if (!STABLE_VERSION.equals(version) && !(STRIPE_PRICING_VERSION.equals(version) && url.equals("https://api.stripe.com/v2/core/accounts")))
+            throw new IllegalArgumentException("Unsupported Connect request version");
+        return request(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + secret).header("Stripe-Version", version).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json)).build());
+    }
+    /** Test seam: all tests replace this transport, never contact Stripe. */
+    protected String request(HttpRequest request) throws Exception {
+        var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned HTTP " + response.statusCode());
+        return response.body();
+    }
     public static String field(String json, String name) { var m=Pattern.compile("\\\""+name+"\\\"\\s*:\\s*\\\"([^\\\"]+)").matcher(json == null ? "" : json); return m.find()?m.group(1):null; }
     private static String enc(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }
-    protected String get(String url) throws Exception { if (secret.isBlank()) return null; var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30)).header("Authorization", "Bearer "+secret).header("Stripe-Version", "2026-09-30.endive").GET().build(), HttpResponse.BodyHandlers.ofString()); if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned "+response.statusCode()); return response.body(); }
+    protected String get(String url) throws Exception {
+        if (secret.isBlank()) return null;
+        return request(HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + secret).header("Stripe-Version", STABLE_VERSION).GET().build());
+    }
     public static boolean booleanField(String json, String name) { var m=Pattern.compile("\\\""+name+"\\\"\\s*:\\s*(true|false)").matcher(json == null ? "" : json); return m.find() && Boolean.parseBoolean(m.group(1)); }
 }

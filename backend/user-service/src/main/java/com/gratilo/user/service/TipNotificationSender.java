@@ -62,7 +62,8 @@ public class TipNotificationSender {
             "Geschätzte Stripe-Zahlungsgebühren: "+money(n.estimatedStripeFeeMinor())+"\n"+
             (n.feeCovered()?"Der Gast übernimmt die geschätzten Stripe-Gebühren zusätzlich.\n":"Die geschätzten Stripe-Gebühren sind im Empfängerbetrag bereits abgezogen.\n")+
             (n.pool()?"Verteilbarer Team-Betrag: "+money(n.recipientTotalMinor())+"\n":"")+
-            "Dein zugeordneter Anteil: "+money(n.personalAmountMinor())+"\n\n"+
+            (n.pricingVersion()==8?"Dein voraussichtlicher Nettoanteil: ":"Dein zugeordneter Anteil: ")+money(n.personalAmountMinor())+"\n\n"+
+            (n.pricingVersion()==8?"Stripe zieht die tatsächlichen Zahlungsgebühren auf deinem Konto ein. Dein Nettoanteil kann von dieser Schätzung abweichen.\n":"")+
             (n.pool()?"Die Pool-Verteilung wird separat verarbeitet. Diese Nachricht bestätigt keinen erfolgreichen Transfer.\n":"")+
             "Dies ist keine Bestätigung einer Bankauszahlung. Den aktuellen Status findest du in Gratilo.\n"+
             base.replaceAll("/$","")+"/account\n\nDein Gratilo-Team";

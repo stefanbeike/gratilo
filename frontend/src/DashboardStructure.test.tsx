@@ -5,9 +5,10 @@ vi.mock('./features',()=>({useTipPoolsEnabled:()=>true}))
 import { Dashboard } from './Dashboard'
 const session={userId:'member',email:'member@example.test',accessToken:'token'}
 afterEach(()=>{cleanup();vi.unstubAllGlobals();window.history.replaceState({},'','/account')})
-function mount({team=true,admin=false,reason='STRIPE_INSUFFICIENT_FUNDS',status='PENDING',failure=false,pricingVersion}:{team?:boolean;admin?:boolean;reason?:string;status?:string;failure?:boolean;pricingVersion?:number}={}){
+function mount({team=true,admin=false,reason='STRIPE_INSUFFICIENT_FUNDS',status='PENDING',failure=false,pricingVersion,actualFees}:{team?:boolean;admin?:boolean;reason?:string;status?:string;failure?:boolean;pricingVersion?:number;actualFees?:{actualRecipientAmountMinor:number;actualFeeMinor:number}}={}){
  const calls=vi.fn(async(url:string)=>{if(failure&&url==='/payment-service/pool-transfers')throw Error('offline');return {ok:true,json:async()=>{
   if(url==='/payment-service/transactions')return [{id:'personal',amountMinor:2500,recipientAmountMinor:pricingVersion?(pricingVersion===4?2226:2271):2396,type:'TIP',status:'BOOKED',createdAt:new Date().toISOString(),metadata:pricingVersion?JSON.stringify({pricingVersion,platformFeeMinor:pricingVersion===4?170:125,estimatedStripeFeeMinor:104,feeCovered:false}):undefined}]
+  if(url==='/payment-service/transactions/personal/fees')return actualFees || {}
   if(url==='/payment-service/pool-transfers')return [{id:'allocation',transactionId:'payment',poolId:'team',poolName:'Team Sonnenseite',amountMinor:1198,reversedAmountMinor:0,status,settlementReason:reason,createdAt:new Date().toISOString(),historicalSharePercent:50,poolDistributionAmountMinor:2396,selectedTipAmountMinor:2500,personalGrossAmountMinor:1250,personalFeeAmountMinor:52,guestPaymentStatus:'BOOKED'}]
   if(url==='/user-service/pools')return admin?{id:'owned-team',name:'Eigenes Team',ownerId:'member',profileImage:'https://example.test/saved-team.jpg',members:[{id:'owner-member',userId:'member',active:true,status:'ACTIVE',sharePercent:100,effectiveSharePercent:100}]}:null
   if(url==='/user-service/pools/memberships')return team?[{id:'team',name:'Team Sonnenseite',ownerId:'owner',members:[{id:'membership',userId:'member',active:true,status:'ACTIVE',sharePercent:50,effectiveSharePercent:50}]}]:[]
@@ -55,3 +56,16 @@ it.each([4,6])('shows the stored personal commission for pricing version %s with
  const net=within(dialog).getByText('Persönlich zugeordneter Nettobetrag');
  expect(net.nextElementSibling).toHaveTextContent(pricingVersion===4?'22,26':'22,71');
 })
+
+for(const known of [false,true]) it(`distinguishes Stripe-collector projected net from confirmed fees, known=${known}`,async()=>{
+ mount({team:false,pricingVersion:8,actualFees:known?{actualRecipientAmountMinor:2261,actualFeeMinor:114}:undefined});
+ fireEvent.click(await screen.findByRole('button',{name:'Transaktion personal ansehen'}));
+ const dialog=screen.getByRole('dialog');
+ if(known){
+  expect(within(dialog).getByText('Tatsächliche Stripe-Zahlungsgebühren').nextElementSibling).toHaveTextContent('1,14');
+  expect(within(dialog).getByText('Persönlich zugeordneter Nettobetrag').nextElementSibling).toHaveTextContent('22,61');
+ }else{
+  expect(within(dialog).getByText('Voraussichtlicher persönlicher Nettobetrag').nextElementSibling).toHaveTextContent('22,71');
+  expect(within(dialog).getByText(/Stripe zieht die tatsächlichen Zahlungsgebühren auf deinem Konto ein/)).toBeInTheDocument();
+ }
+});

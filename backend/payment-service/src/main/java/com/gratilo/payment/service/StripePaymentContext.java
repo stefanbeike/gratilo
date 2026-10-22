@@ -14,7 +14,7 @@ public final class StripePaymentContext {
                 if (TipPricingSnapshot.isDirectVersion(TipPricingSnapshot.from(tx).version())) throw new IllegalStateException("Missing direct account context");
                 return null;
             }
-            if (!TipPricingSnapshot.isDirectVersion(TipPricingSnapshot.from(tx).version()) || !"application".equals(metadata.get("feesCollector"))
+            if (!TipPricingSnapshot.isDirectVersion(TipPricingSnapshot.from(tx).version()) || !(TipPricingSnapshot.from(tx).version()==8?"stripe":"application").equals(metadata.get("feesCollector"))
                     || !(metadata.get("stripeAccountId") instanceof String id) || !id.matches("acct_[A-Za-z0-9]+"))
                 throw new IllegalStateException("Invalid direct account context");
             return id;

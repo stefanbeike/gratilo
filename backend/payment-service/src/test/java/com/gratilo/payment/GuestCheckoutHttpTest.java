@@ -89,7 +89,9 @@ class GuestCheckoutHttpTest {
     }
 
     @Test void unusableNetQuoteHasAnActionableBadRequestInsteadOfAGatewayError()throws Exception{
-        var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("99"),25,null);
+        var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("99"),25,null) {
+            @Override public com.gratilo.payment.api.TipQuote quote(UUID recipient,long amount,boolean covered) { return quote(amount,covered); }
+        };
         var props=new HashMap<String,Object>();props.put("payments.enabled",true);props.put("stripe.fee-percent","99");props.put("stripe.secret-key","sk_test_fixture");props.put("stripe.webhook-secret","whsec_fixture");props.put("micronaut.server.port",-1);
         props.put("datasources.default.enabled",false);props.put("jpa.default.enabled",false);props.put("liquibase.enabled",false);props.put("liquibase.datasources.default.enabled",false);
         try(var context=ApplicationContext.builder().properties(props).environments("test").build()){
@@ -102,6 +104,7 @@ class GuestCheckoutHttpTest {
     @Test void anonymousGuestCanUseCheckoutWithoutCustomerRegistrationOutsideTheAwsTestGate() throws Exception {
         var service = new StripeCheckoutService(null, null, null, "sk_test_fixture", "http://localhost/success", "http://localhost/cancel", new java.math.BigDecimal("1.5"), 25, null) {
             @Override public boolean canReceiveTips(UUID user) { return true; }
+            @Override public com.gratilo.payment.api.TipQuote quote(UUID recipient,long amount,boolean covered) { return quote(amount,covered); }
             @Override public Optional<CheckoutResponse> create(UUID user, TipPaymentRequest request) {
                 return Optional.of(new CheckoutResponse("https://checkout.stripe.com/test", UUID.randomUUID().toString(), false));
             }

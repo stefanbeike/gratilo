@@ -27,8 +27,8 @@ public class TipController {
         return HttpResponse.ok(java.util.Map.of("canReceiveTips", checkoutService.canReceivePoolTips(ownerUserId)))
                 .header("Cache-Control", "no-store");
     }
-    @Get("/{recipientUserId}/quote") public TipQuote quote(UUID recipientUserId, @QueryValue @jakarta.validation.constraints.Min(100) @jakarta.validation.constraints.Max(1000000) long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) {
-        return checkoutService==null?TipPricing.quote(amountMinor,feeCovered,feePercent,fixedFeeMinor):checkoutService.quote(amountMinor,feeCovered);
+    @Get("/{recipientUserId}/quote") public TipQuote quote(UUID recipientUserId, @QueryValue @jakarta.validation.constraints.Min(100) @jakarta.validation.constraints.Max(1000000) long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) throws Exception {
+        return checkoutService==null?TipPricing.quote(amountMinor,feeCovered,feePercent,fixedFeeMinor):checkoutService.quote(recipientUserId,amountMinor,feeCovered);
     }
     @Get("/pools/{ownerUserId}/quote") public TipQuote poolQuote(UUID ownerUserId, @QueryValue @jakarta.validation.constraints.Min(100) @jakarta.validation.constraints.Max(1000000) long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) {
         if(checkoutService==null)new com.gratilo.payment.service.PoolPaymentLimits(200,50000).validate(amountMinor);

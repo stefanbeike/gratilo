@@ -51,6 +51,15 @@ public final class TipPricing {
     public static TipQuote poolQuote(long tip, boolean covered, BigDecimal percent, long fixed, BigDecimal platformPercent) {
         return calculate(tip, covered, percent, fixed, platformPercent, 0, 7);
     }
+    /** Connected account pays Stripe directly; Application Fee is ONLY the platform commission. */
+    public static TipQuote directStripeQuote(long tip,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent) {
+        var base = calculate(tip,covered,percent,fixed,platformPercent,0,8);
+        long forecast = Math.subtractExact(Math.subtractExact(base.totalAmountMinor(),base.platformFeeMinor()),base.estimatedStripeFeeMinor());
+        if (forecast < MIN_RECIPIENT_MINOR) throw new NoDistributableTipException();
+        return new TipQuote(tip,base.serviceFeeMinor(),base.totalAmountMinor(),"EUR",percent,fixed,forecast,true,
+                base.estimatedStripeFeeMinor(),"Tarifschätzung: Zahlungsmethode, Kartenherkunft, Kartentyp und Währungsumrechnung können die Istkosten verändern. Stripe zieht seine tatsächlichen Gebühren beim Empfänger ein; dessen Nettoanteil kann abweichen.",
+                8,platformPercent,base.platformFeeMinor(),"stripe",true);
+    }
     public static long platformFee(long tipMinor,BigDecimal percent){
         if(tipMinor<100||tipMinor>1_000_000||percent==null||percent.signum()<0||percent.compareTo(BigDecimal.valueOf(100))>=0)throw new IllegalArgumentException("Invalid platform fee configuration");
         return BigDecimal.valueOf(tipMinor).multiply(percent).movePointLeft(2).setScale(0,RoundingMode.HALF_UP).longValueExact();

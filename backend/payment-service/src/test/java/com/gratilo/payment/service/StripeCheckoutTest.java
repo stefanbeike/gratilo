@@ -11,6 +11,60 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StripeCheckoutTest {
+    @Test void unknownCollectorCannotReceiveTheApplicationCollectorPricingOrCreateASession() throws Exception {
+        for (boolean covered : new boolean[]{false, true}) {
+            var fixture = new StripeCheckoutTest();
+            fixture.stripeResponse = StripeAccountFixtures.changed("defaults.responsibilities", Map.of(
+                    "fees_collector", "unknown", "losses_collector", "stripe"), false);
+            var service = fixture.service(new java.math.BigDecimal("3.15"));
+            assertFalse(service.canReceiveTips(fixture.recipient));
+            assertThrows(StripeCheckoutService.RecipientNotReadyException.class, () -> service.create(
+                    fixture.recipient, new TipPaymentRequest(1000L, null, "stripe-collector", covered)));
+            assertNull(fixture.stored);
+            assertNull(fixture.savedQuote);
+            assertEquals(0, fixture.creates);
+        }
+    }
+
+    @Test void stripeCollectorDirectChargeUsesOnlyFivePercentWithBothCoverageChoices() throws Exception {
+        for(long tip:new long[]{1000,2500,10000})for(boolean covered:new boolean[]{false,true}) {
+            var f = new StripeCheckoutTest();
+            f.stripeResponse = StripeAccountFixtures.changed("defaults.responsibilities",Map.of("fees_collector","stripe","losses_collector","stripe"),false);
+            var service=f.service(new java.math.BigDecimal("3.15"));
+            var quoted=service.quote(f.recipient,tip,covered);
+            service.create(f.recipient,new TipPaymentRequest(tip,"Danke","stripe-model",covered));
+            assertEquals(8,f.savedQuote.pricingVersion());assertEquals(quoted,f.savedQuote);
+            assertEquals(tip*5/100,quoted.platformFeeMinor());
+            assertEquals("acct_fixture",f.requestAccount);
+            assertTrue(f.form.contains("payment_intent_data[application_fee_amount]="+quoted.platformFeeMinor()+"&"));
+            assertFalse(f.form.contains("transfer_data"));
+            var snapshot=TipPricingSnapshot.from(f.stored);
+            assertEquals(quoted.platformFeeMinor(),snapshot.applicationFeeMinor());
+            assertEquals("stripe",quoted.feesCollector());assertTrue(quoted.recipientAmountEstimated());
+            assertEquals(quoted.totalAmountMinor()-quoted.platformFeeMinor()-quoted.estimatedStripeFeeMinor(),quoted.recipientAmountMinor());
+            assertEquals("acct_fixture",StripePaymentContext.account(f.stored));
+            var frozen=f.stored.getMetadata();
+            service.create(f.recipient,new TipPaymentRequest(tip,"Danke","stripe-model",covered));
+            assertEquals(1,f.creates);assertEquals(frozen,f.stored.getMetadata());
+        }
+    }
+
+    @Test void frozenSessionResumesWithoutUsingTodaysAccountOrChangingItsFeeAgreement() throws Exception {
+        var service = service(new java.math.BigDecimal("3.15"));
+        var request = new TipPaymentRequest(1000L, null, "frozen-collector", false);
+        service.create(recipient, request);
+        var frozen = stored.getMetadata();
+        int accountReads = reads;
+        stripeResponse = StripeAccountFixtures.changed("defaults.responsibilities.fees_collector", "stripe", false);
+        var resumed = service.create(recipient, request).orElseThrow();
+        assertEquals(50, resumed.quote().platformFeeMinor());
+        assertEquals(893, resumed.quote().recipientAmountMinor());
+        assertEquals("acct_fixture", requestAccount);
+        assertEquals(frozen, stored.getMetadata());
+        assertEquals(accountReads, reads);
+        assertEquals(1, creates);
+    }
+
     private final UUID recipient = UUID.randomUUID();
     private TransactionEntity stored;
     private String form, stripeKey, requestAccount;

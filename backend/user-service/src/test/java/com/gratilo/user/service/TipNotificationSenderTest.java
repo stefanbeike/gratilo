@@ -8,6 +8,14 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 class TipNotificationSenderTest {
+    @Test void stripeCollectorNotificationLabelsNetAsForecastAndNeverPromisesFixedProceeds(){
+        var tx=UUID.randomUUID();var user=UUID.randomUUID();
+        var n=new TipNotification(TipNotification.key(tx,user),tx,user,null,1,8,1000,50,58,true,950,950,false);
+        String text=TipNotificationSender.body(n,"https://gratilo.eu");
+        assertTrue(text.contains("voraussichtlicher Nettoanteil: 9,50"));
+        assertTrue(text.contains("tatsächlichen Zahlungsgebühren auf deinem Konto"));
+        assertFalse(text.contains("Dein zugeordneter Anteil"));
+    }
     public static class SMTPSendFailedException extends jakarta.mail.SendFailedException {
         private final int code;
         public SMTPSendFailedException(int code){this.code=code;}

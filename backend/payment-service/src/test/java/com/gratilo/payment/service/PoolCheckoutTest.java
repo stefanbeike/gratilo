@@ -9,6 +9,11 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PoolCheckoutTest {
+    @Test void memberFeeCollectorNeverChangesThePlatformPoolChargeOrItsSingleCommission() throws Exception {
+        // A pool charge is always platform-scoped, even for a stripe-fee-collector recipient.
+        for (boolean covered : new boolean[]{false, true})
+            assertPoolCharge(covered, 2500, new java.math.BigDecimal("3.15"), List.of(50.0, 50.0), "stripe");
+    }
     @Test void poolLimitsAreInclusiveAndApplyBeforeTheGuestSurcharge()throws Exception {
         for(long amount:new long[]{200,201,50000})for(boolean covered:new boolean[]{true,false})
             assertPoolCharge(covered,amount,new java.math.BigDecimal("3.15"));
@@ -64,6 +69,9 @@ class PoolCheckoutTest {
         assertPoolCharge(covered,tip,rate,List.of(50.0,50.0));
     }
     private void assertPoolCharge(boolean covered,long tip,java.math.BigDecimal rate,List<Double> distribution) throws Exception {
+        assertPoolCharge(covered,tip,rate,distribution,"application");
+    }
+    private void assertPoolCharge(boolean covered,long tip,java.math.BigDecimal rate,List<Double> distribution,String feeCollector) throws Exception {
         var expected=TipPricing.poolQuote(tip,covered,rate,25,TipPricing.DEFAULT_PLATFORM_PERCENT);
         UUID owner = UUID.randomUUID(), first = new UUID(0,1), second = new UUID(0,2), third = new UUID(0,3);
         var members=new ArrayList<PoolDistributionClient.Member>();
@@ -77,7 +85,10 @@ class PoolCheckoutTest {
         };
         var accounts = accountRepository(Map.of(first, "acct_first", second, "acct_second",third,"acct_third"));
         var connect = new StripeConnectService("sk_test_fixture", "https://gratilo.test") {
-            @Override public String retrieveAccount(String id) { return StripeAccountFixtures.readyJson().replace("acct_fixture", id); }
+            @Override public String retrieveAccount(String id) {
+                return StripeAccountFixtures.changed("defaults.responsibilities",Map.of("fees_collector",feeCollector,"losses_collector",feeCollector),false)
+                        .replace("acct_fixture", id);
+            }
         };
         var recipients = new RecipientAvailability("http://localhost") { @Override public void requireEnabled(UUID userId) {} @Override public void requirePoolMemberEnabled(UUID userId) {} };
         var stored = new java.util.concurrent.atomic.AtomicReference<TransactionEntity>();
@@ -106,6 +117,10 @@ class PoolCheckoutTest {
         var service = new StripeCheckoutService(transactionRepo, accounts, connect, "sk_test_fixture",
                 "https://gratilo.test/pay/success?session_id={CHECKOUT_SESSION_ID}", "https://gratilo.test/pay/cancelled",
                 rate, 25, recipients, poolClient, transferRepo, feeAudit) {
+            @Override protected String stripeRequest(String path, String form, String key, String account) {
+                assertNull(account, "Pool charges must never use a Connected Account header");
+                return stripeRequest(path,form,key);
+            }
             @Override protected String stripeRequest(String path, String form, String key) {
                 calls.add(path + " " + Objects.toString(form, ""));
                 return "{\"livemode\":false,\"id\":\"cs_test_pool\",\"url\":\"https://checkout.stripe.com/test\"}";

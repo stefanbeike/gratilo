@@ -13,6 +13,28 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ConnectOnboardingTest {
+    @Test void retainsExistingExpressResponsibilitiesWhileRequestedStripeCombinationIsUnconfirmed() throws Exception {
+        // API reference documents account_controller_express_dash_without_application_losses_or_fees.
+        // Do not silently switch production creation until Stripe resolves that restriction for our API version.
+        var requests = new ArrayList<String>();
+        var stripe = new StripeConnectService("sk_test_fixture", "http://localhost:3000") {
+            @Override protected String jsonCall(String url, String json) {
+                assertEquals("https://api.stripe.com/v2/core/accounts", url);
+                requests.add(json);
+                return "{}";
+            }
+            @Override protected String call(String url, String body) {
+                throw new AssertionError("No other Stripe operation is expected");
+            }
+        };
+        stripe.createAccount("fixture@example.test", "http://localhost:3000/pay/fixture");
+        assertEquals(1, requests.size());
+        var body = JsonMapper.createDefault().readValue(requests.getFirst(), Map.class);
+        assertEquals("express", body.get("dashboard"));
+        var defaults = (Map<?, ?>) body.get("defaults");
+        assertEquals(Map.of("fees_collector", "application", "losses_collector", "application"), defaults.get("responsibilities"));
+    }
+
     @Test void localSandboxOnboardingReturnsToLocalFrontendWithoutPublishingLocalBusinessUrl() throws Exception {
         var form = new AtomicReference<String>();
         var accountBody = new AtomicReference<String>();

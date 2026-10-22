@@ -52,6 +52,7 @@ internal:
 stripe:
   test-only: true
   demo-enabled: false
+  connect-stripe-pricing-enabled: ${STRIPE_CONNECT_STRIPE_PRICING_ENABLED:false}
   sandbox-payouts: true
   secret-key: ${STRIPE_SECRET_KEY:}
   webhook-secret: ${STRIPE_WEBHOOK_SECRET:}

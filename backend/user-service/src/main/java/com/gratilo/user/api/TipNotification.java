@@ -10,10 +10,10 @@ public record TipNotification(String notificationKey, UUID transactionId, UUID r
         long platformFeeMinor, long estimatedStripeFeeMinor, boolean feeCovered,
         long recipientTotalMinor, long personalAmountMinor, boolean pool) {
     public void validate(){
-        if(transactionId==null||recipientUserId==null||templateVersion!=1||pricingVersion<1||pricingVersion>7
+        if(transactionId==null||recipientUserId==null||templateVersion!=1||pricingVersion<1||pricingVersion>8
             ||!key(transactionId,recipientUserId).equals(notificationKey)||pool!=(allocationId!=null)
             ||tipAmountMinor<=0||tipAmountMinor>1_000_000||platformFeeMinor<0||estimatedStripeFeeMinor<0
-            ||recipientTotalMinor<=0||recipientTotalMinor>tipAmountMinor||personalAmountMinor<=0
+            ||recipientTotalMinor<=0||recipientTotalMinor>tipAmountMinor+(pricingVersion==8?estimatedStripeFeeMinor:0)||personalAmountMinor<=0
             ||personalAmountMinor>recipientTotalMinor||(!pool&&personalAmountMinor!=recipientTotalMinor))
             throw new IllegalArgumentException("Invalid tip notification snapshot");
     }

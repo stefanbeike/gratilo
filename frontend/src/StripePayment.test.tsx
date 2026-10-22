@@ -274,7 +274,7 @@ it('shows the actionable net-minimum error without allowing checkout', async () 
   expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(false)
 })
 
-for (const pool of [false, true]) for (const covered of [false, true]) it(`shows separate commission and frozen net for ${pool ? 'pool' : 'direct'} with coverage=${covered}`, async () => {
+for (const [pool,collector] of [[false,'application'],[false,'stripe'],[true,'application']] as const) for (const covered of [false, true]) it(`shows separate commission and frozen net for ${pool ? 'pool' : 'direct'} collector=${collector} with coverage=${covered}`, async () => {
   history.replaceState({}, '', `/pay/${pool ? 'team/' : ''}${user}`)
   let selectedCoverage = false
   const fetch = vi.fn(async (url: string, options?: RequestInit) => {
@@ -285,7 +285,7 @@ for (const pool of [false, true]) for (const covered of [false, true]) it(`shows
       selectedCoverage = new URLSearchParams(url.split('?')[1]).get('feeCovered') === 'true'
       return response({ tipAmountMinor: 2500, serviceFeeMinor: selectedCoverage ? 107 : 0, totalAmountMinor: selectedCoverage ? 2607 : 2500,
         recipientAmountMinor: 2500 - 125 - (selectedCoverage ? 0 : 104), platformFeeMinor: 125,
-        platformFeePercent: 5, pricingVersion: pool ? 7 : 6, estimatedStripeFeeMinor: selectedCoverage ? 107 : 104 })
+        platformFeePercent: 5, pricingVersion: pool ? 7 : collector==='stripe' ? 8 : 6, feesCollector:collector, recipientAmountEstimated:collector==='stripe', estimatedStripeFeeMinor: selectedCoverage ? 107 : 104 })
     }
     return response({ transactionId: 'fake' })
   })
@@ -297,8 +297,16 @@ for (const pool of [false, true]) for (const covered of [false, true]) it(`shows
   if (covered) fireEvent.click(screen.getByRole('checkbox', { name: 'Zahlungsgebühren freiwillig übernehmen' }))
   await waitFor(() => expect(selectedCoverage).toBe(covered))
   expect(await screen.findByText(/Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags/)).toBeInTheDocument()
+  expect(screen.getByText(/Die Gebührenübernahme ist eine Schätzung/)).toBeInTheDocument()
+  if(collector==='stripe') {
+    expect(screen.getByText(/Stripe zieht seine tatsächlichen Gebühren direkt beim Empfänger ein/)).toBeInTheDocument()
+    expect(screen.queryByText(/Mehrkosten trägt Gratilo/)).not.toBeInTheDocument()
+    expect(screen.getByText('Voraussichtlicher Nettobetrag für den Empfänger')).toBeInTheDocument()
+  }
+  expect(screen.getByText(/Spätere Connect- und Bankauszahlungskosten sind nicht in der Stripe-Kostenschätzung enthalten/)).toBeInTheDocument()
   expect(screen.queryByText(/Keine Gratilo-Plattformgebühr/)).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: /Weiter zur Zusammenfassung/ }))
+  expect(screen.getByText(/Die Zahlungsgebühren und der angezeigte Nettobetrag beruhen auf einer Schätzung/)).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: /Jetzt sicher bezahlen/ }))
   await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(true))
   const sent = fetch.mock.calls.find(([url]) => url.includes('/checkout'))

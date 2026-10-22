@@ -96,7 +96,8 @@ class DirectPricingTest {
         for(String path:List.of("configuration.recipient.capabilities.stripe_balance.payouts.status","configuration.recipient.capabilities.stripe_balance.stripe_transfers.status"))
             assertTrue(StripeAccountStatus.directReady("acct_fixture",StripeAccountFixtures.changed(path,"pending",false)));
         assertFalse(StripeAccountStatus.directReady("acct_fixture",StripeAccountFixtures.changed("defaults",null,true)));
-        assertFalse(StripeAccountStatus.directReady("acct_fixture",StripeAccountFixtures.changed("defaults.responsibilities.fees_collector","stripe",false)));
+        assertTrue(StripeAccountStatus.directReady("acct_fixture",StripeAccountFixtures.changed("defaults.responsibilities.fees_collector","stripe",false)));
+        assertFalse(StripeAccountStatus.directReady("acct_fixture",StripeAccountFixtures.changed("defaults.responsibilities.fees_collector","unknown",false)));
         assertFalse(StripeAccountStatus.directReady("acct_fixture",StripeAccountFixtures.changed("configuration.merchant.capabilities.card_payments.status","pending",false)));
     }
 }

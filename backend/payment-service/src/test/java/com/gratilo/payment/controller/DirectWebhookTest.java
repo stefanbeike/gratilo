@@ -13,10 +13,11 @@ import static org.junit.jupiter.api.Assertions.*;
 class DirectWebhookTest {
     private final TransactionEntity tx=new TransactionEntity();
     private int updates;
-    private StripeWebhookController processor()throws Exception {
+    private StripeWebhookController processor()throws Exception {return processor(false);}
+    private StripeWebhookController processor(boolean stripeCollector)throws Exception {
         tx.setId(UUID.randomUUID());tx.setType(TransactionType.TIP);tx.setProvider("STRIPE");tx.setAmountMinor(2500);tx.setStatus(TransactionStatus.PENDING);
-        var meta=TipPricingSnapshot.metadata(TipPricing.quote(2500,true,new BigDecimal("3.15"),25),true);
-        meta.put("chargeModel","DIRECT");meta.put("stripeAccountId","acct_frozen");meta.put("feesCollector","application");
+        var meta=TipPricingSnapshot.metadata(stripeCollector?TipPricing.directStripeQuote(2500,true,new BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT):TipPricing.quote(2500,true,new BigDecimal("3.15"),25),true);
+        meta.put("chargeModel","DIRECT");meta.put("stripeAccountId","acct_frozen");meta.put("feesCollector",stripeCollector?"stripe":"application");
         tx.setMetadata(JsonMapper.createDefault().writeValueAsString(meta));
         var repo=(TransactionRepository)Proxy.newProxyInstance(getClass().getClassLoader(),new Class[]{TransactionRepository.class},(p,m,a)->switch(m.getName()){
             case "findById"->Optional.of(tx);case "update"->{updates++;yield a[0];}default->Optional.empty();});
@@ -29,7 +30,10 @@ class DirectWebhookTest {
         return JsonMapper.createDefault().writeValueAsString(body);
     }
     @Test void onlyMatchingConnectedScopeMayBookDirectChargeAndDuplicatesAreHarmless()throws Exception {
-        var p=processor();p.processVerified(event("payment_intent.succeeded","acct_other",null),true);assertEquals(0,updates);
+        for(boolean collector:new boolean[]{false,true}) new DirectWebhookTest().onlyMatchingConnectedScopeMayBookDirectChargeAndDuplicatesAreHarmlessForCollector(collector);
+    }
+    private void onlyMatchingConnectedScopeMayBookDirectChargeAndDuplicatesAreHarmlessForCollector(boolean stripeCollector)throws Exception {
+        var p=processor(stripeCollector);p.processVerified(event("payment_intent.succeeded","acct_other",null),true);assertEquals(0,updates);
         p.processVerified(event("payment_intent.succeeded",null,null),false);assertEquals(0,updates);
         p.processVerified(event("payment_intent.succeeded","acct_frozen",null),false);assertEquals(0,updates);
         p.processVerified(event("payment_intent.succeeded","acct_frozen",null),true);assertEquals(TransactionStatus.BOOKED,tx.getStatus());assertEquals(1,updates);
@@ -42,13 +46,19 @@ class DirectWebhookTest {
         p.processVerified(event("payment_intent.succeeded","acct_frozen",null).replace("\"livemode\":false","\"livemode\":true"),true);assertEquals(0,updates);
     }
     @Test void disputeStatesWorkInFrozenScopeAndLaterSuccessDoesNotRestoreLostDispute()throws Exception {
-        var p=processor();p.processVerified(event("payment_intent.succeeded","acct_frozen",null),true);
+        for(boolean collector:new boolean[]{false,true}) new DirectWebhookTest().disputeStatesWorkInFrozenScopeAndLaterSuccessDoesNotRestoreLostDisputeForCollector(collector);
+    }
+    private void disputeStatesWorkInFrozenScopeAndLaterSuccessDoesNotRestoreLostDisputeForCollector(boolean stripeCollector)throws Exception {
+        var p=processor(stripeCollector);p.processVerified(event("payment_intent.succeeded","acct_frozen",null),true);
         p.processVerified(event("charge.dispute.created","acct_frozen",null),true);assertEquals(TransactionStatus.DISPUTED,tx.getStatus());
         p.processVerified(event("charge.dispute.closed","acct_frozen","lost"),true);assertEquals(TransactionStatus.CHARGEBACK,tx.getStatus());
         p.processVerified(event("payment_intent.succeeded","acct_frozen",null),true);assertEquals(TransactionStatus.CHARGEBACK,tx.getStatus());
     }
     @Test void fullAndPartialRefundSnapshotsDoNotRecalculateFrozenPricing()throws Exception {
-        var p=processor();p.processVerified(event("payment_intent.succeeded","acct_frozen",null),true);
+        for(boolean collector:new boolean[]{false,true}) new DirectWebhookTest().fullAndPartialRefundSnapshotsDoNotRecalculateFrozenPricingForCollector(collector);
+    }
+    private void fullAndPartialRefundSnapshotsDoNotRecalculateFrozenPricingForCollector(boolean stripeCollector)throws Exception {
+        var p=processor(stripeCollector);p.processVerified(event("payment_intent.succeeded","acct_frozen",null),true);
         String frozen=tx.getMetadata();
         var object=new HashMap<String,Object>();object.put("id","ch_fixture");object.put("amount",2607);object.put("amount_refunded",1000);
         object.put("metadata",Map.of("transaction_id",tx.getId().toString()));

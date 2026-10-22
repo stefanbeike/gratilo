@@ -68,9 +68,15 @@ public record StripeAccountStatus(boolean canReceiveTips, boolean canReceiveTran
         var status=parse(id,json);
         var account=JsonMapper.createDefault().readValue(json,Map.class);
         return status.detailsSubmitted() && "COMPLETE".equals(status.onboardingStatus()) && status.chargesEnabled()
-                && "application".equals(at(account,"defaults","responsibilities","fees_collector"));
+                && Set.of("application","stripe").contains(Objects.toString(at(account,"defaults","responsibilities","fees_collector"),""));
     }
 
+    public static String feesCollector(String json) throws IOException {
+        var account=JsonMapper.createDefault().readValue(json,Map.class);
+        String value=Objects.toString(at(account,"defaults","responsibilities","fees_collector"),"");
+        if(!Set.of("application","stripe").contains(value)) throw new IllegalStateException("Unbekanntes Stripe-Gebührenmodell. Bitte Stripe-Einrichtung prüfen.");
+        return value;
+    }
     private static Object at(Map<?, ?> root, String... path) {
         Object current = root;
         for (String key : path) {

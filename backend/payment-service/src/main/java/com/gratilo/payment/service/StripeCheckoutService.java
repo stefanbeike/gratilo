@@ -50,6 +50,15 @@ public class StripeCheckoutService {
         this.recipients=recipients; this.transactions=transactions; this.accounts=accounts; this.connect=connect; this.poolClient=poolClient; this.poolTransfers=poolTransfers; StripeConnectService.requireTestKey(secret); this.secret=secret; this.successUrl=absoluteUrl(successUrl); this.cancelUrl=absoluteUrl(cancelUrl); this.feePercent=feePercent; this.fixedFeeMinor=fixedFeeMinor;
     }
     public TipQuote quote(long amount,boolean covered){return TipPricing.quote(amount,covered,feePercent,fixedFeeMinor,platformPercent);}
+    public TipQuote quote(UUID recipient,long amount,boolean covered) throws Exception {
+        return directQuote(amount,covered,verifiedAccount(recipient,false).feesCollector());
+    }
+    private TipQuote directQuote(long amount,boolean covered,String collector) {
+        return "stripe".equals(collector)?TipPricing.directStripeQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent):quote(amount,covered);
+    }
+    private static long applicationFee(com.gratilo.payment.api.TipQuote quote) {
+        return quote.pricingVersion()==8 ? quote.platformFeeMinor() : quote.totalAmountMinor()-quote.recipientAmountMinor();
+    }
     public PoolPaymentLimits.Limits poolLimits(){return poolLimits.current();}
     public TipQuote poolQuote(long amount,boolean covered){poolLimits.validate(amount);return TipPricing.poolQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent);}
     public boolean isConfigured() { return !secret.isBlank(); }
@@ -90,7 +99,7 @@ public class StripeCheckoutService {
         long amountPaid = session.get("amount_total") instanceof Number amount ? amount.longValue() : tx.getAmountMinor();
         String checkoutUrl = "PENDING".equals(status) && "open".equals(session.get("status")) && session.get("url") instanceof String url ? url : null;
         return new CheckoutStatus(status, "PAID".equals(status), tx.getId().toString(), tx.getAmountMinor(), amountPaid,
-                tx.getAccountUserId().toString(), checkoutUrl, TipPricingSnapshot.from(tx).recipientMinor());
+                tx.getAccountUserId().toString(), checkoutUrl, TipPricingSnapshot.from(tx).recipientMinor(),TipPricingSnapshot.from(tx).recipientEstimated());
     }
     public Optional<CheckoutResponse> create(UUID recipient, TipPaymentRequest request) throws Exception {
         if(request.expectedPoolId()!=null) throw new InvalidCheckoutRequestException();
@@ -99,9 +108,11 @@ public class StripeCheckoutService {
             throw new InvalidCheckoutRequestException();
         if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
         var resumed=resumeExisting(recipient,request,false);if(resumed.isPresent())return resumed;
-        var account = eligibleAccount(recipient);
+        var verified = verifiedAccount(recipient,false);
+        var account = verified.account();
         String accountId = account.getStripeAccountId();
-        var quote = quoteForAttempt(recipient,request,false);
+        var quote = quoteForAttempt(recipient,request,false,verified.feesCollector());
+        if (!quote.feesCollector().equals(verified.feesCollector())) throw new IllegalStateException("Stripe-Gebührenmodell stimmt nicht mit dem gespeicherten Checkout überein. Bitte Support kontaktieren.");
         validateQuote(request, quote);
         long fee = quote.serviceFeeMinor(), total = quote.totalAmountMinor();
         String key = request.idempotencyKey();
@@ -126,8 +137,8 @@ public class StripeCheckoutService {
             tx.setType(TransactionType.TIP); tx.setStatus(TransactionStatus.PENDING); tx.setDescription(request.message());
             tx.setIdempotencyKey(key); tx.setProvider("STRIPE");
             var context=TipPricingSnapshot.metadata(quote,request.feeCovered());
-            context.put("applicationFeeMinor",quote.totalAmountMinor()-quote.recipientAmountMinor());context.put("stripeCostContributionMinor",request.feeCovered()?quote.serviceFeeMinor():quote.estimatedStripeFeeMinor());
-            context.put("chargeModel","DIRECT");context.put("stripeAccountId",accountId);context.put("feesCollector","application");
+            context.put("applicationFeeMinor",applicationFee(quote));context.put("stripeCostContributionMinor",quote.pricingVersion()==8?0:request.feeCovered()?quote.serviceFeeMinor():quote.estimatedStripeFeeMinor());
+            context.put("chargeModel","DIRECT");context.put("stripeAccountId",accountId);context.put("feesCollector",verified.feesCollector());
             tx.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(context));
             tx = transactions.save(tx);
             if (feeAudit != null) feeAudit.snapshot(tx, quote);
@@ -153,7 +164,7 @@ public class StripeCheckoutService {
                 + param("payment_intent_data[metadata][fee_covered]", Boolean.toString(request.feeCovered()))
                 + param("payment_intent_data[metadata][fee_surcharge_minor]", Long.toString(fee))
                 + param("payment_intent_data[metadata][amount_charged_minor]", Long.toString(total))
-                + param("payment_intent_data[application_fee_amount]",Long.toString(total-quote.recipientAmountMinor()))
+                + param("payment_intent_data[application_fee_amount]",Long.toString(applicationFee(quote)))
                 + commissionMetadata(tx,quote,"INDIVIDUAL")
                 + param("success_url", successUrl) + param("cancel_url", cancelUrl);
         // Scope Stripe's key to our immutable transaction UUID, never the public caller key.
@@ -273,16 +284,17 @@ public class StripeCheckoutService {
         if(!pool&&!TipPricingSnapshot.isDirectVersion(TipPricingSnapshot.from(tx).version()))throw new CheckoutConflictException("CHECKOUT_RECONCILIATION_REQUIRED",tx);
         return Optional.empty();
     }
-    private TipQuote quoteForAttempt(UUID owner,TipPaymentRequest request,boolean pool){
+    private TipQuote quoteForAttempt(UUID owner,TipPaymentRequest request,boolean pool){return quoteForAttempt(owner,request,pool,"application");}
+    private TipQuote quoteForAttempt(UUID owner,TipPaymentRequest request,boolean pool,String collector){
         var found=transactions.findByAccountUserIdAndIdempotencyKey(owner,request.idempotencyKey());
         if(found.isPresent())return TipPricingSnapshot.from(found.get()).quote();
         if(!pricingEnabled)throw new PricingNotReleasedException();
-        return pool?poolQuote(request.tipAmountMinor(),request.feeCovered()):quote(request.tipAmountMinor(),request.feeCovered());
+        return pool?poolQuote(request.tipAmountMinor(),request.feeCovered()):directQuote(request.tipAmountMinor(),request.feeCovered(),collector);
     }
     public static class PricingNotReleasedException extends IllegalStateException {public PricingNotReleasedException(){super("Die neue Gebührenregel ist noch nicht freigegeben.");}}
     private static String commissionMetadata(TransactionEntity tx,TipQuote q,String kind){
         if(q.pricingVersion()<3)return "";
-        var values=Map.of("pricing_version",Integer.toString(q.pricingVersion()),"platform_fee_minor",Long.toString(q.platformFeeMinor()),"platform_fee_percent",q.platformFeePercent().toPlainString(),"payment_kind",kind,"tip_amount_minor",Long.toString(q.tipAmountMinor()),"stripe_fee_surcharge_minor",Long.toString(q.serviceFeeMinor()),"stripe_cost_contribution_minor",Long.toString(q.totalAmountMinor()-q.recipientAmountMinor()-q.platformFeeMinor()));
+        var values=Map.of("pricing_version",Integer.toString(q.pricingVersion()),"platform_fee_minor",Long.toString(q.platformFeeMinor()),"platform_fee_percent",q.platformFeePercent().toPlainString(),"payment_kind",kind,"tip_amount_minor",Long.toString(q.tipAmountMinor()),"stripe_fee_surcharge_minor",Long.toString(q.serviceFeeMinor()),"stripe_cost_contribution_minor",Long.toString(q.pricingVersion()==8?0:q.totalAmountMinor()-q.recipientAmountMinor()-q.platformFeeMinor()));
         var form=new StringBuilder();for(var entry:new java.util.TreeMap<>(values).entrySet()){form.append(param("metadata["+entry.getKey()+"]",entry.getValue()));form.append(param("payment_intent_data[metadata]["+entry.getKey()+"]",entry.getValue()));}return form.toString();
     }
 
@@ -346,7 +358,9 @@ public class StripeCheckoutService {
     }
 
     private ConnectedAccountEntity eligibleAccount(UUID recipient) throws Exception { return eligibleAccount(recipient, false); }
-    private ConnectedAccountEntity eligibleAccount(UUID recipient, boolean poolMember) throws Exception {
+    private record VerifiedAccount(ConnectedAccountEntity account,String feesCollector) {}
+    private ConnectedAccountEntity eligibleAccount(UUID recipient, boolean poolMember) throws Exception {return verifiedAccount(recipient,poolMember).account();}
+    private VerifiedAccount verifiedAccount(UUID recipient, boolean poolMember) throws Exception {
         if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
         try {
             if (poolMember) recipients.requirePoolMemberEnabled(recipient); else recipients.requireEnabled(recipient);
@@ -368,7 +382,7 @@ public class StripeCheckoutService {
         status.applyTo(account);
         accounts.update(account);
         if (!(poolMember ? status.canReceiveTransfers() : StripeAccountStatus.directReady(id,accountJson))) throw new RecipientNotReadyException();
-        return account;
+        return new VerifiedAccount(account,poolMember?"application":StripeAccountStatus.feesCollector(accountJson));
     }
 
     public static class RecipientNotReadyException extends IllegalStateException {

@@ -1,0 +1,310 @@
+= Stripe-Collector-Modell und isoliertes Express-Preview-Onboarding
+:toc:
+
+Stand: 22.10.2026. Ausgangspunkt `main`, Commit `575464e`. Nur lokale Umsetzung,
+Mocks und isolierte Testdatenbank. Keine Stripe-/AWS-Schreiboperationen, keine
+externen Zahlungen oder Payouts, keine Kontoänderungen, kein Push/Deployment.
+
+== Verifikation und Auflösung des anfänglichen Blockers
+
+Die allgemeine Accounts-v2-Create-Referenz nennt weiterhin den Express-Fehler
+`account_controller_express_dash_without_application_losses_or_fees`. Auch der
+öffentliche Abruf mit `api-version=2026-09-30.endive` enthielt diesen Fehler;
+ein Response-Header zur Versionsbindung war nicht vorhanden. Deshalb wurde
+zunächst keine Änderung der Kontoanlage vorgenommen.
+
+Die nachgereichte offizielle Changelog-Seite vom 24.06.2026 bestätigt dagegen
+explizit Express mit beiden Collectors `stripe`, ohne neue Request-Parameter,
+für `Stripe-Version: 2026-06-24.preview`. Damit ist der ursprüngliche
+Dokumentationskonflikt für diesen Preview-Pfad aufgelöst. Eine Übernahme in die
+stabile Version `2026-09-30.endive` ist durch die gelesenen offiziellen Quellen
+nicht nachgewiesen. Nicht vom späteren Kalenderdatum auf Preview-Unterstützung
+schließen.
+
+Der Changelog nennt keinen zusätzlichen Beta-Header und keine ausdrücklich
+benannte separate Freischaltung. Eine tatsächliche Berechtigung der konkreten
+Gratilo-Plattform ist damit nicht nachgewiesen. Erst die später genehmigte
+Sandbox-Kontoanlage kann diesen plattformspezifischen Nachweis liefern. Keine
+Probe-Anlage wurde ausgeführt.
+
+== Kontoanlage und API-Isolation
+
+`STRIPE_CONNECT_STRIPE_PRICING_ENABLED=false` ist der Standard. Bei deaktiviertem
+Flag bleiben Express, Fee Collector `application` und Losses Collector
+`application` sowie die stabile Request-Version unverändert.
+
+Bei aktiviertem Flag gilt ausschließlich für die Anlage eines neuen Kontos:
+
+[source,text]
+----
+POST /v2/core/accounts
+Stripe-Version: 2026-06-24.preview
+Content-Type: application/json
+
+dashboard = express
+defaults.responsibilities.fees_collector = stripe
+defaults.responsibilities.losses_collector = stripe
+----
+
+Merchant-Kartenzahlung und Recipient-Transfers werden wie bisher angefragt.
+Die Antwort muss Sandbox-Modus, Express, beide Stripe-Collectors, gültige
+Account-ID und v2-Account-Typ bestätigen. Stripe-Ablehnung oder unerwartete
+Konfiguration ergeben einen verständlichen Fehler. Kein zweiter Anlageversuch
+mit einem anderen Gebührenmodell.
+
+Die Versionierung liegt ausschließlich in `StripeConnectService.createAccount`.
+Andere Connect-v2-Aufrufe (Konto-/Event-GET, Profil-/Capability-Updates) behalten
+`2026-09-30.endive`; Account Links behalten ihren bisherigen v1-Request. Die
+Rechenlogik entscheidet anhand frisch gelesener tatsächlicher Responsibilities,
+nicht anhand des Feature-Flags oder lokaler boolescher Profilfelder.
+
+Checkout, PaymentIntents, Charges, Application Fees, Transfers, Refunds,
+Reversals, Balance-Abfragen und Webhook-Endpunkte werden nicht global auf Preview
+umgestellt. Die Implementierung verwendet Java `HttpClient` und JSON-Maps,
+kein Stripe-SDK. Deshalb keine SDK-Version oder zusätzliche Bibliothek nötig.
+
+Die Changelog-Upgradeanleitung empfiehlt generell auch Webhook-Versionsprüfung.
+Die neue Kombination fügt keine Request-Felder hinzu. Deshalb werden vorhandene
+Webhook-Versionen und Parser nicht auf Verdacht geändert. Vor produktiver
+Freigabe sind bestehende Account-Events und v1-Direct-Charge-Events im konkreten
+Sandbox-Konto nachzuweisen. Konto-GETs und bestehendes Onboarding-Link-Verfahren
+auf neu erzeugten Preview-Konten gehören ebenfalls zur externen Abnahme.
+
+Bestehende Konten werden nicht neu erstellt oder umkonfiguriert. Wiederholtes
+Onboarding nutzt die persistierte Account-ID. Responsibilities alter Konten
+bleiben unverändert; dafür wird keine automatische Migration angeboten.
+
+== Persönliche Direct Charges: zwei getrennte Gebührenmodelle
+
+T = ursprünglich gewähltes Trinkgeld; P = round(T * 5 Prozent), HALF_UP in Cent;
+E(C) = konfigurierte Stripe-Kostenschätzung auf Gesamtbetrag C; S = kleinster
+centgenauer Gross-up, der E(T+S) deckt. Keine feste Gratilo-Provision.
+
+=== Application-Collector, bestehende Konten und Pricing V6
+
+* Gast übernimmt nicht: C=T, R=T-P-E(C), Application Fee A=P+E(C).
+* Gast übernimmt geschätzt: C=T+S, R=T-P, A=P+S.
+* Stripe-Zahlungskosten liegen bei Gratilo. Die Differenz zwischen eingefrorenem
+  Kostenausgleich und tatsächlichen Stripe-Kosten trägt beziehungsweise behält Gratilo.
+* R ist wie bisher festgelegt. Bestehende historische V4-Checkouts behalten auch
+  ihre frühere Festprovision; keine rückwirkende Anwendung heutiger 5-Prozent-Regeln.
+
+=== Stripe-Collector, neue Pricing-Version V8
+
+* Application Fee A=P, unabhängig von der Übernahmeoption.
+* Ohne Übernahme: C=T; Netto-Prognose R_est=C-P-E(C).
+* Mit geschätzter Übernahme: C=T+S; R_est=C-P-E(C).
+* S bleibt auf dem Connected Account, wo Stripe seine tatsächlichen Kosten
+  einzieht. Kein zusätzlicher Stripe-Kostenausgleich an Gratilo.
+* Tatsächliches Netto R_actual=C-P-Stripe-Istkosten. Bei Abweichung erhält der
+  Mitarbeiter mehr oder weniger als prognostiziert. Keine feste Nettozusage.
+* Unbekannter Collector, fehlende aktuelle Kontodaten oder fehlende Merchant-
+  Freigabe verhindern neue Sessions. Bei einem bestehenden Versuch muss der
+  eingefrorene Collector zum verwendeten Pricing passen; keine stille Umdeutung.
+
+Der öffentliche Quote-Endpunkt prüft für persönliche Zahlungen nun den konkreten
+Empfänger. Checkout berechnet erneut serverseitig; angezeigte Erwartungsbeträge
+und eingefrorene Idempotenzdaten werden weiter geprüft. Stripe-Account-Kontext
+wird ausschließlich serverseitig aus dem Konto beziehungsweise historischen
+Snapshot gewählt, nicht aus manipulierbaren Client-Feldern.
+
+== Teamzahlungen bleiben Separate Charges and Transfers
+
+Pricing V7, einmal P auf die ursprüngliche Gesamtzahlung, keine Application Fee.
+Charge und Session bleiben auf Gratilos Plattformkonto. Collector einzelner
+Mitglieder ändert diese Plattformkosten nicht. Die Gesamtsumme der eingefrorenen
+Allokationen bleibt R=T-P bei Gastübernahme, sonst R=T-P-E(C).
+
+Stabile Transfer-Idempotenz, source_transaction, Retry, Reconciliation,
+Verteilungs-Snapshots, Refunds und Reversals werden nicht geändert. Kein Transfer
+an Gratilo. Nach vollständiger Verteilung verbleiben C - Stripe-Istkosten - R
+auf dem Plattformkonto. Davon ist P die vereinbarte Provision; der Rest ist
+Kostenschätzabweichung. Ausstehende Transfers bleiben Verbindlichkeiten.
+
+Stripe empfiehlt bei SCT Plattform-Verlustverantwortung, damit Rückholung von
+Geldern flexibler möglich ist. Bei Empfängern mit Stripe-Verlustverantwortung
+können Reversals insbesondere bei fehlendem Empfängerguthaben scheitern.
+Die Plattform bleibt für ihre eigenen SCT-Refunds/Disputes verantwortlich.
+Die neue Kontoanlage beseitigt dieses Risiko nicht; bestehende Reversal-Retries
+und offene manuelle Abstimmung bleiben erforderlich.
+
+== Rechenbeispiele
+
+EUR; ausschließlich Referenzschätzung 3,15 Prozent + 0,25 EUR, keine Garantie des
+individuellen Stripe-Tarifs. Die Responsibility-Wahl kann einen anderen tatsächlichen
+Stripe-Tarif bedeuten. Ein späterer Tarifabgleich ist erforderlich.
+
+[cols="8*",options="header"]
+|===
+|T |Übernahme |C Gast |P Gratilo |E Stripe |Netto-Prognose / festes R |A Direct/stripe |A Direct/application
+|10,00 |aus |10,00 |0,50 |0,57 |8,93 |0,50 |1,07
+|10,00 |ein |10,58 |0,50 |0,58 |9,50 |0,50 |1,08
+|25,00 |aus |25,00 |1,25 |1,04 |22,71 |1,25 |2,29
+|25,00 |ein |26,07 |1,25 |1,07 |23,75 |1,25 |2,32
+|100,00 |aus |100,00 |5,00 |3,40 |91,60 |5,00 |8,40
+|100,00 |ein |103,51 |5,00 |3,51 |95,00 |5,00 |8,51
+|===
+
+SCT verwendet die gleichen C-, P-, E- und R-Beispiele, aber kein Application-Fee-
+Objekt. Für zwei Mitglieder wird R deterministisch und centgenau verteilt.
+
+Bei 25,00 EUR mit Übernahme und 1,17 EUR Istkosten erhält ein Direct/stripe-
+Empfänger 26,07 - 1,25 - 1,17 = 23,65 EUR; bei 0,97 EUR Istkosten 23,85 EUR.
+Direct/application und SCT behalten dagegen R=23,75 EUR; Gratilo trägt/behält
+0,10 EUR Abweichung. In allen Fällen bleibt die reine Provision 1,25 EUR.
+
+== Speicherung, Audit und Darstellung
+
+V8 speichert Collector, Prognosekennzeichen, Provision, Schätzung, Gastaufschlag,
+Gesamtbetrag und prognostizierten Nettoanteil im bestehenden unveränderlichen
+Transaktions-JSON. Kein Überschreiben von V1–V7 und keine neuen Finanztabellen.
+Eine additive SQL-Migration erweitert ausschließlich den bestehenden
+Historienschutz auf V8. Vor einem späteren Rollout muss sie regulär angewendet
+werden; im Auftrag wird sie nur isoliert lokal getestet.
+
+Bei Direct/stripe liest der Fee-Audit Charge und Balance Transaction im
+Connected-Account-Kontext. Application Fee und deren Balance Transaction liegen
+auf der Plattform. Beträge, Währung, Charge-/Fee-Quelle, Detailsumme und Net-
+Arithmetik werden geprüft. Die Application Fee wird nicht noch einmal als
+Stripe-Kosten gezählt. Fehlende Daten bleiben PENDING und werden wieder gelesen,
+keine Nullgebühr aus einer Prognose. Gratilos eigener Nettoerlös wird erst aus
+der separaten Application-Fee-Balance belegt. Keine unbekannten eigenen Kosten
+als null annehmen.
+
+Der geschützte bestehende Gebührenbericht liefert für V8 zusätzlich Collector,
+Prognosekennzeichen und tatsächliches Empfängernetto. Schätzung und Istbetrag
+werden getrennt gehalten. `uncoveredMinor=0` bei V8 bezeichnet keine von Gratilo
+zu tragende Schätzabweichung; `differenceMinor` enthält die tatsächliche
+Abweichung beim Empfänger. Refund-/Dispute-Fälle ergeben keine ungesicherte
+Nettoerlöszusage. Die offene vertragliche Erstattungsregel für Gratilos Provision
+bleibt offen; es werden keine Refunds/Reversals ausgelöst.
+
+Bei Direct/application bleibt die separate Plattformgebühren-Evidenz erforderlich:
+Nullkosten im Connected-Ledger beweisen keine Plattform-Kostenfreiheit. Der
+bestehende interne Report-Evidence-Pfad wird nicht für Stripe-Collector verwendet.
+SCT-Audits lesen weiterhin ausschließlich Plattform- und Transfernachweise.
+
+Die Zahlungsseite bezeichnet V8-Netto stets als Prognose, auch bei Gastübernahme.
+Sie erklärt Zahlungsmethode, Kartenherkunft, Kartentyp und Währungsumrechnung.
+Kein Versprechen, Mehrkosten von V8 trage Gratilo. Success-Response und
+Bestätigungs-E-Mail kennzeichnen das Netto ebenfalls als geschätzt.
+Das Dashboard liest für V8 den bestehenden privaten Gebührenbericht: ohne
+Istnachweis geschätzte Beträge, mit Nachweis tatsächliches Netto und tatsächliche
+Stripe-Kosten. Verfügbares Stripe-Guthaben bleibt eine unabhängige Abfrage.
+
+Die alte Sandbox-Payout-Ledgersimulation bleibt unverändert und ist keine
+Bankabrechnung. Ihre lokalen Summen sind bei V8 weiterhin Prognosewerte;
+sie darf nicht als Nachweis real auszahlbaren Guthabens verwendet werden.
+
+== Standard-SEPA-Auszahlungen
+
+Keine neue Payout-Gebühr, kein Account Debit und keine Änderung der Simulation.
+Die öffentliche Gebührenverantwortungsdokumentation beschreibt bei Stripe-
+Collector keine Connect-Gebühren für Plattform/Konto. Das ist kein Nachweis,
+dass jedes Bankziel, Instant-Produkt, jede Fremdwährung oder jeder einzelne
+Gratilo-Payout kostenfrei ist. Vor Produktivbetrieb bestätigen: tatsächlicher
+Vertragstarif, Standard-SEPA-/Instant-Kosten und Kostenschuldner, Bankziel,
+Balance Settings, Zeitplan, Reserven, Steuern und Zusatzprodukte. Ein lokaler
+`weekly`-Default beweist weiterhin keinen aktiven Stripe-Auszahlungszeitplan.
+Siehe link:stripe-connect-payout-fee-options.adoc[Auszahlungsgebührenbericht].
+
+== Späterer manueller Sandbox-Test
+
+. Flag ausgeschaltet lassen, bis die komplette lokale Version inklusive Migration
+  in einer ausdrücklich freigegebenen Testumgebung bereitsteht.
+. Plattform-/Preview-Berechtigung und Tarif mit Stripe bestätigen. Keine
+  Freischaltung behaupten, nur weil die Request-Konfiguration dokumentiert ist.
+. Für den später genehmigten Test einen neuen dedizierten Gratilo-Testbenutzer
+  verwenden und das Flag bewusst aktivieren. Alte Account-Zuordnungen nicht
+  löschen oder umhängen; alte Konten laufen nach ihrem eingefrorenen Modell weiter.
+. Nach separat genehmigter Kontoanlage Response und anschließende Konto-GETs,
+  Hosted Onboarding, Merchant-/Recipient-Freigaben und Account-Events prüfen.
+. Erst mit separater Zahlungsfreigabe persönliche Sandboxzahlungen mit beiden
+  Übernahmeoptionen und SCT gegen neue Mitglieder testen; Application Fees,
+  Kontokontext, Fees, Webhooks und Reversal-Fälle nachweisen. Keine echte Bank.
+
+Die Implementierung ist lokal vorbereitet, standardmäßig deaktiviert. Ein
+Erfolg der konkreten externen Gratilo-Sandbox-Anlage oder produktive Freigabe
+wird ausdrücklich nicht behauptet.
+
+== Offizielle Quellen
+
+* https://docs.stripe.com/changelog/dahlia/2026-06-24/express-connected-accounts-v2-stripe-owned-pricing-negative-balance-liability[Preview-Unterstützung und expliziter Versionsheader]
+* https://docs.stripe.com/api/v2/core/accounts/create[Create-Referenz mit allgemeiner Express-Beschränkung]
+* https://docs.stripe.com/connect/accounts-v2/connected-account-configuration[Responsibilities, unveränderliche Kontokonfiguration und Application Fees]
+* https://docs.stripe.com/connect/direct-charges-fee-payer-behavior[Gebührenverantwortung]
+* https://docs.stripe.com/connect/integration-recommendations[SCT-Haftung und Grenzen bei Rückholung]
+
+== Prüfprotokoll
+
+* Vollständige Backend-Suite: `./gradlew :backend:payment-service:test :backend:user-service:test`,
+  202 Payment-Service- und 69 User-Service-Tests erfolgreich.
+* Nach letzter Verschärfung der Audit-Validierung: 38 gezielte Tests in
+  `DirectFeeAuditTest`, `DirectWebhookTest`, `StripePricingOnboardingTest` und
+  `StripeCheckoutTest` erfolgreich. Die Webhook-Tests prüfen beide Collector-
+  Modelle innerhalb derselben Testfälle; keine zusätzliche JUnit-Bibliothek.
+* Frontend: `npm test -- --maxWorkers=1`, 138 Tests in 18 Dateien erfolgreich.
+  Frühere unbeschränkte/parallele Läufe hatten Timeout-Fehler; diese werden nicht
+  als erfolgreich ausgegeben. Der abschließende komplette Lauf war erfolgreich.
+* `npm run build`: TypeScript und Vite erfolgreich.
+* `python3 deployment/scripts/test_payment_pricing_postgres.py`: erfolgreich;
+  alle Migrationen einschließlich V8 in einem wegwerfbaren PostgreSQL-15-Container
+  ohne Netzwerk. Kein historisches Backfill, Gebührenevents append-only,
+  eingefrorene Beträge unveränderlich, Statusfortschreibung weiterhin erlaubt.
+* `python3 -m unittest discover -s deployment/tests -p test_local_stripe_compose.py`:
+  8 Tests erfolgreich. Keine App-/Stripe-Zahlungsoperationen.
+* `git diff --check`: erfolgreich.
+
+Die Tests ersetzen Stripe durch Transport-Fakes oder einen lokalen Loopback-
+HTTP-Server. Grüne Tests beweisen keine plattformspezifische Preview-Freischaltung,
+keinen realen Tarif und keinen erfolgreichen externen Sandbox-Checkout.
+
+== Geänderte Dateien
+
+Konfiguration und lokale Startumgebung:
+
+* `.env.example`
+* `docker-compose/compose.stripe-test.yml`
+* `docker-compose/docker-compose.services.yml`
+* `backend/payment-service/src/main/resources/application.yml`
+
+Payment-Service (Paket `backend/payment-service/src/main/java/com/gratilo/payment/`):
+
+* `api/TipQuote.java`, `api/CheckoutStatus.java`, `api/TipNotification.java`
+* `controller/TipController.java`
+* `service/StripeConnectService.java`, `service/StripeAccountStatus.java`
+* `service/StripeCheckoutService.java`, `service/StripePaymentContext.java`
+* `service/TipPricing.java`, `service/TipPricingSnapshot.java`
+* `service/StripeFeeAuditService.java`
+
+Historienschutz, ausschließlich vorbereitet und isoliert getestet:
+
+* `backend/payment-service/src/main/resources/db/changelog/changelog-master.xml`
+* `backend/payment-service/src/main/resources/db/changelog/payment_mgmt/014_direct_stripe_collector.sql`
+
+User-Service (Paket `backend/user-service/src/main/java/com/gratilo/user/`):
+
+* `api/TipNotification.java`
+* `service/TipNotificationSender.java`
+
+Frontend:
+
+* `frontend/src/PublicTipCheckout.tsx`
+* `frontend/src/Dashboard.tsx`
+* `frontend/src/StripePayment.test.tsx`
+* `frontend/src/DashboardStructure.test.tsx`
+
+Backend-/Datenbanktests:
+
+* `backend/payment-service/src/test/java/com/gratilo/payment/GuestCheckoutHttpTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/controller/DirectWebhookTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/ConnectOnboardingTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripePricingOnboardingTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/DirectPricingTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/DirectFeeAuditTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeCheckoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolCheckoutTest.java`
+* `backend/user-service/src/test/java/com/gratilo/user/service/TipNotificationSenderTest.java`
+* `deployment/scripts/test_payment_pricing_postgres.py`
+
+Dieser Bericht: `docs/stripe-fee-collector-model.adoc`.
