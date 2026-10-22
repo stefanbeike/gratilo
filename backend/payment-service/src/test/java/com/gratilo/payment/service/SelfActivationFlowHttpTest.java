@@ -65,6 +65,9 @@ class SelfActivationFlowHttpTest {
         properties.put("micronaut.security.token.jwt.signatures.secret.validation.secret", JWT);
         properties.put("micronaut.server.port", -1); properties.put("datasources.default.enabled", false);
         properties.put("jpa.default.enabled", false); properties.put("liquibase.enabled", false);
+        // This HTTP fixture has only in-memory repositories. Persistent notification
+        // delivery is covered by the outbox/webhook and isolated PostgreSQL tests.
+        properties.put("notifications.tip-payments-enabled", false);
         properties.put("liquibase.datasources.default.enabled", false);
         properties.put("datasources.default.url", "jdbc:postgresql://127.0.0.1:1/unused");
         properties.put("datasources.default.username", "unused"); properties.put("datasources.default.password", "unused");
@@ -87,6 +90,8 @@ class SelfActivationFlowHttpTest {
                     new StripeWebhookController(transactions,SIGNING,true,JsonMapper.createDefault()));
             context.registerSingleton(com.gratilo.payment.controller.StripeDirectWebhookController.class,directWebhook);
             context.start();
+            assertFalse(context.containsBean(TipNotificationOutbox.class));
+            assertFalse(context.containsBean(TipNotificationDispatcher.class));
             var server = context.getBean(EmbeddedServer.class).start();
             URI base = server.getURI(); String token = jwt(owner.toString());
             String tip = "/payment-service/tips/" + owner;

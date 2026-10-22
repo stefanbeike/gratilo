@@ -17,6 +17,8 @@ class GuestCheckoutHttpTest {
         props.put("internal.api-key","private-internal-test");props.put("micronaut.server.port",-1);
         props.put("micronaut.security.token.jwt.signatures.secret.validation.secret","private-jwt-test-key-at-least-thirty-two-characters");
         props.put("datasources.default.enabled",false);props.put("jpa.default.enabled",false);
+        // This security fixture has no database; do not start persistent mail workers.
+        props.put("notifications.tip-payments-enabled",false);
         props.put("liquibase.enabled",false);props.put("liquibase.datasources.default.enabled",false);
         var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null);
         try(var context=ApplicationContext.builder().properties(props).environments("test","prd").build()){

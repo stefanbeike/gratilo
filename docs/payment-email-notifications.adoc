@@ -176,3 +176,18 @@ Zahlungsberechnung werden durch diese Ergänzung nicht geändert.
 Abschlussprüfung am 22.10.2026: Payment-Service 203 Tests, User-Service 74 Tests,
 keine Fehler oder übersprungenen Tests. PostgreSQL-Outbox-/Inbox-Regression
 erfolgreich. Kein Frontend-Code geändert; daher kein erneuter Frontend-Build.
+
+== CI-Testkonfiguration nach SES-Aktivierung
+
+Die HTTP-Fixtures `SelfActivationFlowHttpTest` und der Produktions-Security-Test
+in `GuestCheckoutHttpTest` verwenden das Profil `prd`, deaktivieren jedoch
+Datenbank und JPA zugunsten von In-Memory-Repositories. Sie schalten deshalb
+Benachrichtigungen explizit aus und starten keine persistenten Mail-Worker.
+Andernfalls aktiviert die neue Profilvorgabe eine Outbox ohne `EntityManager`:
+Der Direct-Webhook liefert bereits bei der Bean-Erstellung HTTP 500 anstelle
+der erwarteten Signaturablehnung mit HTTP 401.
+
+Die SES-Profilvorgabe bleibt unverändert aktiviert. Ihre Konfiguration wird
+weiterhin in `ProductionPaymentTest` und `SmtpConfigurationTest` geprüft;
+Zahlungserfolg, Outbox, Deduplizierung und Versand werden durch die jeweiligen
+Benachrichtigungstests und den isolierten PostgreSQL-Test abgedeckt.
