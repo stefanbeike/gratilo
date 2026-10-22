@@ -33,15 +33,15 @@ it('preserves the team deep link and shows a truthful empty state with creation 
  window.history.replaceState({},'','/account#team');mount({team:false});expect(await screen.findByText('Du bist noch keinem Team zugeordnet.')).toBeInTheDocument();expect(screen.getByRole('button',{name:'Team erstellen'})).toBeDisabled();expect(screen.getByRole('button',{name:'Team'})).toHaveAttribute('aria-current','page')
 })
 it('preserves the profile editing deep link',async()=>{window.history.replaceState({},'','/account#profile');mount();expect(screen.getByLabelText('Vorname')).toBeInTheDocument()})
-it('keeps the personal account section mounted across views and removes only the team motif editor',async()=>{
+it('keeps the personal account section mounted across views and hides team motif presets',async()=>{
  mount({admin:true,team:false});await screen.findByRole('button',{name:'Transaktion personal ansehen'});
  const account=screen.getByRole('region',{name:'Mein Konto und meine Auszahlungen'});
  fireEvent.click(screen.getByRole('button',{name:'Team'}));
  expect(screen.getByRole('region',{name:'Mein Konto und meine Auszahlungen'})).toBe(account);
  expect(await screen.findByText('Team-Einstellungen und Mitglieder verwalten')).toBeInTheDocument();
  expect(screen.queryByText('Eigenes Motiv oder eine Vorlage:')).not.toBeInTheDocument();
- expect(screen.queryByLabelText('Team-Profilbild bearbeiten')).not.toBeInTheDocument();
- expect(screen.getByAltText('Team-Profilbild von Eigenes Team')).toHaveAttribute('src','https://example.test/saved-team.jpg');
+ expect(screen.getByLabelText('Team-Profilbild bearbeiten')).toBeInTheDocument();
+ for (const image of screen.getAllByAltText('Team-Profilbild von Eigenes Team')) expect(image).toHaveAttribute('src','https://example.test/saved-team.jpg');
  expect(screen.getByLabelText('Poolname bearbeiten')).toBeInTheDocument();
 })
 it('does not silently show a zero history when an API request fails',async()=>{mount({failure:true});expect(await screen.findByRole('alert')).toHaveTextContent('nicht vollständig geladen');expect(screen.getByRole('button',{name:'Erneut laden'})).toBeInTheDocument()})

@@ -55,8 +55,11 @@ keine Änderung der serverseitigen Ein-Pool-Regel.
 
 == Team-Motive
 
-Die gesamte Motiv-/Upload-/Vorschaufunktion wurde nur aus den Team-Einstellungen
-entfernt. Keine Bild-API wird beim Öffnen oder Entfernen der UI aufgerufen.
+Der Pool-Besitzer kann unter „Team-Einstellungen und Mitglieder verwalten“
+wieder ein Team-Profilbild hochladen, als Vorschau prüfen, bestätigen oder entfernen.
+Die Auswahl „Eigenes Motiv oder eine Vorlage“ bleibt ausgeblendet. Der bestehende
+Bild-Endpunkt und seine Besitzerprüfung werden unverändert verwendet. Eine Bild-API
+wird erst beim ausdrücklichen Bestätigen aufgerufen.
 Gespeicherte Bilder, bestehende QR-Codes und öffentliche Teamseiten bleiben bestehen.
 `TeamAvatar` wird weiterhin verwendet. Das gemeinsame Modul und dessen isoliert
 getesteter Editor bleiben erhalten; keine gemeinsame Datei wird gelöscht.
