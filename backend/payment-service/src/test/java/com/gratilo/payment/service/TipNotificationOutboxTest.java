@@ -22,8 +22,9 @@ class TipNotificationOutboxTest {
     @Test void individualUsesFrozenNetBothFeeChoices()throws Exception{
         for(boolean covered:new boolean[]{true,false}){
             var t=tx(false,covered);var n=TipNotificationOutbox.snapshots(t,null).getFirst();
-            assertEquals(covered?9500:9160,n.personalAmountMinor());assertEquals(500,n.platformFeeMinor());assertEquals(t.getAccountUserId(),n.recipientUserId());assertFalse(n.pool());
+            assertEquals(covered?9500:9160,n.personalAmountMinor());assertEquals(0,n.platformFeeMinor());assertEquals(2,n.templateVersion());assertEquals(t.getAccountUserId(),n.recipientUserId());assertFalse(n.pool());
             assertEquals(n,TipNotificationOutbox.snapshots(t,null).getFirst());
+            var mapper=JsonMapper.createDefault();assertEquals(n,mapper.readValue(n.payload(mapper),com.gratilo.payment.api.TipNotification.class));
         }
     }
     @Test void poolOnlyNotifiesFrozenRecipientsEvenAfterMembershipChanges()throws Exception{
@@ -33,10 +34,29 @@ class TipNotificationOutboxTest {
             var repo=StripeFeeAuditTest.proxy(PoolTransferRepository.class,(p,m,a)->{assertEquals("findByTransactionId",m.getName());return rows;});
             var notifications=TipNotificationOutbox.snapshots(t,repo);assertEquals(3,notifications.size());
             assertEquals(total,notifications.stream().mapToLong(n->n.personalAmountMinor()).sum());
-            assertTrue(notifications.stream().allMatch(n->n.platformFeeMinor()==500&&n.recipientTotalMinor()==total));
+            assertTrue(notifications.stream().allMatch(n->n.platformFeeMinor()==0&&n.recipientTotalMinor()==0&&n.templateVersion()==2));
             assertEquals(3,notifications.stream().map(n->n.notificationKey()).distinct().count());
             rows.get(0).setRecipientUserId(rows.get(1).getRecipientUserId());assertThrows(IllegalStateException.class,()->TipNotificationOutbox.snapshots(t,repo));
         }
+    }
+    @Test void newAndLegacyPayloadsOnlyCarryOneRecipientsAllocation()throws Exception {
+        var mapper=JsonMapper.createDefault();var t=tx(true,true);var total=TipPricingSnapshot.from(t).recipientMinor();
+        var rows=new ArrayList<PoolTransferEntity>();
+        for(long amount:new long[]{950,2850,5700}) {var r=new PoolTransferEntity();r.setId(UUID.randomUUID());r.setTransactionId(t.getId());r.setRecipientUserId(UUID.randomUUID());r.setAmountMinor(amount);rows.add(r);}
+        var repo=StripeFeeAuditTest.proxy(PoolTransferRepository.class,(p,m,a)->rows);
+        var messages=TipNotificationOutbox.snapshots(t,repo);assertEquals(3,messages.size());
+        for(var n:messages){
+            String payload=n.payload(mapper);var fields=mapper.readValue(payload,Map.class);
+            assertEquals(n.personalAmountMinor(),((Number)fields.get("personalAmountMinor")).longValue());
+            for(String forbidden:List.of("tipAmountMinor","platformFeeMinor","estimatedStripeFeeMinor","recipientTotalMinor","feeCovered"))assertFalse(fields.containsKey(forbidden));
+            var decoded=mapper.readValue(payload,com.gratilo.payment.api.TipNotification.class);decoded.validate();assertEquals(n,decoded);
+            assertEquals(n.recipientUserId().toString(),fields.get("recipientUserId"));
+        }
+        assertEquals(total,messages.stream().mapToLong(com.gratilo.payment.api.TipNotification::personalAmountMinor).sum());
+        var first=messages.getFirst();
+        var legacy=new com.gratilo.payment.api.TipNotification(first.notificationKey(),first.transactionId(),first.recipientUserId(),first.allocationId(),1,7,10000,500,351,true,9500,950,true);
+        String forwarded=TipNotificationDispatcher.recipientPayload(mapper.writeValueAsString(legacy));
+        assertEquals(first.payload(mapper),forwarded);
     }
     @Test void failedPendingCancelledRefundAndNonStripeNeverQueue()throws Exception{
         var t=tx(false,true);for(var state:List.of(TransactionStatus.PENDING,TransactionStatus.FAILED,TransactionStatus.CANCELLED,TransactionStatus.REFUNDED)){
@@ -49,6 +69,6 @@ class TipNotificationOutboxTest {
         var meta=TipPricingSnapshot.metadata(old,true);meta.put("poolId",UUID.randomUUID().toString());t.setMetadata(JsonMapper.createDefault().writeValueAsString(meta));
         var r=new PoolTransferEntity();r.setId(UUID.randomUUID());r.setTransactionId(t.getId());r.setRecipientUserId(UUID.randomUUID());r.setAmountMinor(9955);
         var repo=StripeFeeAuditTest.proxy(PoolTransferRepository.class,(p,m,a)->List.of(r));var before=t.getMetadata();var n=TipNotificationOutbox.snapshots(t,repo).getFirst();
-        assertEquals(45,n.platformFeeMinor());assertEquals(9955,n.personalAmountMinor());assertEquals(before,t.getMetadata());
+        assertEquals(0,n.platformFeeMinor());assertEquals(9955,n.personalAmountMinor());assertEquals(before,t.getMetadata());
     }
 }

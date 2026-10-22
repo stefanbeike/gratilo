@@ -19,9 +19,15 @@ public class TipNotificationDispatcher {
     @Scheduled(fixedDelay="PT15S") public void dispatch(){
         for(int i=0;i<20;i++){
             var job=delivery.claim();if(job.isEmpty())return;int status=0;
-            try{status=send(job.get().payload());}catch(Exception failure){org.slf4j.LoggerFactory.getLogger(getClass()).warn("Tip notification handoff failed key={} category={}",job.get().key(),failure.getClass().getSimpleName());}
+            try{status=send(recipientPayload(job.get().payload()));}catch(Exception failure){if(failure instanceof IllegalArgumentException)status=400;org.slf4j.LoggerFactory.getLogger(getClass()).warn("Tip notification handoff failed key={} category={}",job.get().key(),failure.getClass().getSimpleName());}
             delivery.finish(job.get(),status);
         }
+    }
+    static String recipientPayload(String payload){
+        try {
+            var mapper=io.micronaut.json.JsonMapper.createDefault();
+            return mapper.readValue(payload,com.gratilo.payment.api.TipNotification.class).payload(mapper);
+        } catch(java.io.IOException|IllegalArgumentException invalid){throw new IllegalArgumentException("Invalid notification payload");}
     }
     protected int send(String payload)throws Exception{
         var request=HttpRequest.newBuilder(endpoint).timeout(Duration.ofSeconds(20)).header("Content-Type","application/json").header("X-Internal-Secret",key).POST(HttpRequest.BodyPublishers.ofString(payload)).build();

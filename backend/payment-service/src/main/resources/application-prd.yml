@@ -1,3 +1,7 @@
+notifications:
+  # Stripe sandbox payments also notify recipients; no Stripe write is performed here.
+  tip-payments-enabled: ${TIP_PAYMENT_EMAILS_ENABLED:true}
+
 frontend:
   base-url: https://gratilo.eu
 

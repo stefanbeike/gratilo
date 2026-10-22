@@ -55,6 +55,11 @@ public class EmailSendService {
         sendFrom(fromAddress, to, subject, text);
     }
 
+    /** One recipient and multipart/alternative; shares the existing SMTP/SES transport. */
+    public void sendAlternative(String to,String subject,String text,String html) {
+        emailSender.send(Email.builder().from(new Contact(fromAddress,fromName)).to(to).subject(subject).body(html,text));
+    }
+
     public void sendGeneralText(String to, String subject, String text) {
         sendFrom(generalFromAddress, to, subject, text);
     }

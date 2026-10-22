@@ -1,15 +1,19 @@
 = Trinkgeld-Benachrichtigungen: persistente Outbox und bestehender SES-Mailweg
 :toc:
 
-Stand: 21.10.2026. Umsetzung der ausgewählten Variante B3.
+Stand: 22.10.2026. Bestehende Variante B3 um empfängerbezogenen Datenschutz und HTML-/Textversand ergänzt.
 
 == Aufbau und Datenschutz
 
 Bei einer neuen bestätigten STRIPE/TIP-Zahlung speichert der Payment-Service in
 `payment_mgmt.tip_notification_outbox` genau einen Auftrag pro Zahlung und
-Snapshot-Empfänger. Preisversion, Trinkgeld, Provision, Stripe-Schätzung,
-Gebührenübernahme, Empfänger-Gesamtbetrag und persönlicher Allokationsbetrag
-werden eingefroren. E-Mail-Adressen und Gastnachrichten werden nicht übernommen.
+Snapshot-Empfänger. Der Benachrichtigungs-Payload in Templateversion 2 enthält
+ausschließlich die technischen Zuordnungs-IDs, Preisversion, Zahlungsart und den
+eigenen eingefrorenen Empfängerbetrag. Gesamttrinkgeld, Gastzahlbetrag, gesamte
+Provision, Stripe-Schätzung und Verteilungssumme werden nicht übertragen oder
+in neuen Inbox-/Outbox-Payloads gespeichert. E-Mail-Adressen und Gastnachrichten
+werden nicht übernommen. Die vollständigen finanziellen Snapshots bleiben in
+der bestehenden Zahlungsverwaltung; sie werden nicht verändert.
 
 Auslöser sind verifizierte Zahlungserfolge in `StripeWebhookController` sowie
 bestätigte Checkout-Sessions in `StripeCheckoutService.checkoutStatus`. Nur der
@@ -37,11 +41,18 @@ Ergebnissen konkurrierender Worker. Die interne HTTP-Übergabe enthält den best
 Der User-Service bestätigt erst nach dauerhaftem Insert in
 `user_mgmt.tip_notification_inbox` mit HTTP 202. Der Nachrichtenschlüssel ist
 `tip-paid:<transactionId>:<recipientUserId>`. Ein identischer Request ist idempotent,
-ein anderer Payload zum selben Schlüssel ergibt 409. HTTP-Timeouts können daher
+ein abweichender persönlicher Betrag oder Empfänger zum selben Schlüssel ergibt
+409. Legacy-Payloads der Version 1 werden vor Übergabe, Vergleich und Darstellung
+auf die Empfängerfelder reduziert. Ein Wechsel des Templateformats erzeugt keine
+zweite Nachricht. Bestehende Legacy-Zeilen werden nicht massenweise umgeschrieben
+oder neu zum Versand freigegeben. HTTP-Timeouts können daher
 sicher erneut an die Inbox übergeben werden, ohne einen neuen Versandjob anzulegen.
 
 Der User-Service-Worker löst die E-Mail über die gespeicherte Benutzer-ID auf.
-Fehlende, gelöschte oder nicht verifizierte Empfänger werden SUPPRESSED.
+Fehlende, gelöschte, nicht verifizierte oder syntaktisch ungültige Empfänger
+werden SUPPRESSED. Genau eine einzelne Adresse ist erlaubt; Gruppen,
+Adresslisten und Zeilenumbrüche werden abgewiesen. Dies blockiert andere
+Empfänger derselben Zahlung nicht. Es gibt keine CC-/BCC-Empfänger.
 Aktuelle Poolmitgliedschaften werden nicht neu zur Verteilung herangezogen:
 Ein später deaktiviertes Mitglied mit historischem Anspruch erhält seinen
 Zahlungshinweis; neue Mitglieder ohne damalige Allokation erhalten nichts.
@@ -55,7 +66,7 @@ Der interne Endpunkt ist kein öffentlicher Gast-Mailversand.
 
 Payment-Outbox: PENDING, SENDING, RETRY, ACCEPTED, FAILED.
 User-Inbox: PENDING, SENDING, RETRY, SENT, SUPPRESSED, UNKNOWN, FAILED.
-Jeweils maximal zehn Versuche, exponentieller Backoff mit maximal einer Stunde,
+Jeweils maximal zehn Versuche, exponentieller Backoff von 60 bis 1920 Sekunden,
 15-Sekunden-Workerintervall und höchstens 20 Claims je Durchlauf.
 
 Ein SMTP-Verbindungs-/Authentifizierungsfehler oder expliziter temporärer
@@ -80,16 +91,28 @@ bei Transferabschluss bleibt eine gesonderte Produktentscheidung.
 
 == Inhalt
 
-Die Nachricht nennt den gewählten Betrag, die einmalige gespeicherte Provision,
-die geschätzten Stripe-Zahlungsgebühren und den gespeicherten persönlichen Anteil.
-Bei Poolzahlungen sind Gesamttrinkgeld und verteilbarer Gesamtbetrag getrennt
-vom eigenen Anteil. Sie bestätigt eine Gastzahlung, keinen Bank-Payout und keinen
-bereits abgeschlossenen Pooltransfer. Tatsächliche spätere Stripe-Kosten werden
-nicht neu vom Empfängerbetrag abgezogen. Link ausschließlich auf `/account`.
+Die Nachricht enthält ausschließlich den gespeicherten eigenen Anteil. Bei Pools
+erscheinen weder Gesamttrinkgeld, Gastzahlbetrag, Verteilungssumme noch fremde
+Anteile oder Mitglieder in Betreff, HTML, Text, Vorschau oder Template-Payload.
+Auch alte gespeicherte Nachrichten werden vor Darstellung entsprechend reduziert.
+Die Zuordnung stammt ausschließlich aus den eingefrorenen Allokationen; spätere
+Mitgliedschafts- oder Schlüsseländerungen führen zu keiner Neuberechnung.
+
+HTML und Plaintext werden aus denselben Absätzen erzeugt und über den bestehenden
+`EmailSendService` als Multipart-Alternative versendet. Das HTML verwendet ein
+schlichtes helles Gratilo-Layout und maskiert Inhalte. Der Dashboard-Link zeigt
+auf `/account`; ungültige oder unsichere Basis-URLs werden abgewiesen.
+
+Persönliche V8-Zahlungen mit Stripe als Fee Collector kennzeichnen den Betrag als
+voraussichtlichen Nettoanteil, weil tatsächliche Stripe-Gebühren abweichen können.
+Poolnachrichten bestätigen eine persönliche Zuweisung nach erfolgreicher Gastzahlung,
+keinen bereits abgeschlossenen Transfer oder Bank-Payout. Es gibt keine zusätzliche
+Nachricht pro Transferabschluss. Gastnachrichten bleiben mangels gesonderter
+Freigabe für den E-Mail-Versand ausgelassen.
 
 == Aktivierung und Migrationen
 
-Neue additive Migrationen:
+Bereits vorhandene additive Migrationen (keine neue Migration durch diese Ergänzung):
 
 * Payment: `013_tip_notification_outbox.sql`, Changeset `014-tip-notification-outbox`.
 * User: `018_tip_notification_inbox.sql`.
@@ -98,13 +121,27 @@ Keine bestehenden Zahlungsdaten, Preise, Mitglieder oder Bilder werden geändert
 Keine Historien-Nachbefüllung. Für Betrieb müssen beide Migrationen vor Aktivierung
 vorhanden sein und beide Services dieselbe interne Vertrauenskonfiguration verwenden.
 
-`TIP_PAYMENT_EMAILS_ENABLED=false` ist die Vorgabe in beiden Services.
+Im Profil `prd` ist der Versand jetzt in beiden Services standardmäßig aktiviert
+(`TIP_PAYMENT_EMAILS_ENABLED:true`). Damit erzeugen auch bestätigte
+Stripe-Testzahlungen E-Mails über den vorhandenen SES-SMTP-Transport.
+`STRIPE_TEST_ONLY` schaltet ausschließlich Stripe-Zahlungen in den Testmodus,
+nicht den E-Mail-Transport. Ein explizites `TIP_PAYMENT_EMAILS_ENABLED=false`
+kann den Versand weiterhin in beiden Services abschalten.
+Außerhalb von `prd` bleibt die Vorgabe `false`.
 Im lokalen Stripe-Compose wird diese Variable an beide Services weitergegeben.
 Für einen ausdrücklich gewünschten lokalen Test kann sie in der nicht versionierten
 Konfiguration auf true gesetzt werden; MailHog bleibt der lokale Transport.
 Keine echten Zahlungen oder E-Mails wurden während der Implementierung erzeugt.
 
-Ein Deployment allein aktiviert keine E-Mails. Vor separater Betriebsaktivierung:
+Templateversion 2 benötigt beide aktualisierten Services. Bei einem späteren
+abgestimmten Rollout zuerst den neuen User-Service bereitstellen und die Flags
+während einer gestaffelten Aktualisierung beider Services explizit deaktivieren; der alte Consumer
+versteht das neue Format nicht.
+
+Ein späteres Deployment mit `prd` aktiviert den SES-Versand, sofern keine
+explizite Abschaltung gesetzt ist. Eine vorhandene Abschaltung in ECS muss für
+den gewünschten Versand in beiden Containern auf `true` gesetzt werden.
+Es wurde hier kein Deployment ausgeführt. Vor Betriebsaktivierung:
 SES-/SMTP-Konfiguration und Feedback-Prozess prüfen, Tarif/Quoten abnehmen,
 Transport-Smoke-Test mit ausdrücklich freigegebenem Empfänger und anschließend
 beide Services kontrolliert aktivieren. Einseitige Aktivierung führt zu fehlendem
@@ -123,12 +160,19 @@ Geprüft: Migrationen, atomarer Rollback, doppelte Inserts, Backoff, Lease-Fenci
 Crash-Quarantäne und konkurrierende Claims. Keine bestehende Datenbank wird verwendet.
 Der Test ist in die bestehende CI-Testworkflow eingebunden.
 
-Neue Klassen: `TipNotification` in beiden Services, `TipNotificationOutbox`,
-`TipNotificationDelivery`, `TipNotificationDispatcher`, `TipNotificationInbox`,
-`TipNotificationController`, `TipNotificationSender`. Vorhandene Webhook-/Checkout-
-Klassen und bestehender SMTP-Transport werden weiterverwendet.
+Für diese Ergänzung geändert:
 
-Lokale Abschlussprüfungen: beide Backend-Testsuiten erfolgreich; PostgreSQL-
-Outbox-/Inbox-Regression erfolgreich. Frontend: 134 Tests erfolgreich und
-TypeScript/Vite-Build erfolgreich. Deployment-Tooling: 141 Tests erfolgreich.
-Browsertests mit API-Fakes bei 1440/390/320 Pixeln erfolgreich.
+* `TipNotification.java` in beiden Services: empfängerbezogenes Templateformat und Legacy-Normalisierung.
+* Payment: `TipNotificationOutbox.java`, `TipNotificationDispatcher.java`.
+* User: `TipNotificationInbox.java`, `TipNotificationSender.java`, `EmailSendService.java`.
+* Tests: `TipNotificationOutboxTest.java`, `TipNotificationSenderTest.java`,
+  `TipNotificationInboxTest.java`, `TipEmailMultipartTest.java`.
+* Diese Dokumentation.
+
+Tests verwenden ausschließlich Mocks und isoliertes PostgreSQL. Es werden weder
+SES-/SMTP-Nachrichten noch Stripe-Zahlungen ausgelöst. Frontend-Code und
+Zahlungsberechnung werden durch diese Ergänzung nicht geändert.
+
+Abschlussprüfung am 22.10.2026: Payment-Service 203 Tests, User-Service 74 Tests,
+keine Fehler oder übersprungenen Tests. PostgreSQL-Outbox-/Inbox-Regression
+erfolgreich. Kein Frontend-Code geändert; daher kein erneuter Frontend-Build.

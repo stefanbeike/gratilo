@@ -11,6 +11,16 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class SmtpConfigurationTest {
     @Test
+    void notificationDeliveryCanBeExplicitlyDisabledEvenInSesProfile() {
+        try (var context = ApplicationContext.builder().environments("prd")
+                .environmentPropertySource(false)
+                .properties(java.util.Map.of("TIP_PAYMENT_EMAILS_ENABLED", "false")).build()) {
+            assertFalse(context.getEnvironment().start()
+                    .getRequiredProperty("notifications.tip-payments-enabled", Boolean.class));
+        }
+    }
+
+    @Test
     void javaMailBindsProductionPropertiesAndCredentialsWithoutConnecting() {
         try (ApplicationContext source = ApplicationContext.builder()
                 .environments("prd").environmentPropertySource(false)
@@ -48,6 +58,7 @@ class SmtpConfigurationTest {
                 .build()) {
             Environment env = context.getEnvironment().start();
             assertEquals("email-smtp.eu-central-1.amazonaws.com", env.getRequiredProperty("javamail.properties.mail.smtp.host", String.class));
+            assertTrue(env.getRequiredProperty("notifications.tip-payments-enabled", Boolean.class));
             assertEquals(587, env.getRequiredProperty("javamail.properties.mail.smtp.port", Integer.class));
             for (String key : new String[]{"mail.smtp.auth", "mail.smtp.starttls.enable", "mail.smtp.starttls.required", "mail.smtp.ssl.checkserveridentity"}) {
                 assertTrue(env.getRequiredProperty("javamail.properties." + key, Boolean.class), key);
@@ -68,6 +79,7 @@ class SmtpConfigurationTest {
         try (ApplicationContext context = ApplicationContext.builder().environmentPropertySource(false).build()) {
             Environment env = context.getEnvironment().start();
             assertEquals("localhost", env.getRequiredProperty("javamail.properties.mail.smtp.host", String.class));
+            assertFalse(env.getRequiredProperty("notifications.tip-payments-enabled", Boolean.class));
             assertEquals(1025, env.getRequiredProperty("javamail.properties.mail.smtp.port", Integer.class));
             assertFalse(env.getRequiredProperty("javamail.properties.mail.smtp.auth", Boolean.class));
             assertFalse(env.getRequiredProperty("javamail.properties.mail.smtp.starttls.enable", Boolean.class));

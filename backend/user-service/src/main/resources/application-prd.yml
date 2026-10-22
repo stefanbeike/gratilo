@@ -1,3 +1,7 @@
+notifications:
+  # The existing SES SMTP transport also delivers notifications for Stripe test payments.
+  tip-payments-enabled: ${TIP_PAYMENT_EMAILS_ENABLED:true}
+
 app:
   email:
     general-from: ${MAIL_GENERAL_FROM_EMAIL:info@gratilo.eu}

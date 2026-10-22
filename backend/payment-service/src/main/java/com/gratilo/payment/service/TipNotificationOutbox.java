@@ -31,7 +31,7 @@ public class TipNotificationOutbox {
             return;
         }
         for(var notification:messages)try{
-            var payload=json.writeValueAsString(notification);
+            var payload=notification.payload(json);
             entities.createNativeQuery("INSERT INTO payment_mgmt.tip_notification_outbox(notification_key,transaction_id,recipient_user_id,payload) VALUES (:key,:tx,:recipient,:payload) ON CONFLICT (notification_key) DO NOTHING")
                 .setParameter("key",notification.notificationKey()).setParameter("tx",tx.getId()).setParameter("recipient",notification.recipientUserId()).setParameter("payload",payload).executeUpdate();
         }catch(java.io.IOException invalid){throw new IllegalStateException("Notification snapshot serialization failed",invalid);}
@@ -52,7 +52,7 @@ public class TipNotificationOutbox {
         return List.copyOf(result);
     }
     private static TipNotification notification(TransactionEntity tx,TipPricingSnapshot pricing,UUID recipient,UUID allocation,long amount,boolean pool){
-        var n=new TipNotification(TipNotification.key(tx.getId(),recipient),tx.getId(),recipient,allocation,1,pricing.version(),pricing.selectedMinor(),pricing.platformFeeMinor(),pricing.estimatedFeeMinor(),Boolean.TRUE.equals(pricing.feeCovered()),pricing.recipientMinor(),amount,pool);
+        var n=new TipNotification(TipNotification.key(tx.getId(),recipient),tx.getId(),recipient,allocation,2,pricing.version(),0,0,0,false,0,amount,pool);
         n.validate();return n;
     }
 }

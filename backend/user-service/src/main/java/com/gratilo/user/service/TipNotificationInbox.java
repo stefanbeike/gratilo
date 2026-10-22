@@ -15,13 +15,13 @@ public class TipNotificationInbox {
     private final JsonMapper json;
     public TipNotificationInbox(EntityManager entities,JsonMapper json){this.entities=entities;this.json=json;}
     @Transactional public void accept(TipNotification message){
-        message.validate();
+        message=message.recipientOnly();
         try{
-            String payload=json.writeValueAsString(message);
+            String payload=message.payload(json);
             entities.createNativeQuery("INSERT INTO user_mgmt.tip_notification_inbox(notification_key,recipient_user_id,payload) VALUES (:key,:recipient,:payload) ON CONFLICT (notification_key) DO NOTHING")
                 .setParameter("key",message.notificationKey()).setParameter("recipient",message.recipientUserId()).setParameter("payload",payload).executeUpdate();
             String existing=(String)entities.createNativeQuery("SELECT payload FROM user_mgmt.tip_notification_inbox WHERE notification_key=:key").setParameter("key",message.notificationKey()).getSingleResult();
-            if(!payload.equals(existing))throw new ConflictingNotification();
+            if(!payload.equals(json.readValue(existing,TipNotification.class).payload(json)))throw new ConflictingNotification();
         }catch(java.io.IOException failure){throw new IllegalArgumentException("Invalid notification snapshot");}
     }
     public static class ConflictingNotification extends IllegalArgumentException{}
