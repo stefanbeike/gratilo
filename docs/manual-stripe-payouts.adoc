@@ -1,0 +1,229 @@
+= Manuelle EUR-Standardauszahlungen
+:toc:
+
+Stand: 22.10.2026. Ausschließlich lokale Implementierung; keine Stripe-Payouts,
+Kontoeinstellungen, AWS-Ressourcen oder bestehenden Datenbanken verändert.
+
+== Bestandsaufnahme
+
+`StripePayoutService` und `PayoutController` existierten bereits. Der alte
+Simulationspfad leitete Guthaben aus gebuchten App-Transaktionen ab und konnte
+Pooltransfers sowie noch nicht verfügbare Beträge falsch behandeln. Der externe
+Pfad verwendete einen neuen zeitabhängigen Schlüssel je Aufruf, hielt eine
+Datenbanktransaktion über den Stripe-POST offen und prüfte weder Bankverbindung
+noch den manuellen Auszahlungsplan. Ein Timeout konnte dadurch zum Verlust des
+lokalen Auftrags und bei erneutem Aufruf zu einer zweiten Auszahlung führen.
+Das Dashboard zeigte bislang nur eine Informationsansicht.
+
+== Stripe-Unterstützung und offene Abnahme
+
+Offizielle Quellen:
+
+* https://docs.stripe.com/connect/manual-payouts[Manuelle Payouts]: Accounts v2
+  verwenden Balance Settings; der Payout erfolgt mit `Stripe-Account` aus dem
+  verfügbaren Connected-Account-Guthaben.
+* https://docs.stripe.com/connect/manage-payout-schedule[Auszahlungsplan]:
+  `manual` ist ein eigener Plan. Änderungen setzen entsprechende Plattformrechte
+  beziehungsweise Haftung voraus. Eine Payout-Capability allein beweist diese
+  Plattformrechte nicht.
+* https://docs.stripe.com/connect/express-dashboard[Express Dashboard]:
+  manuelle Auszahlungen und Planänderungen hängen von freigegebenen Funktionen ab.
+* https://docs.stripe.com/api/payouts/create[Payout-Erstellung]: `standard`,
+  `currency=eur`, positive Minor Units, eigene hinterlegte externe Bankverbindung.
+* https://docs.stripe.com/changelog/dahlia/2026-06-24/express-connected-accounts-v2-stripe-owned-pricing-negative-balance-liability[Preview]:
+  bestätigt Express mit Stripe als Gebühren- und Verlustträger; dies ist keine
+  eigenständige Zusage der manuellen Payout-Berechtigung der konkreten Plattform.
+
+Neue Konten können weiterhin über den bestehenden isolierten Accounts-v2-
+Preview-Pfad erstellt werden. Dieser Auftrag ändert das Onboarding nicht.
+Payout-, Balance-Settings- und Bankabfragen verwenden die bestehende stabile
+API-Version `2026-09-30.endive`; keine globale Preview-Umstellung.
+
+Die konkrete Berechtigung für API-Payouts sowie die Vertragsgebühren des neuen
+Express-Modells wurden durch diesen Auftrag NICHT an echten Sandbox-Konten
+nachgewiesen. Externe Payout-POSTs bleiben deshalb gesperrt. Vor späterem E2E-Test
+müssen Stripe beziehungsweise die Plattformkontoeinstellungen die Berechtigung
+bestätigen. Eine nicht unterstützte Konfiguration wird nicht umgangen.
+
+== Geldfluss und Guthaben
+
+Persönliche Direct Charges und eingegangene SCT-Pooltransfers liegen auf demselben
+Connected Account. Die Herkunft wird für die Auszahlung nicht erneut addiert.
+`StripeBalanceService` bleibt die einzige Quelle für EUR-`available` und `pending`;
+andere Währungen werden nicht ausgezahlt. Reserven, Rückerstattungen und negative
+Salden werden über das von Stripe gemeldete verfügbare Guthaben berücksichtigt.
+Fehler beim Lesen führen zu einer Sperre, niemals zu einem Ledger-Ersatzwert.
+
+Das obere Dashboard zeigt weiterhin das echte Stripe-Guthaben. Die lokale
+Simulation reserviert zusätzlich bereits simuliert ausgezahlte Beträge in der
+bestehenden Transaktionstabelle. Ihr separat beschrifteter verfügbarer Betrag ist
+kein verändertes Stripe-Guthaben. Simulationsabschlüsse verringern Stripe nicht;
+die lokalen Reservierungen verhindern aber wiederholtes Ausgeben desselben
+Simulationsguthabens. Alte Ledger-Simulationen werden nicht umgeschrieben.
+
+Das Payout-Minimum beträgt wie im bisherigen Auszahlungsservice 1,00 EUR;
+Trinkgeldgrenzen gelten nicht für aggregierte Auszahlungen. Teilbeträge und das
+gesamte verfügbare EUR-Guthaben sind möglich. Stripe bleibt für seine technischen
+Grenzen maßgeblich. Mehrere Stripe-Quellguthaben (`source_types`) werden nicht in
+mehrere Payouts gesplittet; eine gegebenenfalls notwendige besondere Quellwahl
+muss vor Freigabe solcher Konten geprüft werden. Kein automatischer Ersatz-POST.
+
+== Voraussetzungen
+
+Vor jeder neuen Anforderung prüft der Server:
+
+. Den authentifizierten Mitarbeiter und seine serverseitig zugeordnete Account-ID.
+. Frischen Accounts-v2-Status und aktive Payout-Capability.
+. `GET /v1/balance_settings`, `payments.payouts.status=enabled` und Plan `manual`.
+. Eine eindeutige gültige EUR-Standardbankverbindung über den existierenden
+  External-Accounts-Leseendpunkt. Nicht lesbare oder inkompatible Bankdaten sperren
+  die Funktion; keine Bankanlage und kein unsicherer V2-Fallback.
+. Verfügbares EUR-Guthaben sowie lokale Simulationsreservierungen.
+. Den Betrag und die laufenden Auszahlungsanforderungen.
+
+Unmittelbar vor dem möglichen POST wird das Stripe-Guthaben nochmals gelesen.
+Stripe selbst bleibt die letzte atomare Guthabenkontrolle, etwa gegenüber
+parallel im Express Dashboard gestarteten Auszahlungen. Automatische Pläne
+werden nicht geändert, sondern mit einer verständlichen Meldung abgelehnt.
+
+== Persistenz, Idempotenz und Nebenläufigkeit
+
+Es gibt keine zweite Payout-Tabelle. `payment_mgmt.transactions` enthält die
+negative Auszahlung mit bestehender Benutzerzuordnung und Idempotenz-Constraint.
+`metadata.payoutVersion=1` trennt neue Anforderungen von historischen Auszahlungen.
+Der Snapshot friert Request-ID, Account-ID, Bankziel, Betrag, Betriebsmodus und
+Auswahl des gesamten Guthabens ein; Status und Abgleichszeit werden ergänzt.
+
+`PayoutStore.prepare` sperrt den Connected-Account-Datensatz pessimistisch und
+prüft unter der Sperre dieselbe Request-ID, laufende Anfragen und Reservierungen.
+Ein wiederholter identischer Request liefert den bestehenden Auftrag; derselbe
+Schlüssel für einen anderen Betrag wird abgewiesen. Eine laufende oder unklare
+Anforderung blockiert eine zweite Anforderung, auch aus einem anderen Browser.
+Höchstens drei neue Anforderungen je Mitarbeiter und Minute sind zulässig.
+
+Die additive Migration `015_manual_payout_safety.sql` ergänzt ausschließlich
+Constraints für neue verwaltete Auszahlungen:
+
+* Höchstens eine aktive/unklare Anforderung je Mitarbeiter.
+* Eine gespeicherte Stripe-Payout-ID darf nicht doppelt zugeordnet werden.
+
+Die Anforderung wird in einer separaten Transaktion VOR dem externen POST
+committet. Stripe erhält den stabilen Schlüssel `gratilo-payout-<transactionId>`
+sowie `metadata[transaction_id]` und `metadata[request_id]`. Ein Antwortverlust
+löscht den lokalen Auftrag nicht. Es gibt keinerlei automatischen zweiten POST.
+
+Bei 409, 429, 5xx, Transport-Timeout oder unklarer Antwort bleibt die Anforderung
+ungeklärt. Wiederholte Requests erzeugen keine neue Auszahlung. Der Abgleich liest
+bekannte Payout-IDs oder sucht über maximal zehn paginierte GET-Seiten nach der
+Transaktions-Metadaten-ID. Fehlender Fund ist KEIN Beweis, dass kein Payout
+existiert. Dann bleibt der Auftrag gesperrt und erfordert administrative Prüfung.
+Auch ein Crash vor dem POST wird konservativ so behandelt. Dadurch entsteht
+bewusst keine unsichere Wiederholung nach Ablauf der Stripe-Idempotenz-Retention.
+Ein automatischer Wiederanlauf vor einem nachweislich nicht erfolgten POST ist
+nicht implementiert; Sicherheit hat hier Vorrang vor automatischer Freigabe.
+
+== HTTP-API und Autorisierung
+
+Alle Endpunkte verwenden den bestehenden JWT-Schutz und ausschließlich die
+Benutzer-ID des authentifizierten Mitarbeiters:
+
+* `GET /payment-service/payouts`: eigene Auszahlungshistorie.
+* `GET /payment-service/payouts/eligibility`: geprüfte Voraussetzungen und nur
+  maskierte Bankdaten, kein fremdes Guthaben.
+* `POST /payment-service/payouts`: `{amountMinor, requestId}`. `amountMinor=null`
+  bedeutet das gesamte unter der Sperre ermittelte verfügbare Guthaben.
+* `POST /payment-service/payouts/<id>/reconcile`: ausschließlich eigener
+  Statusabgleich; erzeugt keinen externen Payout.
+
+Ganzzahlige Minor Units werden durch den bestehenden strikten Deserializer
+geprüft. Account-IDs, Bankverbindungen, Währung und Methode werden nicht vom Client
+übernommen. JWTs liegen im Authorization-Header, nicht in automatisch gesendeten
+Login-Cookies. Keine neue Cookie-Authentifizierung oder CSRF-Ausnahme eingeführt.
+
+== Zustände und Webhooks
+
+`PENDING` bedeutet Anforderung angenommen, noch keinen Bankeingang.
+`AUTHORIZED` mit `PAYOUT_OUTCOME_UNKNOWN` bedeutet unklarer Ausgang und gesperrter
+Neuversuch. `BOOKED` wird erst nach Stripe-Status `paid` gesetzt; `FAILED` und
+`CANCELLED` bleiben unterscheidbar. In der Simulation steht ausdrücklich
+„Simulation abgeschlossen“ statt „auf dem Bankkonto angekommen“.
+
+Der bestehende signierte Connected-Account-Endpunkt
+`/payment-service/webhooks/stripe-direct` verarbeitet `payout.created`,
+`payout.updated`, `payout.paid`, `payout.failed`, `payout.canceled`.
+Top-Level-Testmodus, Connected-Account-ID, Payout-ID, Betrag, Währung,
+Standardmethode und Banktyp müssen passen. Unbekannte/fremde IDs verändern nichts.
+Pessimistische Transaktionssperren serialisieren Webhooks und API-Antworten.
+Doppelte oder ältere Events setzen keinen abgeschlossenen Status zurück.
+Ein neuerer Bankfehler darf ein früheres `paid` korrigieren; verzögerte
+`pending`-Events dürfen das nicht. Ohne Webhooks steht ein eigener GET-Abgleich
+zur Verfügung. Es wird kein periodischer externer Payout-Erstellungsworker gestartet.
+
+== Dashboard
+
+Unter „Auszahlung verwalten“ erscheinen Bank-Endziffern, verfügbarer Betrag,
+Betragseingabe, „Gesamtes verfügbares Guthaben“, „Auszahlen“, Bestätigungsdialog und
+Statusverlauf mit voraussichtlichem Ankunftsdatum. Kein ausstehendes Guthaben wird
+freigegeben. Fehler beim Laden der Historie sperren neue Anforderungen.
+
+Ein synchroner Klickschutz verhindert Doppelklicks vor dem React-Render.
+Die Request-ID und Betragwahl bleiben bei einem unklaren HTTP-Ergebnis pro Benutzer
+lokal gespeichert. Ein Retry verwendet denselben Request. Die Serversperren bleiben
+auch bei mehreren Tabs oder gelöschtem Browserspeicher maßgeblich.
+
+== Gebühren
+
+Gratilo erhebt keine zusätzliche Payout-Provision, keine feste Gebühr, kein
+Account-Debit und keine Application Fee bei Auszahlungen. Die 5-%-Provision beim
+Trinkgeld und alle Pricing-/Pool-Snapshots bleiben unverändert.
+
+Der gespeicherte Wert `gratiloPayoutFeeMinor=0` ist KEINE Aussage über tatsächliche
+Stripe-Vertragsgebühren. `stripePayoutFeeKnown=false` verhindert eine erfundene
+Nullgebühr. Die Support-Aussage zu entfallenden zusätzlichen Standard-Connect-
+Gebühren ist vor externer Freigabe für das jeweilige Konto/Vertragsmodell zu
+bestätigen. Dieser Auftrag zieht keine geschätzten Stripe-Payout-Gebühren ab.
+Eine künftige Erfassung tatsächlich separat berechneter Payout-Kosten muss auf
+verfügbaren Stripe-Abrechnungsdaten basieren; es gibt dafür keine erfundene Buchung.
+
+== Sichere Aktivierung und späterer Sandbox-Test
+
+Standardmäßig gilt `STRIPE_SANDBOX_PAYOUTS=true`.
+In diesem Modus ist selbst mit einem echten Testschlüssel kein Payout-POST erlaubt.
+Der vorhandene Test-Key-Schutz schließt Live-Schlüssel aus.
+Der reproduzierbare Ablauf ist `pending` → `in_transit` → `paid`, jeweils über
+„Status abgleichen“. Fehlgeschlagene und ungeklärte Abläufe werden mit Fakes getestet.
+
+Ein späterer, SEPARAT freizugebender externer Sandbox-Test erfordert:
+
+. Migration lokal beziehungsweise kontrolliert in der freigegebenen Sandbox anwenden.
+. Neues Express-Testkonto einschließlich Fähigkeiten, Bank und Vertragstarif prüfen.
+. API-Payout-Rechte und Zulässigkeit des Plans `manual` explizit bestätigen lassen.
+. Den Plan separat über die dafür freigegebene Stripe-Oberfläche einstellen;
+  diese Implementierung ändert ihn niemals automatisch.
+. Connected-Account-Payout-Events am bestehenden signierten Endpunkt abonnieren.
+. Nur für ausdrücklich freigegebene Account-IDs setzen:
+  `STRIPE_MANUAL_PAYOUTS_API_APPROVED=true`,
+  `STRIPE_MANUAL_PAYOUT_APPROVED_ACCOUNTS=acct_<freigegebenes_testkonto>`,
+  `STRIPE_SANDBOX_PAYOUTS=false`.
+. Kleinen EUR-Standardbetrag bewusst bestätigen und Payout, Balance Transaction,
+  Bankstatus und eventuelle Kosten prüfen. Keine Live-Freigabe aus einem Test ableiten.
+
+Die bestehenden Deployment-Sicherungen verlangen weiterhin simulierte Auszahlungen.
+Sie wurden hier NICHT gelockert. Ein späterer externer Test benötigt daher zusätzlich
+einen ausdrücklich geprüften Rollout; keine Empfehlung, einfach produktiv Flags
+umzustellen. Bestehende Connected Accounts bleiben unverändert.
+
+== Prüfungen
+
+`ManualPayoutTest` prüft Balance-Herkünfte, Snapshot/Request-Wiederholung,
+Betragsgrenzen, Empfängerbindung, Bank/Plan/Capability, Parallelität, unklare
+Timeouts, Reconciliation, Rejection und monotone Statusübergänge mit Fakes.
+`PayoutManager.test.tsx` prüft Betragseingabe, volle Auszahlung, Bestätigung,
+Doppelklick, Timeout-ID, unbekannte Ergebnisse und Ladefehler mit API-Mocks.
+`test_manual_payout_postgres.py` prüft neue Constraints und Datenbanksperren in
+PostgreSQL 15 ohne Netzwerkzugriff. Kein Test erzeugt externe Stripe-Payouts.
+
+Dateien: `StripePayoutService`, `PayoutStore`, `PayoutState`, `PayoutRequest`,
+`PayoutController`, `StripeWebhookController`, Payment-YAML-Konfigurationen,
+Changelog/Migration 015; Frontend `PayoutManager`, `PersonalAccountPanel`,
+`Dashboard`, Dashboard-CSS; zugehörige Tests und dieses Dokument.

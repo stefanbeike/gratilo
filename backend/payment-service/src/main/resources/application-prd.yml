@@ -11,7 +11,7 @@ stripe:
   webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
   success-url: "https://gratilo.eu/pay/success?session_id={CHECKOUT_SESSION_ID}"
   cancel-url: "https://gratilo.eu/pay/cancelled?session_id={CHECKOUT_SESSION_ID}"
-  sandbox-payouts: true
+  sandbox-payouts: ${STRIPE_SANDBOX_PAYOUTS:true}
   demo-enabled: false
 
 pool:

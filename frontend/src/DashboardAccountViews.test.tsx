@@ -37,7 +37,7 @@ it('shows a balance API failure without substituting personal or pool income',as
  mount({balanceError:true});const region=screen.getByRole('region',{name:'Persönliches Stripe-Guthaben'});await waitFor(()=>expect(within(region).getByRole('alert')).toHaveTextContent('nicht geladen'))
  expect(region).toHaveTextContent('—');expect(region).not.toHaveTextContent('9,50 €')
 })
-it('keeps owner settings while removing motif upload and all associated controls',async()=>{
+it('keeps owner image upload while hiding motif presets',async()=>{
  mount({admin:true});await screen.findByText('1.234,56 €');fireEvent.click(screen.getByRole('button',{name:'Team'}));
- expect(await screen.findByText('Team-Einstellungen und Mitglieder verwalten')).toBeInTheDocument();expect(screen.queryByLabelText('Team-Profilbild bearbeiten')).not.toBeInTheDocument();expect(screen.queryByText('Eigenes Motiv oder eine Vorlage:')).not.toBeInTheDocument()
+ expect(await screen.findByText('Team-Einstellungen und Mitglieder verwalten')).toBeInTheDocument();expect(screen.getByLabelText('Team-Profilbild bearbeiten')).toBeInTheDocument();expect(screen.queryByText('Eigenes Motiv oder eine Vorlage:')).not.toBeInTheDocument()
 })

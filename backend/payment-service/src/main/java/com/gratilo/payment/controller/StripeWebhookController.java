@@ -20,6 +20,8 @@ import javax.crypto.spec.SecretKeySpec;
 public class StripeWebhookController {
     @jakarta.inject.Inject @Nullable
     com.gratilo.payment.service.TipNotificationOutbox tipNotifications;
+    @jakarta.inject.Inject @Nullable
+    com.gratilo.payment.service.PayoutStore payouts;
     private final TransactionRepository transactions;
     private final String secret;
     private final boolean testOnly;
@@ -50,6 +52,10 @@ public class StripeWebhookController {
         if (event != null && event.startsWith("v2.")) return HttpResponse.badRequest();
         var data = body.get("data") instanceof java.util.Map<?, ?> value ? value : java.util.Map.of();
         var object = data.get("object") instanceof java.util.Map<?, ?> value ? value : java.util.Map.of();
+        if (payouts != null && java.util.Set.of("payout.created", "payout.updated", "payout.paid", "payout.failed", "payout.canceled").contains(event == null ? "" : event)) {
+            String account = body.get("account") instanceof String id ? id : null;
+            if (directEndpoint && payouts.webhook(account, object, number(body.get("created")))) return HttpResponse.ok();
+        }
         var metadata = object.get("metadata") instanceof java.util.Map<?, ?> value ? value : java.util.Map.of();
         Object transactionId = metadata.get("transaction_id");
         if (transactionId == null) transactionId = metadata.get("transactionId");
