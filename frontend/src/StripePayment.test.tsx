@@ -274,8 +274,9 @@ it('shows the actionable net-minimum error without allowing checkout', async () 
   expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(false)
 })
 
-for (const [pool,collector] of [[false,'application'],[false,'stripe'],[true,'application']] as const) for (const covered of [false, true]) it(`shows separate commission and frozen net for ${pool ? 'pool' : 'direct'} collector=${collector} with coverage=${covered}`, async () => {
+for (const newPricing of [false,true]) for (const [pool,collector] of [[false,'application'],[false,'stripe'],[true,'application']] as const) for (const covered of [false, true]) it(`shows separate commission and frozen net for ${pool ? 'pool' : 'direct'} collector=${collector} with coverage=${covered}, fixed fee=${newPricing}`, async () => {
   history.replaceState({}, '', `/pay/${pool ? 'team/' : ''}${user}`)
+  const commission = newPricing ? 170 : 125
   let selectedCoverage = false
   const fetch = vi.fn(async (url: string, options?: RequestInit) => {
     if (url.includes('/pools/public/')) return response({ ownerId: user, name: 'Team' })
@@ -284,8 +285,8 @@ for (const [pool,collector] of [[false,'application'],[false,'stripe'],[true,'ap
     if (url.includes('/quote')) {
       selectedCoverage = new URLSearchParams(url.split('?')[1]).get('feeCovered') === 'true'
       return response({ tipAmountMinor: 2500, serviceFeeMinor: selectedCoverage ? 107 : 0, totalAmountMinor: selectedCoverage ? 2607 : 2500,
-        recipientAmountMinor: 2500 - 125 - (selectedCoverage ? 0 : 104), platformFeeMinor: 125,
-        platformFeePercent: 5, pricingVersion: pool ? 7 : collector==='stripe' ? 8 : 6, feesCollector:collector, recipientAmountEstimated:collector==='stripe', estimatedStripeFeeMinor: selectedCoverage ? 107 : 104 })
+        recipientAmountMinor: 2500 - commission - (selectedCoverage ? 0 : 104), platformFeeMinor: commission,
+        platformFeePercent: 5, pricingVersion: newPricing ? (pool ? 10 : collector==='stripe' ? 11 : 9) : (pool ? 7 : collector==='stripe' ? 8 : 6), feesCollector:collector, recipientAmountEstimated:collector==='stripe', estimatedStripeFeeMinor: selectedCoverage ? 107 : 104 })
     }
     return response({ transactionId: 'fake' })
   })
@@ -296,7 +297,7 @@ for (const [pool,collector] of [[false,'application'],[false,'stripe'],[true,'ap
   fireEvent.click(screen.getByRole('button', { name: /Weiter/ }))
   if (covered) fireEvent.click(screen.getByRole('checkbox', { name: 'Zahlungsgebühren freiwillig übernehmen' }))
   await waitFor(() => expect(selectedCoverage).toBe(covered))
-  expect(await screen.findByText(/Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags/)).toBeInTheDocument()
+  expect(await screen.findByText(newPricing ? /Gratilo-Servicegebühr: 0,45 € \+ 5 % des Trinkgeldbetrags/ : /Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags/)).toBeInTheDocument()
   expect(screen.getByText(/Die Gebührenübernahme ist eine Schätzung/)).toBeInTheDocument()
   if(collector==='stripe') {
     expect(screen.getByText(/Stripe zieht seine tatsächlichen Gebühren direkt beim Empfänger ein/)).toBeInTheDocument()
@@ -311,7 +312,7 @@ for (const [pool,collector] of [[false,'application'],[false,'stripe'],[true,'ap
   await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(true))
   const sent = fetch.mock.calls.find(([url]) => url.includes('/checkout'))
   expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ tipAmountMinor: 2500, feeCovered: covered,
-    expectedTotalAmountMinor: covered ? 2607 : 2500, expectedRecipientAmountMinor: 2500 - 125 - (covered ? 0 : 104) })
+    expectedTotalAmountMinor: covered ? 2607 : 2500, expectedRecipientAmountMinor: 2500 - commission - (covered ? 0 : 104) })
 })
 
 it.each([false,true])('resolves preallocated team links by server mapping (team route=%s)', async explicitTeam => {

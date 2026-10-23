@@ -84,13 +84,26 @@ class DirectFeeAuditTest {
         assertEquals("PENDING",f.audit.getStatus());assertNull(f.audit.getActualFeeMinor());
         assertEquals("STRIPE_FEE_RETRY_REQUIRED",f.audit.getLastError());
     }
+    @Test void newFixedCommissionAuditsBothFeeCollectorsWithoutChangingFrozenRecipientAmounts()throws Exception {
+        for(boolean covered:new boolean[]{false,true})for(boolean stripeCollector:new boolean[]{false,true})for(long actual:new long[]{94,114}) {
+            var f=new Fixture(covered,stripeCollector,true);f.actual=actual;String frozen=f.tx.getMetadata();f.service.reconcile();
+            if(!stripeCollector)f.service.recordPlatformFeeEvidence(f.tx.getId(),"acct_fixture","ch_fixture",actual,"stripe_report_new_fixture");
+            assertEquals(170L,f.audit.getPlatformFeeMinor());
+            assertEquals(stripeCollector?170L:170+(covered?107:104),f.audit.getApplicationFeeMinor());
+            assertEquals(stripeCollector?170L:170+(covered?107:104)-actual,f.audit.getPlatformNetRevenueMinor());
+            assertEquals(actual,f.audit.getActualFeeMinor());assertEquals(frozen,f.tx.getMetadata());
+            assertEquals(covered?2330:2226,TipPricingSnapshot.from(f.tx).recipientMinor());
+        }
+    }
+
     static class Fixture {
         final TransactionEntity tx=new TransactionEntity();PaymentFeeAuditEntity audit;long refunded;boolean wrongAccount;long actual=107;boolean noBalance,emptyDetails;
         final List<String> scopes=new ArrayList<>();final StripeFeeAuditService service;
         Fixture(boolean covered)throws Exception {this(covered,false);}
-        Fixture(boolean covered,boolean stripeCollector)throws Exception {
+        Fixture(boolean covered,boolean stripeCollector)throws Exception {this(covered,stripeCollector,false);}
+        Fixture(boolean covered,boolean stripeCollector,boolean latest)throws Exception {
             tx.setId(UUID.randomUUID());tx.setProvider("STRIPE");tx.setAmountMinor(2500);tx.setProviderReference("cs_test_fixture");tx.setStatus(TransactionStatus.BOOKED);
-            var quote=stripeCollector?TipPricing.directStripeQuote(2500,covered,new BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT):TipPricing.quote(2500,covered,new BigDecimal("3.15"),25);
+            var quote=latest?(stripeCollector?TipPricing.directStripeQuote(2500,covered,new BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT):TipPricing.quote(2500,covered,new BigDecimal("3.15"),25)):(stripeCollector?HistoricalPricingFixtures.directStripeQuote(2500,covered,new BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT):HistoricalPricingFixtures.quote(2500,covered,new BigDecimal("3.15"),25));
             var meta=TipPricingSnapshot.metadata(quote,covered);meta.put("chargeModel","DIRECT");meta.put("stripeAccountId","acct_fixture");meta.put("feesCollector",stripeCollector?"stripe":"application");
             tx.setMetadata(JsonMapper.createDefault().writeValueAsString(meta));
             var repo=StripeFeeAuditTest.proxy(PaymentFeeAuditRepository.class,(p,m,a)->switch(m.getName()){
@@ -103,9 +116,9 @@ class DirectFeeAuditTest {
                 private String fake(String path)throws Exception {
                     Object result;
                     if(path.startsWith("/v1/checkout/sessions/"))result=Map.of("livemode",false,"payment_status","paid","payment_intent","pi_fixture","metadata",Map.of("transaction_id",tx.getId().toString()));
-                    else if(path.startsWith("/v1/application_fees/"))result=Map.of("id","fee_fixture","livemode",false,"currency","eur","account",wrongAccount?"acct_other":"acct_fixture","charge","ch_fixture","amount",stripeCollector?125:quote.totalAmountMinor()-quote.recipientAmountMinor(),"amount_refunded",0,"balance_transaction","txn_application");
-                    else if(path.startsWith("/v1/balance_transactions/"))result=Map.of("id","txn_application","currency","eur","source","fee_fixture","amount",125,"fee",0,"net",125);
-                    else result=Map.of("livemode",false,"status","succeeded","latest_charge",Map.of("id","ch_fixture","livemode",false,"paid",true,"captured",true,"currency","eur","amount",quote.totalAmountMinor(),"amount_refunded",refunded,"application_fee","fee_fixture","balance_transaction",stripeCollector?(noBalance?Map.of():Map.of("id","txn_connected","currency","eur","source","ch_fixture","amount",quote.totalAmountMinor(),"fee",125+actual,"net",quote.totalAmountMinor()-125-actual,"fee_details",emptyDetails?List.of():List.of(Map.of("type","application_fee","amount",125,"currency","eur"),Map.of("type","stripe_fee","amount",actual,"currency","eur")))):Map.of("fee",0)));
+                    else if(path.startsWith("/v1/application_fees/"))result=Map.of("id","fee_fixture","livemode",false,"currency","eur","account",wrongAccount?"acct_other":"acct_fixture","charge","ch_fixture","amount",stripeCollector?quote.platformFeeMinor():quote.totalAmountMinor()-quote.recipientAmountMinor(),"amount_refunded",0,"balance_transaction","txn_application");
+                    else if(path.startsWith("/v1/balance_transactions/"))result=Map.of("id","txn_application","currency","eur","source","fee_fixture","amount",quote.platformFeeMinor(),"fee",0,"net",quote.platformFeeMinor());
+                    else result=Map.of("livemode",false,"status","succeeded","latest_charge",Map.of("id","ch_fixture","livemode",false,"paid",true,"captured",true,"currency","eur","amount",quote.totalAmountMinor(),"amount_refunded",refunded,"application_fee","fee_fixture","balance_transaction",stripeCollector?(noBalance?Map.of():Map.of("id","txn_connected","currency","eur","source","ch_fixture","amount",quote.totalAmountMinor(),"fee",quote.platformFeeMinor()+actual,"net",quote.totalAmountMinor()-quote.platformFeeMinor()-actual,"fee_details",emptyDetails?List.of():List.of(Map.of("type","application_fee","amount",quote.platformFeeMinor(),"currency","eur"),Map.of("type","stripe_fee","amount",actual,"currency","eur")))):Map.of("fee",0)));
                     return JsonMapper.createDefault().writeValueAsString(result);
                 }
             };

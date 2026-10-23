@@ -29,16 +29,16 @@ class TipPricingSnapshotTest {
             assertEquals(historic.recipientAmountMinor(),loaded.recipientAmountMinor());
             assertEquals(historic.totalAmountMinor(),loaded.totalAmountMinor());
             assertEquals(version==4?"acct_historical":null,StripePaymentContext.account(tx));
-            assertEquals(125,current.platformFeeMinor());assertEquals(frozen,tx.getMetadata());
+            assertEquals(170,current.platformFeeMinor());assertEquals(frozen,tx.getMetadata());
         }
     }
-    @Test void newPercentageVersionsRejectAnyHiddenFixedCommission() throws Exception {
+    @Test void newFixedPercentVersionsRejectAnyDifferentFixedCommission() throws Exception {
         for(boolean pool:new boolean[]{false,true}) {
             var q=pool?TipPricing.poolQuote(2500,true,new java.math.BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT)
                     :TipPricing.quote(2500,true,new java.math.BigDecimal("3.15"),25);
             var metadata=TipPricingSnapshot.metadata(q,true);
-            assertEquals(0L,metadata.get("platformFeeFixedMinor"));
-            metadata.put("platformFeeMinor",170);metadata.put("platformFeeFixedMinor",45);metadata.put("recipientAmountMinor",2330);
+            assertEquals(45L,metadata.get("platformFeeFixedMinor"));
+            metadata.put("platformFeeMinor",171);metadata.put("platformFeeFixedMinor",46);metadata.put("recipientAmountMinor",2329);
             var tx=new TransactionEntity();tx.setAmountMinor(2500);tx.setMetadata(JsonMapper.createDefault().writeValueAsString(metadata));
             assertThrows(IllegalStateException.class,()->TipPricingSnapshot.from(tx));
         }

@@ -149,7 +149,7 @@ class EcsDeploymentTest(unittest.TestCase):
         refs={e["name"]:e["valueFrom"] for e in result["secrets"]}
         self.assertEqual("true",env["GRATILO_NEW_PRICING_ENABLED"])
         self.assertEqual("5.00",env["GRATILO_PLATFORM_FEE_PERCENT"])
-        self.assertEqual("0",env["GRATILO_PLATFORM_FEE_FIXED_MINOR"])
+        self.assertEqual("45",env["GRATILO_PLATFORM_FEE_FIXED_MINOR"])
         self.assertNotIn("GRATILO_POOL_COMMISSION_FIXED_MINOR",env)
         self.assertEqual("200",env["GRATILO_POOL_TIP_MIN_MINOR"])
         self.assertEqual("50000",env["GRATILO_POOL_TIP_MAX_MINOR"])

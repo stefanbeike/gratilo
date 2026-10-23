@@ -137,7 +137,7 @@ public class StripeFeeAuditService {
         audit.setStripeApplicationFeeId(appId);audit.setApplicationFeeMinor(number(application.get("amount")));
         audit.setRefundedMinor(Math.max(number(charge.get("amount_refunded")),Objects.requireNonNullElse(audit.getRefundedMinor(),0L)));
         audit.setApplicationFeeRefundedMinor(number(application.get("amount_refunded")));
-        if (pricing.version()==8) { reconcileStripeCollected(audit,tx,charge,application); return; }
+        if (TipPricingSnapshot.isStripeCollectorVersion(pricing.version())) { reconcileStripeCollected(audit,tx,charge,application); return; }
         // With fees_collector=application the connected charge's fee/net does NOT prove the
         // platform's processing cost. Never record its zero Stripe fee as a platform zero.
         audit.setStatus("REPORT_REQUIRED");audit.setLastError("DIRECT_PLATFORM_FEE_REPORT_REQUIRED");
@@ -200,7 +200,7 @@ public class StripeFeeAuditService {
     public void recordPlatformFeeEvidence(UUID transactionId,String accountId,String chargeId,long actualFeeMinor,String reportReference){
         var tx=transactions.findById(transactionId).orElseThrow();
         var audit=audits.findById(transactionId).orElseThrow();
-        if(TipPricingSnapshot.from(tx).version()==8||!"STRIPE".equals(tx.getProvider())||!Objects.equals(accountId,StripePaymentContext.account(tx))||accountId==null
+        if(TipPricingSnapshot.isStripeCollectorVersion(TipPricingSnapshot.from(tx).version())||!"STRIPE".equals(tx.getProvider())||!Objects.equals(accountId,StripePaymentContext.account(tx))||accountId==null
                 ||!Objects.equals(chargeId,audit.getStripeChargeId())||chargeId==null
                 ||actualFeeMinor<0||actualFeeMinor>99_999_999||reportReference==null||!reportReference.matches("[A-Za-z0-9_.:-]{1,180}"))throw new IllegalArgumentException("Invalid platform fee evidence");
         if(audit.getActualFeeMinor()!=null){
@@ -224,12 +224,12 @@ public class StripeFeeAuditService {
     public Optional<Report> report(UUID id){return audits.findById(id).map(a->{
         var tx=transactions.findById(id).orElse(null);
         var pricing=tx==null?null:TipPricingSnapshot.from(tx);
-        Long retained=pricing==null?null:pricing.version()==8?pricing.platformFeeMinor():Math.subtractExact(a.getChargedMinor(),pricing.recipientMinor());
+        Long retained=pricing==null?null:TipPricingSnapshot.isStripeCollectorVersion(pricing.version())?pricing.platformFeeMinor():Math.subtractExact(a.getChargedMinor(),pricing.recipientMinor());
         Long result=retained==null||a.getActualFeeMinor()==null?null:Math.subtractExact(retained,a.getActualFeeMinor());
         if(pricing!=null&&pricing.version()>=3)result=a.getPlatformNetRevenueMinor();
         var pool=tx!=null&&PoolReconciliation.isPool(tx)?poolLedger.read(tx,a):null;
         if(pool!=null)result=pool.economicNetRevenueMinor();
-        return new Report(a.getTransactionId(),a.getStatus(),a.getChargedMinor(),a.getSurchargeMinor(),a.getEstimatedFeeMinor(),a.getActualFeeMinor(),a.getActualTotalFeeMinor(),a.getActualNetMinor(),a.getDifferenceMinor(),a.getUncoveredMinor(),a.getBalanceTransactionId(),a.getFeeDetails(),a.getEstimateBasis(),a.getEstimatePercent(),a.getEstimateFixedMinor(),a.getLastError(),a.getCheckedAt(),pricing==null?null:pricing.selectedMinor(),pricing==null?null:pricing.recipientMinor(),pricing==null?null:pricing.feeCovered(),retained,result,pricing==null?null:pricing.platformFeeMinor(),pricing==null?null:pricing.platformPercent(),a.getStripePaymentIntentId(),a.getStripeChargeId(),a.getStripeApplicationFeeId(),a.getApplicationFeeMinor(),a.getRefundedMinor(),a.getApplicationFeeRefundedMinor(),a.getCommissionRefundStatus(),pool==null?a.getPlatformNetRevenueMinor():pool.economicNetRevenueMinor(),a.getFeeSourceReference(),pool,pricing!=null&&pricing.version()==8?"stripe":"application",pricing!=null&&pricing.recipientEstimated(),pricing!=null&&pricing.version()==8?a.getActualNetMinor():null);
+        return new Report(a.getTransactionId(),a.getStatus(),a.getChargedMinor(),a.getSurchargeMinor(),a.getEstimatedFeeMinor(),a.getActualFeeMinor(),a.getActualTotalFeeMinor(),a.getActualNetMinor(),a.getDifferenceMinor(),a.getUncoveredMinor(),a.getBalanceTransactionId(),a.getFeeDetails(),a.getEstimateBasis(),a.getEstimatePercent(),a.getEstimateFixedMinor(),a.getLastError(),a.getCheckedAt(),pricing==null?null:pricing.selectedMinor(),pricing==null?null:pricing.recipientMinor(),pricing==null?null:pricing.feeCovered(),retained,result,pricing==null?null:pricing.platformFeeMinor(),pricing==null?null:pricing.platformPercent(),a.getStripePaymentIntentId(),a.getStripeChargeId(),a.getStripeApplicationFeeId(),a.getApplicationFeeMinor(),a.getRefundedMinor(),a.getApplicationFeeRefundedMinor(),a.getCommissionRefundStatus(),pool==null?a.getPlatformNetRevenueMinor():pool.economicNetRevenueMinor(),a.getFeeSourceReference(),pool,pricing!=null&&TipPricingSnapshot.isStripeCollectorVersion(pricing.version())?"stripe":"application",pricing!=null&&pricing.recipientEstimated(),pricing!=null&&TipPricingSnapshot.isStripeCollectorVersion(pricing.version())?a.getActualNetMinor():null);
     });}
     /** Signed provider events are append-only evidence; no refund or reversal is initiated here. */
     public void recordEvent(TransactionEntity tx,String eventId,String type,Map<?,?> object){

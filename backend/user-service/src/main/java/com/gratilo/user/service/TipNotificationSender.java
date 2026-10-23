@@ -66,10 +66,10 @@ public class TipNotificationSender {
         var n=original.recipientOnly();
         String subject=n.pool()?"Du hast ein Trinkgeld über deinen Pool erhalten!":"Du hast ein neues Trinkgeld erhalten!";
         String intro=n.pool()?"Gute Nachrichten! Über deinen Gratilo-Pool wurde dir ein neues Trinkgeld zugewiesen.":"Gute Nachrichten! Du hast ein neues Trinkgeld erhalten.";
-        String amount=(n.pricingVersion()==8?"Dein voraussichtlicher Nettoanteil: ":n.pool()?"Dein persönlicher Anteil: ":"Dein Trinkgeldanteil: ")+money(n.personalAmountMinor());
+        String amount=((n.pricingVersion()==8||n.pricingVersion()==11)?"Dein voraussichtlicher Nettoanteil: ":n.pool()?"Dein persönlicher Anteil: ":"Dein Trinkgeldanteil: ")+money(n.personalAmountMinor());
         var paragraphs=new java.util.ArrayList<String>();
         paragraphs.add("Hallo,");paragraphs.add(intro);paragraphs.add(amount);
-        if(n.pricingVersion()==8)paragraphs.add("Stripe zieht die tatsächlichen Zahlungsgebühren auf deinem Konto ein. Dein Nettoanteil kann von dieser Schätzung abweichen.");
+        if((n.pricingVersion()==8||n.pricingVersion()==11))paragraphs.add("Stripe zieht die tatsächlichen Zahlungsgebühren auf deinem Konto ein. Dein Nettoanteil kann von dieser Schätzung abweichen.");
         if(n.pool())paragraphs.add("Die Pool-Verteilung wird separat verarbeitet. Diese Nachricht bestätigt keinen erfolgreichen Transfer.");
         paragraphs.add("Dies ist keine Bestätigung einer Bankauszahlung. Alle Details zu deinem Anteil findest du in deinem Gratilo-Dashboard.");
         String url=dashboardUrl(base);

@@ -1,0 +1,224 @@
+= Prozentgewichte, neue Provision und DOMPurify
+:revdate: 2026-10-23
+
+== Umfang und Design-Stopp
+
+Diese Änderung ist ausschließlich lokal. Kein Push, Deployment, externer
+Stripe-Schreibzugriff oder Zugriff auf bestehende Datenbanken ist erforderlich.
+Weitere Anpassungen an das Landingpage-Design wurden auf Nutzerwunsch gestoppt.
+Die bereits vorbereiteten lokalen Design-Dateien bleiben im aktuellen Stand;
+sie sind kein vollständig geprüftes oder abgeschlossenes Redesign.
+
+== Neue Preisregel
+
+Für neu angelegte, für die bestehende Pricing-Freigabe berechtigte Checkouts gilt:
+
+[source,text]
+----
+Provision = 45 + HALF_UP(ursprünglicher Trinkgeldbetrag in Cent × 0,05)
+----
+
+`TipPricing` ist die zentrale Berechnung. Die feste Provision wird einmal pro
+Zahlung erhoben, auch bei mehreren Poolmitgliedern. Die Provisionsbasis enthält
+keinen Stripe-Kostenaufschlag. `BigDecimal`, geprüfte Integer-Beträge und die
+bestehende Cent-Rundung bleiben maßgeblich.
+
+`GRATILO_PLATFORM_FEE_PERCENT=5.00` und
+`GRATILO_PLATFORM_FEE_FIXED_MINOR=45` sind getrennt von
+`STRIPE_FEE_PERCENT=3.15` / `STRIPE_FEE_FIXED_MINOR=25`.
+Abweichende Plattformprovisionen werden beim Service-Start abgelehnt.
+Der alte `GRATILO_POOL_COMMISSION_FIXED_MINOR` ist kein Ersatz für diese Werte.
+Die bestehende Freigabe der neuen Preislogik wird nicht automatisch aktiviert.
+Ein späterer Rollout muss die neue Konfiguration mit dem neuen Code abstimmen.
+
+[cols="1,1",options="header"]
+|===
+|Ursprüngliches Trinkgeld |Provision
+|2,00 EUR |0,55 EUR
+|5,00 EUR |0,70 EUR
+|10,00 EUR |0,95 EUR
+|20,00 EUR |1,45 EUR
+|25,00 EUR |1,70 EUR
+|100,00 EUR |5,45 EUR
+|200,00 EUR |10,45 EUR
+|300,00 EUR |15,45 EUR
+|500,00 EUR (Pool) |25,45 EUR
+|===
+
+== Einzelzahlung und Gebührenverantwortung
+
+Direct Charges bleiben auf dem Connected Account.
+Für `fees_collector=application` enthält die Application Fee die Provision und
+den Stripe-Kostenausgleich. Die tatsächlich getragenen Stripe-Kosten werden
+separat auditiert; Mehr- oder Minderkosten ändern den eingefrorenen Anspruch nicht.
+
+Für `fees_collector=stripe` enthält die Application Fee ausschließlich die
+Provision. Der zusätzliche Gastaufschlag verbleibt zunächst beim Empfänger zur
+Deckung seiner tatsächlichen Stripe-Kosten. Der angezeigte Nettoanteil ist eine
+Prognose. Er darf nicht als garantierter endgültiger Stripe-Nettozufluss gelten.
+Dies war bereits das bestehende Gebührenmodell und wird nicht geändert.
+
+== Poolzahlungen
+
+Separate Charges and Transfers bleiben erhalten. Es gibt keinen Connected-Account-
+Header für die Charge, keine Destination und keine Application Fee.
+Die Provision reduziert einmalig das Budget vor der eingefrorenen Allokation.
+`source_transaction`, Transfergruppe, stabile Idempotenzschlüssel, Retry,
+Reconciliation und Reversals werden nicht geändert.
+
+.Beispiel 25,00 EUR; Stripe-Referenzschätzung 3,15 % + 0,25 EUR
+[cols="2,1,1",options="header"]
+|===
+|Position |Gast übernimmt Stripe-Kosten |Keine Übernahme
+|Ursprüngliches Trinkgeld |25,00 |25,00
+|Gratilo-Provision |1,70 |1,70
+|Gastaufschlag |1,07 |0,00
+|Gesamter Gastzahlbetrag |26,07 |25,00
+|Geschätzte Stripe-Kosten |1,07 |1,04
+|Netto-Verteilungsbudget |23,30 |22,26
+|Zwei gleichberechtigte Mitglieder |je 11,65 |je 11,13
+|===
+
+Bei Direct Charges gelten dieselben angezeigten Prognosebeträge; die Application
+Fee beträgt für Stripe als Fee Collector jeweils 1,70 EUR, bei Gratilo als Fee
+Collector 2,77 beziehungsweise 2,74 EUR. Die Stripe-Kosten bleiben getrennt von
+der reinen Provision. Bei SCT verbleibt die Provision als Plattformrest nach
+Abzug der Transfers und tatsächlichen Stripe-Kosten. Offene Transferverpflichtungen
+sind kein frei verfügbarer Provisionsertrag.
+
+== Preisversionen und Historie
+
+* V9: `DIRECT_FIXED_PERCENT_APPLICATION_V9`.
+* V10: `POOL_FIXED_PERCENT_V10`.
+* V11: `DIRECT_FIXED_PERCENT_STRIPE_V11`.
+
+V1 bis V8 bleiben lesbar und behalten ihre eingefrorenen Beträge. Insbesondere
+bleiben V6/V7/V8 ohne feste Provision; V4/V5 behalten ihre damaligen Regeln.
+Checkout-Retries lesen den ursprünglichen Snapshot statt den aktuellen Tarif.
+Die additive Migration `016_fixed_percent_pricing.sql` erweitert ausschließlich
+den bestehenden Schutz unveränderlicher Snapshots. Kein Backfill und keine
+Neuberechnung historischer Zahlungen. Die bestehenden Refund-/Reversal-Funktionen
+bleiben unverändert. Die fachlich offene Erstattung der Provision bleibt offen;
+der Audit darf bei ungeklärten Refunds keinen gesicherten Plattform-Nettoerlös behaupten.
+
+== Prozentgewichte
+
+`pool_members.share_percent` bleibt das vorhandene `NUMERIC(5,2)`-Gewicht.
+Es ist ein relatives Prozentgewicht, kein bedingungslos garantierter Anteil.
+Die UI nennt deshalb sowohl das gespeicherte Prozentgewicht als auch den effektiven
+Anteil und erklärt die Normalisierung.
+
+Eingaben sind 0 bis 100 mit höchstens zwei Nachkommastellen. Die Live-Summe wird
+in Integer-Basispunkten berechnet. 50/30/20 entspricht direkt 50/30/20 Prozent.
+Bei einer aktiven Gewichtssumme von 80 werden die aktiven Gewichte serverseitig
+auf 100,00 Prozent normalisiert. Mindestens ein aktives, angenommenes Mitglied
+muss ein positives Gewicht haben. Unbekannte und doppelte Mitglieds-IDs werden
+vor Änderungen abgelehnt. Die Poolbesitzer-Autorisierung bleibt bestehen.
+
+Inaktive Mitglieder und offene Einladungen haben effektiv null Prozent;
+ihre gespeicherten Gewichte bleiben für eine spätere Reaktivierung erhalten.
+Ein fehlender Stripe-Status führt nicht zur stillen Umverteilung: Die bestehende
+Checkout-Sperre bleibt maßgeblich. Größter Rest und deterministische Benutzer-ID-
+Reihenfolge bleiben für effektive Prozente und Integer-Cent-Allokationen erhalten.
+Historische Transaktionen lesen ausschließlich ihre eingefrorenen Snapshots.
+Keine Migration des Pool-Datenmodells erforderlich.
+
+== DOMPurify
+
+DOMPurify ist eine transitive optionale Abhängigkeit von jsPDF. Der vorhandene
+Paketmanager npm löst es durch einen gezielten Override auf mindestens 3.4.17 auf;
+`package-lock.json` wurde aktualisiert. Keine Major-Upgrades anderer Pakete.
+
+Die Anwendung verwendet derzeit keine direkten DOMPurify-Aufrufe und keine
+jsPDF-HTML-Konvertierung. Die betroffenen Optionen `SAFE_FOR_TEMPLATES`, `IN_PLACE`
+und Sanitizing-Hooks werden nicht im Anwendungscode gesetzt. Lokale Tests prüfen
+die aufgelöste Version und Sanitizing bei Shadow-DOM beziehungsweise Hooks.
+
+Offizielle Advisories mit Fix ab 3.4.17:
+
+* https://github.com/advisories/GHSA-cg2g-xh64-v4q7
+* https://github.com/advisories/GHSA-mrv2-3pqr-j5jr
+
+Trivy ist lokal nicht installiert. `npm ls dompurify` weist die tatsächliche
+Version nach; `npm audit` meldet keinen DOMPurify-Befund. Ein Trivy-Scan ist damit
+nicht als erfolgreich ausgeführt zu verstehen. Weitere npm-Audit-Befunde anderer
+Pakete werden separat ausgewiesen und nicht unterdrückt.
+
+== Prüfung
+
+* Backend: Payment-Service 222 Tests, User-Service 77 Tests, keine Fehler.
+* Frontend: 168 Tests in 21 Dateien erfolgreich. Frontend-Build einschließlich
+  TypeScript-Prüfung erfolgreich.
+* Isoliertes PostgreSQL 15: alle Migrationsdateien, Versionsschutz bis V11,
+  veränderlicher Settlement-Status und unveränderliche finanzielle Events erfolgreich.
+* Deployment-Tooling: 141 lokale Mock-Tests erfolgreich. Ein erster paralleler Lauf
+  hatte einen 20-Sekunden-Timeout; der betroffene Test und anschließend die gesamte
+  Suite wurden erfolgreich erneut ausgeführt. Keine AWS-Aufrufe mit echten Clients.
+* Browser: persönliche und Pool-Checkouts bei 320, 390, 768 und 1440 Pixeln,
+  jeweils Gebührenübernahme ein/aus; richtige Beträge und keine horizontalen
+  Überläufe. Alle Backend-Antworten lokal abgefangen; keine Checkout-Erstellung.
+* `npm ls dompurify`: 3.4.17. `npm audit`: kein DOMPurify-Finding, aber fünf
+  weitere Paketbefunde (1 moderat, 2 hoch, 2 kritisch) in @vitest/mocker,
+  source-map-js, tinypool, vite und vitest. Diese anderen Pakete wurden in diesem
+  gezielten DOMPurify-Update nicht aktualisiert. Kein Ignore-Eintrag hinzugefügt.
+* Trivy ist nicht installiert; kein erfolgreich ausgeführter Trivy-Scan behauptet.
+* Kein Frontend-Lint-Skript konfiguriert. Typecheck ist Bestandteil des Builds.
+
+Ein lokaler Gradle-Cache auf dem Windows-Laufwerk meldete einen I/O-Fehler.
+Der erfolgreiche Backend-Lauf verwendete deshalb ausschließlich für den Testlauf
+`--project-cache-dir /tmp/gratilo-four-gradle-cache`; keine Repository-Dateien
+wurden zur Fehlerumgehung gelöscht.
+
+
+== Geänderte Dateien
+
+Die Design-Dateien in dieser Liste wurden bereits vor dem Design-Stopp angelegt
+und bleiben auf ausdrücklichen Wunsch im damaligen Stand.
+
+* `.env.example`
+* `backend/payment-service/src/main/java/com/gratilo/payment/api/TipNotification.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/PoolReconciliation.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeCheckoutService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeFeeAuditService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripePaymentContext.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/TipPricing.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/TipPricingSnapshot.java`
+* `backend/payment-service/src/main/resources/application.yml`
+* `backend/payment-service/src/main/resources/db/changelog/changelog-master.xml`
+* `backend/payment-service/src/main/resources/db/changelog/payment_mgmt/016_fixed_percent_pricing.sql`
+* `backend/payment-service/src/test/java/com/gratilo/payment/GuestCheckoutHttpTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/DirectFeeAuditTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/DirectPricingTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/HistoricalPricingFixtures.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolCheckoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PoolReconciliationTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeCheckoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeFeeAuditTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/TipNotificationOutboxTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/TipPricingSnapshotTest.java`
+* `backend/user-service/src/main/java/com/gratilo/user/api/TipNotification.java`
+* `backend/user-service/src/main/java/com/gratilo/user/service/PoolService.java`
+* `backend/user-service/src/main/java/com/gratilo/user/service/PoolWeights.java`
+* `backend/user-service/src/main/java/com/gratilo/user/service/TipNotificationSender.java`
+* `backend/user-service/src/test/java/com/gratilo/user/service/PoolWeightsTest.java`
+* `deployment/scripts/render_task_definition.py`
+* `deployment/scripts/test_payment_pricing_postgres.py`
+* `deployment/tests/test_ecs_deployment.py`
+* `docker-compose/compose.stripe-test.yml`
+* `docs/pool-platform-retention.adoc`
+* `docs/pricing-percentage-security-update.adoc`
+* `docs/stripe-fees-and-pool-members.adoc`
+* `frontend/package-lock.json`
+* `frontend/package.json`
+* `frontend/src/Dashboard.tsx`
+* `frontend/src/PoolMembersPanel.test.tsx`
+* `frontend/src/PoolMembersPanel.tsx`
+* `frontend/src/PublicTipCheckout.tsx`
+* `frontend/src/StripePayment.test.tsx`
+* `frontend/src/auth-brand.css`
+* `frontend/src/design-tokens.css`
+* `frontend/src/dompurify.security.test.ts`
+* `frontend/src/main.tsx`
+* `frontend/src/poolPercentages.test.ts`
+* `frontend/src/poolPercentages.ts`
+* `frontend/src/product-brand.css`

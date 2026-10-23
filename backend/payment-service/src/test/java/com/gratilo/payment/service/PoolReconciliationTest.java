@@ -110,7 +110,7 @@ class PoolReconciliationTest {
         final Map<String,List<Map<String,Object>>> reversals=new HashMap<>();final Map<String,Map<String,Object>> balances=new HashMap<>();
         final List<String> paths=new ArrayList<>();final PoolTransferRepository repository;long refunded;boolean disputed,paginate;
         Fixture(boolean covered)throws Exception {
-            pricing=TipPricing.poolQuote(10000,covered,new BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT);
+            pricing=HistoricalPricingFixtures.poolQuote(10000,covered,new BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT);
             tx.setId(UUID.randomUUID());tx.setAmountMinor(10000);tx.setProvider("STRIPE");tx.setType(TransactionType.TIP);tx.setStatus(TransactionStatus.BOOKED);tx.setProviderReference("cs_test_fixture");
             var meta=TipPricingSnapshot.metadata(pricing,covered);meta.put("chargeModel","POOL");meta.put("poolId",UUID.randomUUID().toString());tx.setMetadata(JsonMapper.createDefault().writeValueAsString(meta));
             audit.setTransactionId(tx.getId());audit.setChargedMinor(pricing.totalAmountMinor());audit.setSurchargeMinor(pricing.serviceFeeMinor());audit.setEstimatedFeeMinor(pricing.estimatedStripeFeeMinor());audit.setPlatformFeeMinor(500L);

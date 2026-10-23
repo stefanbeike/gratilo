@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, useRef, type FormEvent } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { api, type Session } from './api'
 import { prepareProfileImage } from './profileImage'
+import { percentageBasisPoints } from './poolPercentages'
 import { paymentsEnabled } from './stripe'
 import { StripeTestEnrollment } from './StripeTestEnrollment'
 import { StripeOnboarding } from './StripeOnboarding'
@@ -26,8 +27,8 @@ type ApiPoolTransfer = { poolId?: string | null; id: string; transactionId: stri
 const pricingDetails = (metadata?: string | null) => {
   try {
     const saved = JSON.parse(metadata || '{}')
-    if (![4, 5, 6, 7, 8].includes(saved.pricingVersion)) return {}
-    return { netEstimated: saved.pricingVersion === 8, stripeCollected: saved.pricingVersion === 8, commissionMinor: Number.isSafeInteger(saved.platformFeeMinor) ? saved.platformFeeMinor as number : undefined,
+    if (![4, 5, 6, 7, 8, 9, 10, 11].includes(saved.pricingVersion)) return {}
+    return { netEstimated: [8,11].includes(saved.pricingVersion), stripeCollected: [8,11].includes(saved.pricingVersion), commissionMinor: Number.isSafeInteger(saved.platformFeeMinor) ? saved.platformFeeMinor as number : undefined,
       stripeEstimateMinor: Number.isSafeInteger(saved.estimatedStripeFeeMinor) ? saved.estimatedStripeFeeMinor as number : undefined,
       feeCovered: typeof saved.feeCovered === 'boolean' ? saved.feeCovered as boolean : undefined }
   } catch { return {} }
@@ -280,8 +281,23 @@ export function Dashboard({ session, profile, onProfile, onLogout }: { session: 
   }
   async function createPool() { try { const created = await api<Pool>('/pools', { name: poolName.trim() }, session.accessToken); setPool(normalizePool(created)); setTeamLoadError(false);setPoolLoaded(true); setPoolName(created.name); setNotice('Pool wurde angelegt.') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Pool konnte nicht angelegt werden.') } }
   async function inviteToPool() { if (!pool) return; if (inviteEmail.trim().toLowerCase() === session.email.toLowerCase()) { setError('Du kannst dich nicht selbst in deinen Pool einladen.'); return } try { const updated = await api<Pool>(`/pools/${pool.id}/members`, { email: inviteEmail.trim() }, session.accessToken); setPool(normalizePool(updated)); setInviteEmail(''); setNotice('Einladung wurde versendet. Den Anteil legst du beim Mitglied fest.') } catch (cause) { const detail = cause instanceof Error ? cause.message : 'Einladung konnte nicht versendet werden.'; if (detail.includes('Kein Benutzer mit dieser E-Mail-Adresse')) { setPoolInfoDialog(true); setError('') } else setError(detail) } }
-  async function savePoolShares() { if (!pool) return; const values = pool.members.map(member => ({ memberId: member.id, sharePercent: Number((poolShareDrafts[member.id] ?? String(member.sharePercent)).replace(',', '.')) })); if (values.some(value => !Number.isFinite(value.sharePercent) || value.sharePercent < 0 || value.sharePercent > 100)) { setError('Jeder Anteil muss zwischen 0 und 100 % liegen.'); return } const total = values.filter((_, index) => pool.members[index].status !== 'DECLINED').reduce((sum, value) => sum + value.sharePercent, 0); if (total > 100.001) { setError('Die Anteile dürfen zusammen höchstens 100 % ergeben.'); return } try { const updated = await api<Pool>(`/pools/${pool.id}/shares`, { values }, session.accessToken, 'PUT'); setPool(normalizePool(updated)); setNotice('Alle Anteile wurden gespeichert.') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Anteile konnten nicht gespeichert werden.') } }
-  function distributePoolShares() { if (!pool) return; const eligible = pool.members.filter(member => member.status !== 'DECLINED'); if (!eligible.length) return; const base = Math.floor((100 / eligible.length) * 100) / 100; const remainder = Number((100 - base * eligible.length).toFixed(2)); const drafts: Record<string, string> = {}; let eligibleIndex = 0; pool.members.forEach(member => { if (member.status === 'DECLINED') drafts[member.id] = '0'; else { drafts[member.id] = (base + (eligibleIndex === 0 ? remainder : 0)).toFixed(2); eligibleIndex += 1 } }); setPoolShareDrafts(drafts); setNotice('100 % wurden gleichmäßig vorbereitet. Klicke anschließend auf „Alle Anteile speichern“.') }
+  async function savePoolShares() {
+    if (!pool) return;
+    const parsed = pool.members.map(member => ({ memberId: member.id, basis: percentageBasisPoints(poolShareDrafts[member.id] ?? String(member.sharePercent)) }));
+    if (parsed.some(value => value.basis === null)) { setError('Jedes Prozentgewicht muss zwischen 0 und 100 % liegen und darf höchstens zwei Nachkommastellen haben.'); return }
+    if (!parsed.some((value,index) => pool.members[index].active && pool.members[index].status === 'ACTIVE' && value.basis! > 0)) { setError('Mindestens ein aktives Mitglied benötigt ein positives Prozentgewicht.'); return }
+    try { const updated = await api<Pool>(`/pools/${pool.id}/shares`, { values: parsed.map(value => ({ memberId: value.memberId, sharePercent: value.basis! / 100 })) }, session.accessToken, 'PUT'); setPool(normalizePool(updated)); setNotice('Prozentgewichte gespeichert. Die effektiven Anteile wurden serverseitig berechnet.') }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Anteile konnten nicht gespeichert werden.') }
+  }
+  function distributePoolShares() {
+    if (!pool) return;
+    const eligible = pool.members.filter(member => member.active && member.status === 'ACTIVE').sort((a,b) => a.userId.localeCompare(b.userId));
+    if (!eligible.length) return;
+    const base = Math.floor(10000 / eligible.length), remainder = 10000 % eligible.length;
+    const drafts: Record<string,string> = {};
+    eligible.forEach((member,index) => { const basis = base + (index < remainder ? 1 : 0); drafts[member.id] = `${Math.floor(basis/100)}.${String(basis%100).padStart(2,'0')}` });
+    setPoolShareDrafts(previous => ({...previous,...drafts})); setNotice('100,00 % wurden für aktive Mitglieder vorbereitet. Inaktive Gewichte bleiben erhalten. Bitte anschließend speichern.');
+  }
   async function changePoolMember(member: PoolMember, activeValue: boolean) { if (!pool) return; try { setPool(normalizePool(await api<Pool>(`/pools/${pool.id}/members/${member.id}?active=${activeValue}`, undefined, session.accessToken, 'PUT'))) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Mitglied konnte nicht aktualisiert werden.') } }
   async function removePoolMember(member: PoolMember) { if (!pool || !window.confirm(`${member.name || member.email} wirklich aus dem Team entfernen? Bestehende Zahlungen bleiben unverändert.`)) return; try { setPool(normalizePool(await api<Pool>(`/pools/${pool.id}/members/${member.id}`, undefined, session.accessToken, 'DELETE' as any))) } catch (cause) { setError(cause instanceof Error ? cause.message : 'Mitglied konnte nicht entfernt werden.') } }
   async function resendPoolMember(member: PoolMember) { if (!pool) return; try { setPool(normalizePool(await api<Pool>(`/pools/${pool.id}/members/${member.id}/resend`, {}, session.accessToken))); setNotice('Einladung wurde erneut versendet.') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Einladung konnte nicht erneut versendet werden.') } }

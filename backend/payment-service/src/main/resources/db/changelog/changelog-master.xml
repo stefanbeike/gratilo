@@ -18,4 +18,5 @@
     <include file="payment_mgmt/013_tip_notification_outbox.sql" relativeToChangelogFile="true"/>
     <include file="payment_mgmt/014_direct_stripe_collector.sql" relativeToChangelogFile="true"/>
     <include file="payment_mgmt/015_manual_payout_safety.sql" relativeToChangelogFile="true"/>
+    <include file="payment_mgmt/016_fixed_percent_pricing.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>

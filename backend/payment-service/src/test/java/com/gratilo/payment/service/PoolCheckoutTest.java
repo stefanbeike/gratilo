@@ -146,7 +146,7 @@ class PoolCheckoutTest {
         assertEquals(expected.recipientAmountMinor(),TipPricingSnapshot.from(stored.get()).recipientMinor());
         if(tip==2500&&rate.toString().equals("3.15")) {
             var actual=snapshots.stream().sorted(java.util.Comparator.comparing(a->a.getRecipientUserId().toString())).map(PoolTransferEntity::getAmountMinor).toList();
-            assertEquals(distribution.size()==3?(covered?List.of(475L,713L,1187L):List.of(454L,681L,1136L)):(covered?List.of(1188L,1187L):List.of(1136L,1135L)),actual);
+            assertEquals(distribution.size()==3?(covered?List.of(466L,699L,1165L):List.of(445L,668L,1113L)):(covered?List.of(1165L,1165L):List.of(1113L,1113L)),actual);
         }
         assertEquals(1,auditRows.size());var audit=auditRows.get(stored.get().getId());
         assertEquals(expected.totalAmountMinor(),audit.getChargedMinor());assertEquals(expected.serviceFeeMinor(),audit.getSurchargeMinor());

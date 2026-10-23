@@ -27,10 +27,10 @@ try:
           IF (SELECT metadata FROM payment_mgmt.transactions WHERE id='00000000-0000-0000-0000-000000000001') <> '{}'::jsonb THEN RAISE EXCEPTION 'Legacy repriced'; END IF;
           IF EXISTS(SELECT 1 FROM payment_mgmt.payment_fee_audits) THEN RAISE EXCEPTION 'Unexpected backfill'; END IF;
         END $$;""")
-    for version in (6,7,8):
-        must(f"INSERT INTO payment_mgmt.transactions(id,account_user_id,amount_minor,type,status,provider,metadata) VALUES ('00000000-0000-0000-0000-00000000000{version}','00000000-0000-0000-0000-000000000010',2500,'TIP','PENDING','STRIPE','{{\"pricingVersion\":{version},\"platformFeeMinor\":125}}');")
-        must(f"UPDATE payment_mgmt.transactions SET status='BOOKED' WHERE id='00000000-0000-0000-0000-00000000000{version}';")
-    for ident in ['00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-000000000007','00000000-0000-0000-0000-000000000008']:
+    for version in (6,7,8,9,10,11):
+        must(f"INSERT INTO payment_mgmt.transactions(id,account_user_id,amount_minor,type,status,provider,metadata) VALUES ('00000000-0000-0000-0000-{version:012d}','00000000-0000-0000-0000-000000000010',2500,'TIP','PENDING','STRIPE','{{\"pricingVersion\":{version},\"platformFeeMinor\":{125 if version<9 else 170}}}');")
+        must(f"UPDATE payment_mgmt.transactions SET status='BOOKED' WHERE id='00000000-0000-0000-0000-{version:012d}';")
+    for ident in ['00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-000000000007','00000000-0000-0000-0000-000000000008','00000000-0000-0000-0000-000000000009','00000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-000000000011']:
         for update in ["metadata='{}'",'amount_minor=2600',"currency='USD'"]:
             r=sql("UPDATE payment_mgmt.transactions SET "+update+" WHERE id='"+ident+"';")
             assert r.returncode!=0 and 'Frozen pricing must not be rewritten' in r.stderr

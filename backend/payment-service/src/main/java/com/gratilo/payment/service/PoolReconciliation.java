@@ -26,7 +26,7 @@ public final class PoolReconciliation {
     public static boolean isPool(TransactionEntity tx){
         try {
             var data=JsonMapper.createDefault().readValue(tx.getMetadata(),Map.class);
-            return data.containsKey("poolId")||"POOL".equals(data.get("chargeModel"))||TipPricingSnapshot.from(tx).version()==7;
+            return data.containsKey("poolId")||"POOL".equals(data.get("chargeModel"))||java.util.Set.of(5,7,10).contains(TipPricingSnapshot.from(tx).version());
         }catch(Exception invalid){throw new IllegalStateException("Invalid pool context",invalid);}
     }
     public Report read(TransactionEntity tx,PaymentFeeAuditEntity audit){

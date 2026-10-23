@@ -10,7 +10,7 @@ it('shows stored weights separately from authoritative effective shares and bank
  render(<PoolMembersPanel {...props()}/>);expect(screen.getByText('100,00 %')).toBeInTheDocument();expect(screen.getByText('★ Poolinhaber')).toBeInTheDocument();expect(screen.getByText('30,00 %')).toBeInTheDocument();expect(screen.getByText('70,00 %')).toBeInTheDocument();expect(screen.getByText('0,00 %')).toBeInTheDocument()
  expect(within(screen.getByRole('list',{name:'Aktive Teilnehmer'})).getAllByRole('listitem')).toHaveLength(2)
  expect(within(screen.getByRole('list',{name:'Inaktive Teilnehmer und Einladungen'})).getAllByRole('listitem')).toHaveLength(1)
- expect(within(screen.getByRole('list',{name:'Aktive Teilnehmer'})).getByText(/Bankauszahlung: Nicht bestätigt/)).toBeInTheDocument();expect(screen.getByLabelText('Verteilungsgewicht für Sam')).toHaveValue(70)
+ expect(within(screen.getByRole('list',{name:'Aktive Teilnehmer'})).getByText(/Bankauszahlung: Nicht bestätigt/)).toBeInTheDocument();expect(screen.getByLabelText('Prozentgewicht für Sam')).toHaveValue('70')
 })
 it('requires confirmation for deactivation and restores focus on cancel',async()=>{
  const p=props();render(<PoolMembersPanel {...p}/>);const trigger=screen.getByRole('button',{name:'Deaktivieren'});trigger.focus();fireEvent.click(trigger)
@@ -27,7 +27,7 @@ it('shows missing transfer permission without redistributing the displayed share
 })
 it('renders reactivated members using returned server shares and never overwrites saved weights',()=>{
  const p=props();const view=render(<PoolMembersPanel {...p} members={[{...members[0],effectiveSharePercent:100},{...members[1],active:false,effectiveSharePercent:0}]}/>);expect(screen.getAllByText('100,00 %')).toHaveLength(2)
- view.rerender(<PoolMembersPanel {...p}/>);expect(screen.getByText('70,00 %')).toBeInTheDocument();expect(screen.getByLabelText('Verteilungsgewicht für Sam')).toHaveValue(70)
+ view.rerender(<PoolMembersPanel {...p}/>);expect(screen.getByText('70,00 %')).toBeInTheDocument();expect(screen.getByLabelText('Prozentgewicht für Sam')).toHaveValue('70')
 })
 it('keeps keyboard focus on the matching action after a participant moves between groups',async()=>{
  const p=props();const view=render(<PoolMembersPanel {...p}/>);
@@ -35,4 +35,17 @@ it('keeps keyboard focus on the matching action after a participant moves betwee
  const trigger=screen.getByRole('button',{name:'Deaktivieren'});trigger.focus();fireEvent.click(trigger);fireEvent.click(screen.getByRole('button',{name:'Bestätigen'}));
  await waitFor(()=>expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
  expect(within(screen.getByRole('group',{name:'Aktionen für Sam'})).getByRole('button',{name:'Reaktivieren'})).toHaveFocus();
+})
+
+it('shows draft totals without inventing effective shares and blocks invalid precision',()=>{
+ const p=props();const view=render(<PoolMembersPanel {...p} drafts={{a:'50',b:'30'}}/>);
+ expect(screen.getByText(/Gespeicherte Prozentgewichte der aktiven Mitglieder: 80,00 %/)).toBeInTheDocument();
+ expect(screen.getByText('70,00 %')).toBeInTheDocument();
+ expect(screen.getByRole('button',{name:'Alle Anteile speichern'})).toBeEnabled();
+ view.rerender(<PoolMembersPanel {...p} drafts={{a:'50.001',b:'30'}}/>);
+ expect(screen.getByLabelText('Prozentgewicht für Alex')).toHaveAttribute('aria-invalid','true');
+ expect(screen.getByRole('button',{name:'Alle Anteile speichern'})).toBeDisabled();
+ view.rerender(<PoolMembersPanel {...p} drafts={{a:'0',b:'0',c:'100'}}/>);
+ expect(screen.getByRole('button',{name:'Alle Anteile speichern'})).toBeDisabled();
+ expect(screen.getByRole('alert')).toHaveTextContent('Mindestens ein aktives Mitglied');
 })

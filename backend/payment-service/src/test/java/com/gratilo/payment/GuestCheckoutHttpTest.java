@@ -137,7 +137,7 @@ class GuestCheckoutHttpTest {
             assertTrue(eligibility.body().contains("true"));
             assertEquals("no-store", eligibility.headers().firstValue("Cache-Control").orElseThrow());
             var quote=client.send(HttpRequest.newBuilder(java.net.URI.create(uri+"/quote?amountMinor=2500&feeCovered=false")).GET().build(),HttpResponse.BodyHandlers.ofString());
-            assertEquals(200,quote.statusCode());assertTrue(quote.body().contains("\"recipientAmountMinor\":2312"));
+            assertEquals(200,quote.statusCode());assertTrue(quote.body().contains("\"recipientAmountMinor\":2267"));
             assertTrue(quote.body().contains("\"estimatedStripeFeeMinor\":63"));
         }
     }

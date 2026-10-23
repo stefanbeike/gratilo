@@ -1,0 +1,63 @@
+/* Product surfaces use the public entry-page identity without changing unrelated pages. */
+:is(.account-app,.tip-page) {
+  color:var(--gratilo-text); font-family:var(--gratilo-font);
+  background:radial-gradient(ellipse at top right,#ff72cb08,transparent 45%),radial-gradient(ellipse at left top,#45e2c509,transparent 40%),var(--gratilo-bg);
+  color-scheme:dark;
+}
+.account-app .account-header {background:var(--gratilo-bg);border-color:var(--gratilo-border)}
+.account-app :is(h1,h2,h3,h4,.brand,.account-heading h1,.account-card strong,.detail-amount,.pool-participant-person strong) {color:var(--gratilo-text)}
+.account-app .account-heading h1,.tip-page h1 {font-weight:650;letter-spacing:-.035em;line-height:1.12}
+.account-app :is(a,.text-button,.copy-field button,.account-header nav .selected),.tip-page :is(a,.text-button,.step-label) {color:var(--gratilo-accent)}
+.account-app a:hover,.tip-page a:hover {color:var(--gratilo-accent-hover)}
+.account-app :is(.account-heading p,.muted,.qr-panel>p,.transactions-heading p,.demo-note,.payment-link-label,.qr-layout div>span,.date-cell,.transaction-person small,.table-footer,.account-footer,.participant-field-label,.pool-participant-person small,.summary-card small,.account-header nav a),.tip-page :is(.tip-intro,.tip-note,.tip-breakdown small) {color:var(--gratilo-muted)}
+.account-app :is(.account-card,.account-dialog),.tip-page :is(.tip-card,.account-dialog) {background:var(--gratilo-panel);border:1px solid var(--gratilo-border);border-radius:var(--gratilo-radius);box-shadow:var(--gratilo-shadow)}
+.account-app :is(.account-card,.team-identity,.pool-participant-row,.pool-participant-person,.copy-field),.tip-page .tip-card {min-width:0}
+.account-app :is(.summary-card,.qr-panel,.transactions-panel,.profile-card,.pool-panel,.payout-overview,.stripe-balance-card) {background:var(--gratilo-panel)}
+.account-app .balance-card {background:linear-gradient(120deg,var(--gratilo-accent),#a7f6e4);color:var(--gratilo-on-accent);border-radius:var(--gratilo-radius)}
+.account-app .balance-card :is(strong,span,p,button,small) {color:var(--gratilo-on-accent)}
+.account-app :is(.solid-button,.primary),.tip-page :is(.tip-pay,.primary) {background:var(--gratilo-accent);border:1px solid var(--gratilo-accent);color:var(--gratilo-on-accent);font-weight:750;border-radius:var(--gratilo-control-radius);min-height:44px}
+.account-app :is(.solid-button,.primary):hover:not(:disabled),.tip-page :is(.tip-pay,.primary):hover:not(:disabled) {background:var(--gratilo-accent-hover);border-color:var(--gratilo-accent-hover)}
+.account-app :is(.outline-button,.export-actions button),.tip-page .outline-button {background:transparent;border:1px solid var(--gratilo-border);color:var(--gratilo-text);border-radius:var(--gratilo-control-radius);min-height:44px}
+.account-app .outline-button:hover:not(:disabled),.tip-page .outline-button:hover:not(:disabled) {background:var(--gratilo-panel-raised);border-color:var(--gratilo-accent)}
+:is(.account-app,.tip-page) :is(button,a,input,textarea,select,summary):focus-visible {outline:3px solid var(--gratilo-highlight);outline-offset:3px}
+:is(.account-app,.tip-page) button:disabled {opacity:.5;cursor:not-allowed}
+:is(.account-app,.tip-page) :is(input:not([type=checkbox]),textarea,select) {background:var(--gratilo-bg);border:1px solid var(--gratilo-border);color:var(--gratilo-text);border-radius:var(--gratilo-control-radius);max-width:100%}
+:is(.account-app,.tip-page) input::placeholder {color:var(--gratilo-muted);opacity:.8}
+:is(.account-app,.tip-page) :is(input,textarea,select):focus {border-color:var(--gratilo-accent);box-shadow:0 0 0 3px #45e2c51a}
+:is(.account-app,.tip-page) input[type=checkbox] {accent-color:var(--gratilo-accent)}
+.account-app :is(.copy-field,.filter-tabs,.pool-participants-summary,.pool-readiness,.account-info-box,.pool-percentage-editor-status,.pool-participant-row,.pool-participant-muted,.personal-account-heading,.team-conflict),.tip-page :is(.tip-breakdown,.tip-summary,.fee-choice,.tip-message,.euro-input) {background:var(--gratilo-bg);border-color:var(--gratilo-border);color:var(--gratilo-text)}
+.account-app :is(.filter-tabs .active,.dashboard-tabs .active,.dashboard-view-switch .active,.dashboard-view-switch [aria-current=page]) {background:var(--gratilo-accent);color:var(--gratilo-on-accent)}
+.account-app .account-header nav .selected {border-color:var(--gratilo-highlight)}
+.account-app :is(th,thead) {background:var(--gratilo-bg);color:var(--gratilo-muted);border-color:var(--gratilo-border)}
+.account-app td {border-color:var(--gratilo-border)}
+.account-app tbody tr:hover {background:var(--gratilo-panel-raised)}
+.account-app :is(.status-pill,.summary-icon,.transaction-icon,.avatar,.owner-badge) {background:var(--gratilo-panel-raised);color:var(--gratilo-muted)}
+.account-app :is(.status-pill.booked,.status-pill.ready,.owner-badge) {background:var(--gratilo-success-bg);color:var(--gratilo-accent)}
+.account-app :is(.status-pill.pending,.status-pill.warning) {background:var(--gratilo-warning-bg);color:var(--gratilo-warning)}
+.account-app :is(.message.error,.status-pill.error,.account-danger-zone,.pool-blocking-member),.tip-page .message.error {background:var(--gratilo-danger-bg);color:var(--gratilo-danger);border-color:var(--gratilo-danger-border)}
+.account-app .message.success {background:var(--gratilo-success-bg);color:var(--gratilo-accent);border-color:var(--gratilo-border)}
+.account-app :is(.danger-button,.pool-remove-action,.pool-delete) {color:var(--gratilo-danger)}
+.account-app :is(.qr-frame,.team-image-editor .team-avatar) {color-scheme:light;background:#fff}
+.account-app .qr-frame svg {color:#101719}
+.account-app .team-avatar-default {background:var(--gratilo-success-bg);color:var(--gratilo-accent)}
+.account-app .pool-percentage-editor-status {padding:16px;border:1px solid var(--gratilo-border);border-radius:var(--gratilo-control-radius);margin:20px 0}
+.account-app .pool-percentage-editor-status p {color:var(--gratilo-muted);line-height:1.6;font-size:13px}
+.account-app .pool-percentage-editor-status [role=alert] {color:var(--gratilo-danger)}
+.tip-page .tip-brand {color:var(--gratilo-text)}
+.tip-page .tip-brand .brand-dot {color:var(--gratilo-highlight)!important}
+.tip-page .tip-amounts button {background:var(--gratilo-bg);border-color:var(--gratilo-border);color:var(--gratilo-text);min-height:44px}
+.tip-page .tip-amounts button.selected {background:var(--gratilo-success-bg);border-color:var(--gratilo-accent);color:var(--gratilo-accent)}
+.tip-page .step-label {color:var(--gratilo-accent)}
+.tip-page .tip-breakdown :is(strong,b) {color:var(--gratilo-text)}
+.tip-page .tip-breakdown>div {border-color:var(--gratilo-border)}
+.tip-page .tip-note {line-height:1.7}
+.account-app .account-dialog-backdrop {background:#05090bd9}
+@media(max-width:650px) {
+  .account-app :is(.account-main,.account-card,.account-dialog) {max-width:100%;overflow-wrap:anywhere}
+  :is(.account-app,.tip-page) input:not([type=checkbox]),:is(.account-app,.tip-page) textarea {font-size:16px}
+  .account-app .pool-percentage-editor-status strong {font-size:14px}
+  .tip-page {padding-inline:16px}
+}
+@media(prefers-reduced-motion:reduce) {
+  :is(.account-app,.tip-page) * {scroll-behavior:auto;transition:none!important}
+}

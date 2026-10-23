@@ -14,7 +14,7 @@ public record TipPricingSnapshot(int version, long selectedMinor, long recipient
     }
     public static Map<String,Object> metadata(TipQuote quote, boolean covered) {
         var result = new LinkedHashMap<String,Object>();
-        if (quote.pricingVersion()==8) { result.put("feesCollector","stripe");result.put("recipientAmountEstimated",true); }
+        if (isStripeCollectorVersion(quote.pricingVersion())) { result.put("feesCollector","stripe");result.put("recipientAmountEstimated",true); }
         result.put("pricingVersion",quote.pricingVersion());
         if(quote.pricingVersion()>=3){result.put("platformFeePercent",quote.platformFeePercent());result.put("platformFeeMinor",quote.platformFeeMinor());result.put("platformFeeFixedMinor",quote.platformFeeMinor()-TipPricing.platformFee(quote.tipAmountMinor(),quote.platformFeePercent()));result.put("serviceFeePercent",quote.serviceFeePercent());result.put("stripeFeeFixedMinor",quote.fixedFeeMinor());result.put("feeEstimateBasis",quote.feeEstimateBasis());result.put("pricingRule",ruleFor(quote.pricingVersion()));result.put("pricedAt",java.time.OffsetDateTime.now().toString());} result.put("tipAmountMinor",quote.tipAmountMinor());
         result.put("recipientAmountMinor",quote.recipientAmountMinor()); result.put("totalAmountMinor",quote.totalAmountMinor());
@@ -32,7 +32,7 @@ public record TipPricingSnapshot(int version, long selectedMinor, long recipient
                         saved.get("feeCovered") instanceof Boolean b ? b : null,java.math.BigDecimal.ZERO,0,"LEGACY_V1",null,java.math.BigDecimal.ZERO,0,"Historische Gebührenvereinbarung");
             }
             long version=minor(saved,"pricingVersion");
-            if ((version < 2 || version > 8) || !(saved.get("feeCovered") instanceof Boolean covered))
+            if ((version < 2 || version > 11) || !(saved.get("feeCovered") instanceof Boolean covered))
                 throw new IllegalStateException("Invalid frozen pricing version");
             long recipient = minor(saved,"recipientAmountMinor"), total = minor(saved,"totalAmountMinor"),
                     fee = minor(saved,"estimatedStripeFeeMinor"), surcharge = minor(saved,"feeSurchargeMinor");
@@ -44,9 +44,9 @@ public record TipPricingSnapshot(int version, long selectedMinor, long recipient
             String pricedAt=version>=3?Objects.toString(saved.get("pricedAt"),""):null;
             if(version>=3&&(!ruleFor((int)version).equals(rule)||java.time.OffsetDateTime.parse(pricedAt)==null))throw new IllegalStateException("Invalid pricing rule");
             if (selected < 100 || selected > 1_000_000 || minor(saved,"tipAmountMinor") != selected
-                    || fee < 0 || recipient < TipPricing.MIN_RECIPIENT_MINOR || recipient > (version==8?total:selected)
+                    || fee < 0 || recipient < TipPricing.MIN_RECIPIENT_MINOR || recipient > (isStripeCollectorVersion((int)version)?total:selected)
                     || total > 99_999_999 || surcharge != Math.subtractExact(total,selected)
-                    || (version==8 ? recipient != total-platform-fee || (covered ? surcharge<fee : total!=selected || surcharge!=0)
+                    || (isStripeCollectorVersion((int)version) ? recipient != total-platform-fee || (covered ? surcharge<fee : total!=selected || surcharge!=0)
                         : covered ? recipient != selected-platform || surcharge < fee : total != selected || surcharge != 0 || recipient != selected-platform-fee))
                 throw new IllegalStateException("Invalid frozen pricing amounts");
             var stripePercent=version>=4?new java.math.BigDecimal(Objects.toString(saved.get("serviceFeePercent"))):java.math.BigDecimal.ZERO;
@@ -55,12 +55,14 @@ public record TipPricingSnapshot(int version, long selectedMinor, long recipient
             if(version>=4 && fee!=TipPricing.serviceFeeMinor(total,stripePercent,stripeFixed))throw new IllegalStateException("Invalid frozen Stripe estimate");
             if(version==4 && (platformFixed!=45 || platformPercent.compareTo(new java.math.BigDecimal("5.00"))!=0))throw new IllegalStateException("Invalid direct commission rule");
             if(version==5 && platformPercent.signum()!=0)throw new IllegalStateException("Invalid provisional pool commission rule");
-            if(version>=6 && (platformFixed!=0 || platformPercent.compareTo(TipPricing.DEFAULT_PLATFORM_PERCENT)!=0))throw new IllegalStateException("Invalid percentage-only commission rule");
-            if(version==8 && (!"stripe".equals(saved.get("feesCollector")) || !Boolean.TRUE.equals(saved.get("recipientAmountEstimated")))) throw new IllegalStateException("Invalid Stripe-owned fee snapshot");
+            if(version>=6 && version<=8 && (platformFixed!=0 || platformPercent.compareTo(TipPricing.DEFAULT_PLATFORM_PERCENT)!=0))throw new IllegalStateException("Invalid percentage-only commission rule");
+            if(isStripeCollectorVersion((int)version) && (!"stripe".equals(saved.get("feesCollector")) || !Boolean.TRUE.equals(saved.get("recipientAmountEstimated")))) throw new IllegalStateException("Invalid Stripe-owned fee snapshot");
+            if(version>=9 && (platformFixed!=45 || platformPercent.compareTo(TipPricing.DEFAULT_PLATFORM_PERCENT)!=0))throw new IllegalStateException("Invalid fixed-plus-percent commission rule");
             return new TipPricingSnapshot((int)version,selected,recipient,total,fee,covered,platformPercent,platform,rule,pricedAt,stripePercent,stripeFixed,basis);
         } catch (Exception failure) { throw new IllegalStateException("Invalid frozen pricing snapshot",failure); }
     }
-    public static boolean isDirectVersion(int version) { return version == 4 || version == 6 || version == 8; }
+    public static boolean isDirectVersion(int version) { return version == 4 || version == 6 || version == 8 || version == 9 || version == 11; }
+    public static boolean isStripeCollectorVersion(int version) { return version == 8 || version == 11; }
     private static String ruleFor(int version) {
         return switch(version) {
             case 3 -> "GRATILO_PLATFORM_PLUS_STRIPE_V3";
@@ -69,12 +71,15 @@ public record TipPricingSnapshot(int version, long selectedMinor, long recipient
             case 6 -> "DIRECT_PERCENT_ONLY_V6";
             case 7 -> "POOL_PERCENT_ONLY_V7";
             case 8 -> "DIRECT_STRIPE_COLLECTOR_V8";
+            case 9 -> "DIRECT_FIXED_PERCENT_APPLICATION_V9";
+            case 10 -> "POOL_FIXED_PERCENT_V10";
+            case 11 -> "DIRECT_FIXED_PERCENT_STRIPE_V11";
             default -> throw new IllegalStateException("Unknown pricing rule");
         };
     }
-    public TipQuote quote(){return new TipQuote(selectedMinor,checkoutMinor-selectedMinor,checkoutMinor,"EUR",stripePercent,stripeFixed,recipientMinor,true,estimatedFeeMinor,estimateBasis,version,platformPercent,platformFeeMinor,version==8?"stripe":"application",version==8);}
-    public long applicationFeeMinor() { return version==8 ? platformFeeMinor : checkoutMinor-recipientMinor; }
-    public boolean recipientEstimated() { return version==8; }
+    public TipQuote quote(){return new TipQuote(selectedMinor,checkoutMinor-selectedMinor,checkoutMinor,"EUR",stripePercent,stripeFixed,recipientMinor,true,estimatedFeeMinor,estimateBasis,version,platformPercent,platformFeeMinor,isStripeCollectorVersion((int)version)?"stripe":"application",isStripeCollectorVersion(version));}
+    public long applicationFeeMinor() { return isStripeCollectorVersion((int)version) ? platformFeeMinor : checkoutMinor-recipientMinor; }
+    public boolean recipientEstimated() { return isStripeCollectorVersion(version); }
     private static long minor(Map<?,?> values,String name) {
         Object value=values.get(name);
         if (!(value instanceof Number n)) throw new IllegalStateException("Missing frozen pricing amount");

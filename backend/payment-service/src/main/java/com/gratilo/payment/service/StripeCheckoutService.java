@@ -33,7 +33,7 @@ public class StripeCheckoutService {
     }
     public StripeCheckoutService(TransactionRepository transactions,ConnectedAccountRepository accounts,StripeConnectService connect,String secret,String successUrl,String cancelUrl,BigDecimal percent,long fixed,RecipientAvailability recipients,PoolDistributionClient pools,PoolTransferRepository transfers,StripeFeeAuditService audit){this(transactions,accounts,connect,secret,successUrl,cancelUrl,percent,fixed,recipients,pools,transfers,audit,TipPricing.DEFAULT_PLATFORM_PERCENT);}
     public StripeCheckoutService(TransactionRepository transactions,ConnectedAccountRepository accounts,StripeConnectService connect,String secret,String successUrl,String cancelUrl,BigDecimal feePercent,long fixedFeeMinor,RecipientAvailability recipients,PoolDistributionClient poolClient,PoolTransferRepository poolTransfers,StripeFeeAuditService feeAudit,BigDecimal platformPercent) {
-        this(transactions,accounts,connect,secret,successUrl,cancelUrl,feePercent,fixedFeeMinor,recipients,poolClient,poolTransfers,feeAudit,platformPercent,0,true);
+        this(transactions,accounts,connect,secret,successUrl,cancelUrl,feePercent,fixedFeeMinor,recipients,poolClient,poolTransfers,feeAudit,platformPercent,45,true);
     }
     @Inject
     public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect,
@@ -42,9 +42,9 @@ public class StripeCheckoutService {
             @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor, RecipientAvailability recipients,
             PoolDistributionClient poolClient, PoolTransferRepository poolTransfers, StripeFeeAuditService feeAudit,
             @Value("${gratilo.platform-fee-percent:5.00}") BigDecimal platformPercent,
-            @Value("${gratilo.platform-fee-fixed-minor:0}") long platformFixedMinor,
+            @Value("${gratilo.platform-fee-fixed-minor:45}") long platformFixedMinor,
             @Value("${gratilo.new-pricing-enabled:false}") boolean pricingEnabled) {
-        if(platformPercent.compareTo(TipPricing.DEFAULT_PLATFORM_PERCENT)!=0||platformFixedMinor!=0)throw new IllegalArgumentException("Invalid commission configuration");
+        if(platformPercent.compareTo(TipPricing.DEFAULT_PLATFORM_PERCENT)!=0||platformFixedMinor!=45)throw new IllegalArgumentException("Invalid commission configuration");
         this.pricingEnabled=pricingEnabled;
         TipPricing.platformFee(100,platformPercent);this.platformPercent=platformPercent;this.feeAudit = feeAudit;
         this.recipients=recipients; this.transactions=transactions; this.accounts=accounts; this.connect=connect; this.poolClient=poolClient; this.poolTransfers=poolTransfers; StripeConnectService.requireTestKey(secret); this.secret=secret; this.successUrl=absoluteUrl(successUrl); this.cancelUrl=absoluteUrl(cancelUrl); this.feePercent=feePercent; this.fixedFeeMinor=fixedFeeMinor;
@@ -57,7 +57,7 @@ public class StripeCheckoutService {
         return "stripe".equals(collector)?TipPricing.directStripeQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent):quote(amount,covered);
     }
     private static long applicationFee(com.gratilo.payment.api.TipQuote quote) {
-        return quote.pricingVersion()==8 ? quote.platformFeeMinor() : quote.totalAmountMinor()-quote.recipientAmountMinor();
+        return TipPricingSnapshot.isStripeCollectorVersion(quote.pricingVersion()) ? quote.platformFeeMinor() : quote.totalAmountMinor()-quote.recipientAmountMinor();
     }
     public PoolPaymentLimits.Limits poolLimits(){return poolLimits.current();}
     public TipQuote poolQuote(long amount,boolean covered){poolLimits.validate(amount);return TipPricing.poolQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent);}
@@ -137,7 +137,7 @@ public class StripeCheckoutService {
             tx.setType(TransactionType.TIP); tx.setStatus(TransactionStatus.PENDING); tx.setDescription(request.message());
             tx.setIdempotencyKey(key); tx.setProvider("STRIPE");
             var context=TipPricingSnapshot.metadata(quote,request.feeCovered());
-            context.put("applicationFeeMinor",applicationFee(quote));context.put("stripeCostContributionMinor",quote.pricingVersion()==8?0:request.feeCovered()?quote.serviceFeeMinor():quote.estimatedStripeFeeMinor());
+            context.put("applicationFeeMinor",applicationFee(quote));context.put("stripeCostContributionMinor",TipPricingSnapshot.isStripeCollectorVersion(quote.pricingVersion())?0:request.feeCovered()?quote.serviceFeeMinor():quote.estimatedStripeFeeMinor());
             context.put("chargeModel","DIRECT");context.put("stripeAccountId",accountId);context.put("feesCollector",verified.feesCollector());
             tx.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(context));
             tx = transactions.save(tx);
@@ -294,7 +294,7 @@ public class StripeCheckoutService {
     public static class PricingNotReleasedException extends IllegalStateException {public PricingNotReleasedException(){super("Die neue Gebührenregel ist noch nicht freigegeben.");}}
     private static String commissionMetadata(TransactionEntity tx,TipQuote q,String kind){
         if(q.pricingVersion()<3)return "";
-        var values=Map.of("pricing_version",Integer.toString(q.pricingVersion()),"platform_fee_minor",Long.toString(q.platformFeeMinor()),"platform_fee_percent",q.platformFeePercent().toPlainString(),"payment_kind",kind,"tip_amount_minor",Long.toString(q.tipAmountMinor()),"stripe_fee_surcharge_minor",Long.toString(q.serviceFeeMinor()),"stripe_cost_contribution_minor",Long.toString(q.pricingVersion()==8?0:q.totalAmountMinor()-q.recipientAmountMinor()-q.platformFeeMinor()));
+        var values=Map.of("pricing_version",Integer.toString(q.pricingVersion()),"platform_fee_minor",Long.toString(q.platformFeeMinor()),"platform_fee_percent",q.platformFeePercent().toPlainString(),"payment_kind",kind,"tip_amount_minor",Long.toString(q.tipAmountMinor()),"stripe_fee_surcharge_minor",Long.toString(q.serviceFeeMinor()),"stripe_cost_contribution_minor",Long.toString(TipPricingSnapshot.isStripeCollectorVersion(q.pricingVersion())?0:q.totalAmountMinor()-q.recipientAmountMinor()-q.platformFeeMinor()));
         var form=new StringBuilder();for(var entry:new java.util.TreeMap<>(values).entrySet()){form.append(param("metadata["+entry.getKey()+"]",entry.getValue()));form.append(param("payment_intent_data[metadata]["+entry.getKey()+"]",entry.getValue()));}return form.toString();
     }
 

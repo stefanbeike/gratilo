@@ -3,7 +3,16 @@
 Aktuelle Ergänzungen zu Pool-Limits, Ledger-Abgleich, offenen Verpflichtungen
 und Sandbox-Nachweisen: link:pool-platform-retention.adoc[Pool-Plattformprovision].
 
-== Aktuelle Gebührenregel: einheitlich 5 Prozent ohne Festgebühr (21.10.2026)
+== Aktuelle Ergänzung: 0,45 EUR plus 5 Prozent (23.10.2026)
+
+Neue Preisversionen V9/V10/V11 verwenden einmal pro Zahlung
+`45 + HALF_UP(tipAmountMinor * 0.05)`. Stripe-Kosten sind weiterhin separat.
+Historische Versionen bleiben unverändert. Die bestehende Pricing-Freigabe wird
+nicht automatisch aktiviert. Konfiguration, Direct-Charge-Collector-Unterschiede,
+SCT, Prozentgewichte und Sicherheitsprüfung sind dokumentiert in
+link:pricing-percentage-security-update.adoc[Preis-, Prozent- und Sicherheitsänderung].
+
+== Historische Gebührenregel: einheitlich 5 Prozent ohne Festgebühr (21.10.2026)
 
 Neue persönliche und Poolzahlungen verwenden dieselbe zentrale Berechnung:
 `platformFeeMinor = HALF_UP(tipAmountMinor * 0.05)`.

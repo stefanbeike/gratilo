@@ -1,9 +1,19 @@
-= Poolzahlungen: 5 Prozent Provision im Stripe-Plattformguthaben
+= Poolzahlungen: Provision im Stripe-Plattformguthaben
 :toc:
 
 Stand: 21.10.2026. Lokale Ergänzungen; kein Push, Deployment oder externer Schreibzugriff.
 
-== Bestandsaufnahme
+== Ergänzung vom 23.10.2026
+
+Der lokale neue Tarif ist jetzt 0,45 EUR plus 5 Prozent je Zahlung (V10),
+ohne Änderung der SCT-Architektur. Die untenstehenden V7-Beträge und damaligen
+Laufzeitnachweise dokumentieren ausdrücklich den historischen Stand vom 21.10.
+Für neue Preisversionen und einen späteren Rollout gilt
+link:pricing-percentage-security-update.adoc[die aktuelle Ergänzung].
+Die damaligen Konfigurationswerte für Festbetrag 0 dürfen nicht als aktueller
+Rollout-Plan übernommen werden; erforderlich ist jetzt Festbetrag 45 Cent.
+
+== Historische Bestandsaufnahme vom 21.10.2026
 
 Bereits vorhanden und unverändert: `TipPricing.poolQuote` mit Pricing V7,
 5 Prozent ohne Festbetrag, versionierte historische Snapshots, Plattform-Checkout,

@@ -8,10 +8,22 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StripeFeeAuditTest {
- @Test void newPoolCommissionAndStripeCostsRemainSeparateForBothCoverageChoices()throws Exception {
+ @Test void newPoolFixedCommissionAndActualStripeCostsStaySeparateWithoutRepricing()throws Exception {
+  for(boolean covered:new boolean[]{false,true})for(long actual:new long[]{94,114}) {
+   var f=new Fixture(covered,2500);var quote=TipPricing.poolQuote(2500,covered,new java.math.BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT);
+   f.tx.setMetadata(JsonMapper.createDefault().writeValueAsString(TipPricingSnapshot.metadata(quote,covered)));String frozen=f.tx.getMetadata();
+   f.audit=null;f.service.snapshot(f.tx,quote);f.actualFee=actual;f.service.reconcile();
+   assertEquals(170L,f.audit.getPlatformFeeMinor());assertEquals(actual,f.audit.getActualFeeMinor());
+   assertEquals(covered?2330:2226,f.audit.getRecipientTotalMinor());assertNull(f.audit.getStripeApplicationFeeId());
+   assertNull(f.audit.getPlatformNetRevenueMinor());assertEquals(frozen,f.tx.getMetadata());
+   assertEquals("POOL_SETTLEMENT_PENDING",f.audit.getStatus());
+  }
+ }
+
+ @Test void historicalPoolCommissionAndStripeCostsRemainSeparateForBothCoverageChoices()throws Exception {
   for(boolean covered:new boolean[]{false,true})for(long actual:new long[]{94,114}) {
    var f=new Fixture(covered,2500);
-   var quote=TipPricing.poolQuote(2500,covered,new java.math.BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT);
+   var quote=HistoricalPricingFixtures.poolQuote(2500,covered,new java.math.BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT);
    f.tx.setMetadata(JsonMapper.createDefault().writeValueAsString(TipPricingSnapshot.metadata(quote,covered)));
    f.audit=null;f.service.snapshot(f.tx,quote);f.actualFee=actual;
    f.service.reconcile();

@@ -16,7 +16,7 @@ class TipNotificationOutboxTest {
     }
     TransactionEntity tx(boolean pool,boolean covered)throws Exception{
         var tx=new TransactionEntity();tx.setId(UUID.randomUUID());tx.setAccountUserId(UUID.randomUUID());tx.setType(TransactionType.TIP);tx.setProvider("STRIPE");tx.setStatus(TransactionStatus.BOOKED);tx.setAmountMinor(10000);
-        var q=pool?TipPricing.poolQuote(10000,covered,new BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT):TipPricing.quote(10000,covered,new BigDecimal("3.15"),25);
+        var q=pool?HistoricalPricingFixtures.poolQuote(10000,covered,new BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT):HistoricalPricingFixtures.quote(10000,covered,new BigDecimal("3.15"),25);
         var meta=TipPricingSnapshot.metadata(q,covered);if(pool)meta.put("poolId",UUID.randomUUID().toString());tx.setMetadata(JsonMapper.createDefault().writeValueAsString(meta));return tx;
     }
     @Test void individualUsesFrozenNetBothFeeChoices()throws Exception{

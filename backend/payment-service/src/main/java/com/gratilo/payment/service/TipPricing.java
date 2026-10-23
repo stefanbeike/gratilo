@@ -7,7 +7,8 @@ public final class TipPricing {
     // Stripe DE public international-card tariff, verified 2026-10-20; not a universal price guarantee.
     public static final String DEFAULT_PERCENT = "3.15";
     public static final BigDecimal DEFAULT_PLATFORM_PERCENT = new BigDecimal("5.00");
-    /** Existing guest minimum stays EUR 1; every intended recipient must receive at least one cent. */
+    public static final long DEFAULT_PLATFORM_FIXED_MINOR = 45;
+    /** Pricing arithmetic supports historical EUR 1 quotes; public checkout limits are validated separately. */
     public static final long MIN_RECIPIENT_MINOR = 1;
     public static class NoDistributableTipException extends IllegalArgumentException {
         public NoDistributableTipException() {
@@ -46,19 +47,19 @@ public final class TipPricing {
     }
     public static TipQuote quote(long tipMinor,boolean covered,BigDecimal percent,long fixed){return quote(tipMinor,covered,percent,fixed,DEFAULT_PLATFORM_PERCENT);}
     public static TipQuote legacyQuote(long tipMinor,boolean covered,BigDecimal percent,long fixed){return calculate(tipMinor,covered,percent,fixed,BigDecimal.ZERO,0,2);}
-    public static TipQuote quote(long tipMinor,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent){return calculate(tipMinor,covered,percent,fixed,platformPercent,0,6);}
-    /** The same percentage commission is charged once before pool allocation. */
+    public static TipQuote quote(long tipMinor,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent){return calculate(tipMinor,covered,percent,fixed,platformPercent,DEFAULT_PLATFORM_FIXED_MINOR,9);}
+    /** The same fixed-plus-percent commission is charged once before pool allocation. */
     public static TipQuote poolQuote(long tip, boolean covered, BigDecimal percent, long fixed, BigDecimal platformPercent) {
-        return calculate(tip, covered, percent, fixed, platformPercent, 0, 7);
+        return calculate(tip, covered, percent, fixed, platformPercent, DEFAULT_PLATFORM_FIXED_MINOR, 10);
     }
     /** Connected account pays Stripe directly; Application Fee is ONLY the platform commission. */
     public static TipQuote directStripeQuote(long tip,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent) {
-        var base = calculate(tip,covered,percent,fixed,platformPercent,0,8);
+        var base = calculate(tip,covered,percent,fixed,platformPercent,DEFAULT_PLATFORM_FIXED_MINOR,11);
         long forecast = Math.subtractExact(Math.subtractExact(base.totalAmountMinor(),base.platformFeeMinor()),base.estimatedStripeFeeMinor());
         if (forecast < MIN_RECIPIENT_MINOR) throw new NoDistributableTipException();
         return new TipQuote(tip,base.serviceFeeMinor(),base.totalAmountMinor(),"EUR",percent,fixed,forecast,true,
                 base.estimatedStripeFeeMinor(),"Tarifschätzung: Zahlungsmethode, Kartenherkunft, Kartentyp und Währungsumrechnung können die Istkosten verändern. Stripe zieht seine tatsächlichen Gebühren beim Empfänger ein; dessen Nettoanteil kann abweichen.",
-                8,platformPercent,base.platformFeeMinor(),"stripe",true);
+                11,platformPercent,base.platformFeeMinor(),"stripe",true);
     }
     public static long platformFee(long tipMinor,BigDecimal percent){
         if(tipMinor<100||tipMinor>1_000_000||percent==null||percent.signum()<0||percent.compareTo(BigDecimal.valueOf(100))>=0)throw new IllegalArgumentException("Invalid platform fee configuration");

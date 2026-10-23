@@ -47,8 +47,26 @@ import com.gratilo.user.api.*; import com.gratilo.user.domain.*; import com.grat
   }else{m.setActive(false);m.setDeactivationReason("OWNER");m.setInvitationToken(null);m.setInvitationExpiresAt(null);members.update(m);}
   return toResponse(p);
  }
- @Transactional public PoolResponses.Pool updateShares(UUID owner,UUID poolId,List<PoolRequests.ShareValue> values){var p=owned(owner,poolId);ensureOwnerMember(p);var poolMembers=members.findByPoolId(poolId);var supplied=new HashMap<UUID,Double>();for(var value:values){if(!Double.isFinite(value.sharePercent())||value.sharePercent()<0||value.sharePercent()>100||java.math.BigDecimal.valueOf(value.sharePercent()).stripTrailingZeros().scale()>2)throw new IllegalArgumentException("Jeder Anteil muss zwischen 0 und 100 % liegen.");supplied.put(value.memberId(),value.sharePercent());}double total=0;for(var m:poolMembers){if("DECLINED".equals(m.getStatus()))continue;double share=supplied.getOrDefault(m.getId(),m.getSharePercent());if(share<0||share>100)throw new IllegalArgumentException("Jeder Anteil muss zwischen 0 und 100 % liegen.");total+=share;}if(total>100.001)throw new IllegalArgumentException("Die Anteile dürfen zusammen höchstens 100 % ergeben.");for(var m:poolMembers){if(supplied.containsKey(m.getId())){m.setSharePercent(supplied.get(m.getId()));members.update(m);}}return toResponse(p);}
- @Transactional public PoolResponses.Pool updateShare(UUID owner,UUID poolId,UUID memberId,double share){var p=owned(owner,poolId);ensureOwnerMember(p);if(!Double.isFinite(share)||share<0||share>100||java.math.BigDecimal.valueOf(share).stripTrailingZeros().scale()>2)throw new IllegalArgumentException("Ungültiges Verteilungsgewicht; höchstens zwei Nachkommastellen.");var m=members.findById(memberId).orElseThrow();if(!m.getPoolId().equals(poolId))throw new IllegalArgumentException("Mitglied gehört nicht zu diesem Pool."); double used=members.findByPoolId(poolId).stream().filter(other->!other.getId().equals(memberId)&&!"DECLINED".equals(other.getStatus())).mapToDouble(PoolMemberEntity::getSharePercent).sum(); if(used+share>100.001)throw new IllegalArgumentException("Die Anteile dürfen zusammen höchstens 100 % ergeben.");m.setSharePercent(share);members.update(m);return toResponse(p);}
+ @Transactional public PoolResponses.Pool updateShares(UUID owner,UUID poolId,List<PoolRequests.ShareValue> values){
+  var p=owned(owner,poolId);ensureOwnerMember(p);var poolMembers=members.findByPoolId(poolId);
+  if(values==null)throw new IllegalArgumentException("Prozentgewichte fehlen.");
+  var supplied=new HashMap<UUID,Double>();var ids=new HashSet<UUID>();poolMembers.forEach(m->ids.add(m.getId()));
+  for(var value:values){
+   if(value==null||value.memberId()==null||!ids.contains(value.memberId()))throw new IllegalArgumentException("Mitglied gehört nicht zu diesem Pool.");
+   PoolWeights.basisPoints(value.sharePercent());
+   if(supplied.putIfAbsent(value.memberId(),value.sharePercent())!=null)throw new IllegalArgumentException("Ein Mitglied darf nur einmal angegeben werden.");
+  }
+  int activeBasis=0;
+  for(var m:poolMembers)if(m.isActive()&&"ACTIVE".equals(m.getStatus()))activeBasis=Math.addExact(activeBasis,PoolWeights.basisPoints(supplied.getOrDefault(m.getId(),m.getSharePercent())));
+  if(activeBasis==0)throw new IllegalArgumentException("Mindestens ein aktives Mitglied benötigt ein positives Prozentgewicht.");
+  // Saved percentage-point weights are relative. Active effective shares are normalized to exactly 100%.
+  // Inactive/invited weights remain stored for later reactivation and are never silently reassigned.
+  for(var m:poolMembers)if(supplied.containsKey(m.getId())){m.setSharePercent(supplied.get(m.getId()));members.update(m);}
+  return toResponse(p);
+ }
+ @Transactional public PoolResponses.Pool updateShare(UUID owner,UUID poolId,UUID memberId,double share){
+  return updateShares(owner,poolId,List.of(new PoolRequests.ShareValue(memberId,share)));
+ }
  @Transactional public PoolResponses.Pool remove(UUID owner,UUID poolId,UUID memberId){var p=owned(owner,poolId);ensureOwnerMember(p);var m=members.findById(memberId).orElseThrow(); if(!m.getPoolId().equals(poolId))throw new IllegalArgumentException("Mitglied gehört nicht zu diesem Pool."); if(m.getUserId().equals(owner))throw new IllegalArgumentException("Der Pool-Besitzer kann nicht entfernt werden."); users.findById(m.getUserId()).ifPresent(u->mail.sendText(u.getEmail(),"Aus einem Pool entfernt", "Du wurdest aus dem Pool '"+p.getName()+"' entfernt.")); members.deleteById(memberId);return toResponse(p);}
  @Transactional public PoolResponses.Pool setMemberActive(UUID userId,UUID memberId,boolean active){
   var m=lockedMember(memberId);if(!m.getUserId().equals(userId))throw new PoolPermissionException("Keine Berechtigung für diese Mitgliedschaft.");

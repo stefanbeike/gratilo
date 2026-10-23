@@ -7,6 +7,12 @@ import java.util.*;
 /** Normalizes saved weights for display only. Membership changes never overwrite a weight. */
 public final class PoolWeights {
     private PoolWeights() {}
+    /** Percentage-point weight at the API boundary, never binary-float addition. */
+    public static int basisPoints(double value) {
+        if(!Double.isFinite(value)||value<0||value>100)throw new IllegalArgumentException("Prozentgewichte müssen zwischen 0 und 100 % liegen.");
+        try { return BigDecimal.valueOf(value).movePointRight(2).intValueExact(); }
+        catch(ArithmeticException invalid){throw new IllegalArgumentException("Prozentgewichte dürfen höchstens zwei Nachkommastellen haben.");}
+    }
     public static Map<UUID,Double> effectiveShares(List<PoolMemberEntity> members) {
         var eligible=members.stream().filter(m->m.isActive()&&"ACTIVE".equals(m.getStatus()))
                 .filter(m->Double.isFinite(m.getSharePercent())&&m.getSharePercent()>0)
