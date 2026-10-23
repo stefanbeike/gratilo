@@ -1,0 +1,324 @@
+= Automatische Einrichtung manueller Stripe-Sandbox-Auszahlungen
+:revdate: 2026-10-23
+:toc:
+
+== Ergebnis und Ausführungsgrenzen
+
+Die manuelle EUR-Standardauszahlung ist für einen ausdrücklich aktivierten
+Stripe-Testbetrieb vorbereitet. Eine manuelle Freischaltung einzelner Mitarbeiter
+ist nicht erforderlich. Simulation bleibt für lokale Entwicklung und Tests erhalten.
+Live-Stripe-Schlüssel werden weiterhin abgewiesen. Diese Änderung wurde nicht
+gepusht oder deployed; es wurden keine Stripe-Einstellungen verändert und keine
+Payouts erzeugt. AWS wurde ausschließlich lesend verwendet.
+
+== Technische Berechtigung: konkrete Befunde
+
+Stripe dokumentiert für Express-Dashboard-Konten, dass die Plattform Zeitpläne
+verwalten und manuelle Payouts ausführen kann. Die zusätzliche Konfiguration von
+Platform Controls wird in dieser Anleitung für Full-Dashboard-Konten beschrieben,
+nicht pauschal für Express verlangt:
+https://docs.stripe.com/connect/manage-connected-account-payouts[Connected-account payouts].
+
+Für Accounts v2 sind `GET/POST /v1/balance_settings` die vorgesehene Schnittstelle.
+`payments[payouts][schedule][interval]=manual` hält Guthaben bis zu einem Payout.
+Die Auszahlung wird weiterhin über `POST /v1/payouts` im Connected-Account-Kontext
+erstellt. Das ist keine Accounts-v1-Migration:
+https://docs.stripe.com/api/balance-settings[Balance Settings],
+https://docs.stripe.com/connect/manage-payout-schedule[Schedule],
+https://docs.stripe.com/connect/manual-payouts[Manual payouts].
+
+`Stripe-Account` wird bei Balance Settings, Bankabfragen, Balance und Payouts auf
+das serverseitig dem angemeldeten Benutzer zugeordnete Konto gesetzt.
+Die stabile Version bleibt `2026-09-30.endive`. Die existierende isolierte Preview
+`2026-06-24.preview` für neue Express-Konten mit Stripe-owned Pricing wird nicht
+global aktiviert oder verändert. Der Einrichtungsprozess ändert weder
+`fees_collector` noch `losses_collector`; er enthält keine Sperre anhand dieser Felder.
+
+=== Laufende Sandbox, lesender Abgleich
+
+Die laufende ECS-Revision war beim Abgleich `gratilo-prd-app:33`.
+Sie hatte `STRIPE_SANDBOX_PAYOUTS=true`; die beiden neuen Freigabe-/Setup-Flags
+waren nicht gesetzt. Der laufende Testschlüssel ist NICHT derselbe wie in den
+lokalen `.env`-Dateien. Die ersten lokalen Kontobefunde dürfen daher nicht mit
+der laufenden Gratilo-Sandbox verwechselt werden.
+
+Die laufende Sandbox enthielt drei Connected Accounts. Alle hatten Express-Zugriff,
+`controller.is_controller=true`, Stripe-freigegebene Payouts, den Plan `daily`
+und Gebühren-/Verlustverantwortung `application`. Die fünf auszahlungsfähigen
+Konten der anderen lokalen Sandbox wurden separat geprüft und nicht verändert.
+
+[cols="2,1,1,1",options="header"]
+|===
+|Connected Account |Plan |EUR verfügbar |EUR pending
+|`acct_1UTKTHJnhD0xjF0b` |daily |0,00 |448,40
+|`acct_1UTK7rJnhDvqBsAp` |daily |0,00 |664,05
+|`acct_1UTIOlJnhD6sosYk` |daily |0,00 |9,50
+|===
+
+Das neue Administrationsskript wurde gegen diese laufende Sandbox ausschließlich
+als Dry-Run ausgeführt. Alle drei Konten wurden nativ als Express-v2-Testkonten
+mit freigegebener Payout-Capability, passender EUR-Bankverbindung und aktivierten
+Auszahlungen erkannt: `WOULD_CONFIGURE`, jeweils von `daily` auf `manual`.
+Keine Payout- oder Einstellungs-POSTs wurden dabei ausgeführt.
+
+Für `acct_1UTKTHJnhD0xjF0b` wurde zusätzlich ausdrücklich die native v2-Antwort
+geprüft: `object=v2.core.account`, `livemode=false`, `dashboard=express`,
+Payout-Capability `active`, `fees_collector=application`,
+`losses_collector=application`. Die tatsächliche Konfiguration dieses konkreten
+Kontos ist also noch das ältere application-Modell; auch das wird unterstützt.
+Die Einrichtung ändert diese Verantwortlichkeiten nicht.
+
+Damit ist für den vorhandenen Bestand kein fehlendes Stripe-Recht nachgewiesen.
+Das Rollenmodell und die offizielle Express-Dokumentation unterstützen den Ablauf.
+Ein tatsächlicher erfolgreicher Einstellungs- oder Payout-POST ist noch nicht
+behauptet: Er wurde durch die ausdrückliche Sicherheitsgrenze dieses Auftrags
+nicht ausgeführt. Für ein tatsächlich vorhandenes Express-Testkonto mit
+`stripe/stripe`-Verantwortung lag in der laufenden Sandbox noch kein Kontobeispiel vor.
+Die Unterstützung dieses Modells ist dokumentiert und in Fakes abgedeckt;
+seine reale End-to-End-Abnahme kann erst mit einem solchen Konto erfolgen.
+
+== Entfernte Blockaden und Betriebsmodi
+
+* Die Account-Liste ist keine Voraussetzung mehr. Leer bedeutet alle fachlich
+  geeigneten, in Gratilo zugeordneten Konten. Eine explizit gesetzte Liste bleibt
+  ausschließlich als optionaler restriktiver Testfilter verfügbar.
+* Die Deployment-Konfiguration erzwingt nicht länger generell simulierte Payouts.
+* Ein automatischer Zeitplan wird bei aktivierter Einrichtung nicht länger nur
+  abgewiesen, sondern idempotent auf `manual` gesetzt und anschließend neu gelesen.
+* Die Simulation benötigt keinen echten manuellen Stripe-Zeitplan und verändert
+  keine Kontoeinstellungen.
+* Eine erfolgreiche KYC-Freigabe wird in der UI nicht länger mit einem sofort
+  verfügbaren Auszahlungsbetrag oder einem eingerichteten manuellen Plan gleichgesetzt.
+
+[cols="1,2,2",options="header"]
+|===
+|Modus |Konfiguration |Verhalten
+|Mock/Simulation |`STRIPE_SANDBOX_PAYOUTS=true` (Standard) |Keine externen Payout- oder Settings-POSTs. Bestehende persistierte Simulation, Idempotenz und Statuswechsel bleiben erhalten.
+|Stripe-Sandbox |`STRIPE_SANDBOX_PAYOUTS=false`, `STRIPE_MANUAL_PAYOUTS_API_APPROVED=true`, `STRIPE_MANUAL_PAYOUT_SETUP_ENABLED=true`, Testschlüssel und Connected-Webhook-Secret |Echte Stripe-Test-Objekte; keine echten Banküberweisungen. Automatische Account-Einrichtung und Standard-Payouts möglich.
+|Live |`sk_live_...` |Nicht unterstützt, Start/Transport abgewiesen. Kein Fallback aus dem Sandbox-Modus.
+|===
+
+`STRIPE_MANUAL_PAYOUTS_API_APPROVED` ist eine einmalige Umgebungsaktivierung,
+keine individuelle Account-Genehmigung und kein behauptetes Stripe-Berechtigungsflag.
+Stripe prüft jede tatsächliche API-Aktion selbst. Alle Defaults bleiben sicher;
+in den ignorierten lokalen `.env`-Dateien und in AWS wurde kein Flag aktiviert.
+
+Für den späteren Release-Workflow gibt es ein separat bestätigtes
+`stripe_test_payouts_enabled` (Standard false) und die Bestätigung
+`ENABLE STRIPE TEST PAYOUTS`. Der Renderer verlangt gleichzeitig Stripe-Testmodus,
+setzt die beiden Backend-Flags und die Simulation konsistent und bindet das
+Connected-Webhook-Secret an denselben dedizierten Testsecret.
+Geerbte Account-Filter oder frühere Aktivierungen werden nicht stillschweigend
+als Zustimmung übernommen. Compose bietet dieselben sicheren opt-in-Parameter.
+
+== Zentraler Einrichtungsprozess
+
+`StripePayoutSetup` wird vom bestehenden `StripePayoutService` verwendet und nutzt
+dessen vorhandenen HTTP-Transport. Keine zweite Payout- oder Bankinfrastruktur.
+
+. Account ausschließlich über den authentifizierten Gratilo-Benutzer bestimmen.
+. Aktuelles natives v2-Testkonto, Express-Modell, Onboarding und Payout-Capability prüfen.
+. Eindeutige, aktive EUR-Standardbankverbindung prüfen; keine neuen Bankdaten anlegen.
+. Aktuelle Balance Settings lesen und `payments.payouts.status=enabled` prüfen.
+. Bei bereits `manual`: keine weitere Stripe-Schreiboperation.
+. Andernfalls nur im bewusst aktivierten Setup-Modus `interval=manual` setzen.
+. Settings erneut lesen. Nur bestätigtes `manual` plus `enabled` ergibt `READY`.
+. Bestätigten Plan im vorhandenen `connected_accounts.payout_schedule_interval`
+  speichern. Kein zusätzlicher persistierter Freigabeschalter und keine Migration.
+
+Das Setzen desselben Wertes ist eine idempotente Zustandsoperation, keine
+Geldbewegung. Gleichzeitige Setup-Versuche können höchstens denselben Plan setzen;
+sie erzeugen niemals Payouts. Nach einem unklaren Settings-Timeout bestätigt die
+nächste Abfrage den aktuellen Zustand. Stripe-Fehlercodes werden nicht in ein
+angeblich erfolgreiches Ergebnis umgewandelt.
+
+Auslöser:
+
+* Authentifizierter `POST /payment-service/connect-account/sync`, auch nach
+  Onboarding-Rückkehr und bei der bereits vorhandenen Statusaktualisierung.
+* Signierte Accounts-v2-Events über `StripeStatusSync.refreshAccount`.
+* Signierte Connected-Account-Ereignisse `balance_settings.updated` und relevante
+  `account.external_account.*`-Events am bestehenden Direct/Connect-v1-Endpunkt.
+* Wiederholbarer Hintergrundjob, nach 30 Sekunden und anschließend alle zwei Minuten,
+  nur bei aktiviertem Setup- und echtem Testmodus.
+* Authentifizierter `POST /payment-service/payouts/setup` für das eigene Konto;
+  in der UI erreichbar als „Auszahlungseinrichtung prüfen“.
+* Vor einer neuen Payout-Erstellung erneute Vorbereitung und aktuelle Prüfung.
+
+Öffentliche beziehungsweise lesende GET-Endpunkte lösen keine Stripe-POSTs aus.
+Ein Setup-Fehler beeinträchtigt weder bereits bestätigte Trinkgelder noch Transfers.
+
+== Bestehende Accounts: Administrationsskript
+
+`deployment/scripts/prepare_manual_payout_accounts.py` verwendet nur Standard-Python.
+Der Testschlüssel muss bereits sicher in `STRIPE_SECRET_KEY` bereitstehen;
+keinen Schlüssel als Kommandozeilenargument eingeben oder in Logs ausgeben.
+
+[source,bash]
+----
+python3 deployment/scripts/prepare_manual_payout_accounts.py --dry-run
+----
+
+Das Skript entdeckt alle durch die Plattform kontrollierten Konten über die
+paginierten Account-Listen, prüft anschließend die nativen v2-Daten und die Bank.
+Es benötigt keine manuell zusammengestellte Liste von Account-IDs.
+Es arbeitet ohne Datenbank, ohne AWS-Schreiboperation und ohne Payout-Endpunkt.
+Ein Kontofehler blockiert die übrigen Konten nicht. Ausgabe: JSON-Zeilen mit
+Account-ID, Ergebnis, Zeitstempel und gegebenenfalls Fehlercode/Request-ID;
+keine E-Mail-Adressen, Bankdaten oder Secrets.
+
+Erst nach gesonderter ausdrücklicher Freigabe, mit den oben genannten Sandbox-
+Flags und demselben Testschlüssel:
+
+[source,bash]
+----
+python3 deployment/scripts/prepare_manual_payout_accounts.py \
+  --apply --confirm 'CONFIGURE STRIPE TEST PAYOUT SCHEDULES'
+----
+
+Auch dieser Apply-Pfad kann ausschließlich `POST /v1/balance_settings` mit dem
+festen Wert `manual` senden. Er kann technisch keinen Payout-POST ausführen.
+Ein leerer optionaler Account-Filter gibt alle geeigneten Testkonten frei;
+ein ausdrücklich gesetzter Filter wird auch hier respektiert.
+Der Hintergrundjob verarbeitet dagegen nur Accounts mit vorhandener Gratilo-Zuordnung.
+
+== Auszahlung und Idempotenz
+
+Persönliche Direct Charges und bereits eingegangene Pooltransfers laufen auf
+STRIPE-EUR-`available` desselben Connected Accounts zusammen. Keine Addition von
+Trinkgeldstatistiken, keine Auszahlung von Pending-Guthaben.
+
+Die bestehende persistierte Anforderung, Mitarbeiter-Zeilensperre, eindeutige
+Request-ID und stabile Stripe-Idempotenz `gratilo-payout-<Transaktions-ID>` bleiben
+erhalten. Unmittelbar vor dem Payout wird das verfügbare Guthaben erneut gelesen.
+Ein bereits vorhandener Auftrag wird wiederverwendet; unklare Timeouts werden
+über GET abgeglichen und sperren neue Anforderungen. Keine automatische neue
+Idempotenzkennung nach einem unklaren Ergebnis oder Ablauf der Stripe-Retention.
+
+Der einzige Geldbewegungs-POST ist `POST /v1/payouts` mit `method=standard`,
+`currency=eur`, dem geprüften Bankziel, dem eingefrorenen Betrag sowie
+Transaktions-/Request-ID in Metadaten. Es gibt keine eigene Auszahlungsgebühr,
+keine zusätzliche Application Fee und keinen Account Debit.
+Stripe-Ablehnungen werden mit Fehlercode und Request-ID am Auszahlungsauftrag
+nachvollziehbar gespeichert. Sensitive Inhalte werden redigiert.
+
+Payouts erzeugen auch bei Accounts v2 die v1-Ereignisse `payout.created`,
+`payout.updated`, `payout.paid`, `payout.failed` und gegebenenfalls `payout.canceled`.
+Die vorhandene Signatur-, Konto-, Betrags- und Zustandsprüfung bleibt unverändert.
+Eine erfolgreiche API-Antwort ist zunächst ein angenommener Auftrag, kein
+bestätigter Bankeingang. Simulation ist ausdrücklich beschriftet; echte
+Sandbox-Payouts lösen keine reale Banküberweisung aus.
+
+== Fehler und Aufbewahrungsfristen
+
+Fehlende Capability, Onboarding-Angaben, Bank, aktiver Payout-Status oder verfügbare
+Mittel bleiben fachliche Sperren. Es gibt keine vorsorgliche Sperre ausschließlich
+wegen `fees_collector=stripe` oder `losses_collector=stripe`.
+
+Bei tatsächlicher Stripe-Ablehnung werden HTTP-Status, tatsächlicher Fehlercode,
+sicher redigierter Stripe-Grund und Request-ID weitergegeben. Beispielsweise
+`permission_denied` wird in Tests simuliert, wurde bei den produktionsnahen
+GET-Abfragen aber NICHT als tatsächliche Einschränkung beobachtet.
+Die letzte Einrichtungssperre wird kurzzeitig (maximal fünf Minuten) zur Anzeige
+vorgehalten; die dauerhaften Betriebsnachweise liegen in strukturierten Logs.
+Die erneute Einrichtung liest Stripe immer wieder aktuell. Ein Cachewert kann
+niemals eine aktuelle Stripe-Sperre aufheben.
+
+Manuelles Guthaben darf nicht unbegrenzt gehalten werden. Stripe nennt für
+Deutschland und die meisten anderen Länder 90 Tage; Thailand und USA weichen ab:
+https://docs.stripe.com/connect/manual-payouts[Stripe holding periods].
+Die UI weist deshalb auf regelmäßige Auszahlung hin. Aus der aggregierten
+`available`-Summe wird kein erfundenes Alter oder Auszahlungsdatum berechnet.
+Ein automatischer Zwangspayout oder eine neue Gebührenregel wurde nicht eingeführt.
+Vor Live-Betrieb ist eine belastbare Fristüberwachung beziehungsweise ein
+abgestimmter Ablauf für lange inaktive Nutzer erforderlich; dies ist eine
+Betriebsanforderung und keine zusätzliche manuelle Freigabe jedes Mitarbeiters.
+
+== Gezielt freizugebender End-to-End-Test
+
+. Separat die Aktivierung des echten Stripe-Testmodus und die Änderungen der
+  Auszahlungspläne genehmigen. Keine Live-Schlüssel verwenden.
+. Den neuen Code/Schema-Stand in einer bewusst freigegebenen Sandbox bereitstellen.
+  Es ist keine neue Migration für diese Änderung nötig; die vorhandenen
+  Payout-Tabellen/Constraints müssen bereits installiert sein.
+. Sandbox-Payout-Modus mit automatischem Setup aktivieren, Account-Filter leer.
+. Die Connected-Account-Webhooks für Setup und Payouts sowie das vorhandene
+  Accounts-v2-Eventziel abonnieren. Endpunkt und Signing-Secret müssen zusammenpassen.
+. `acct_1UTKTHJnhD0xjF0b` beziehungsweise dessen zugeordneten Mitarbeiter über
+  `POST /payment-service/connect-account/sync` vorbereiten. Erwartet:
+  Stripe-GETs → `POST /v1/balance_settings` → bestätigender GET → Plan `manual`.
+. Ein persönliches Testtrinkgeld und einen Poolanteil auf diesem Konto bestätigen.
+  Hierfür ebenfalls ausdrücklich freigegebene Stripe-Sandbox-Zahlungen verwenden.
+. `GET /v1/balance` muss verfügbares EUR-Guthaben melden. Pending ist nicht genug.
+  Momentan meldet das konkrete Konto 0 EUR verfügbar; daher kann jetzt kein
+  Payout erfolgreich aus dem vorhandenen Guthaben gestartet werden.
+. Im Dashboard Teilbetrag oder gesamtes verfügbares Guthaben bestätigen:
+  `POST /payment-service/payouts` mit Betrag und stabiler Request-ID.
+. Prüfen, dass genau ein `POST /v1/payouts` mit korrektem `Stripe-Account` entsteht
+  und die Payout-ID persistiert wird. Wiederholten Request und Doppelklick prüfen.
+. Signierte Payout-Events verarbeiten; danach über die bestehende
+  „Status abgleichen“-Aktion/GET-Payout-Abfrage und Historie den finalen Teststatus prüfen.
+
+Der vorbereitete End-to-End-Test wurde im Rahmen dieses Auftrags nicht ausgeführt.
+
+== Lokale Prüfungen
+
+* Payment-Service: 234 Tests erfolgreich, einschließlich Setup, verschiedener
+  Fee Collector, Bank/Capability, fehlendem Guthaben, Parallelität, Idempotenz,
+  Payout-/Setup-Webhooks, Signaturen und HTTP-Autorisierung.
+* User-Service: 77 Tests erfolgreich (bestehender unveränderter Stand).
+* Frontend: 170 Tests in 21 Dateien erfolgreich.
+* Frontend-Build einschließlich Typecheck erfolgreich. Kein Lint-Skript im
+  vorhandenen Frontend konfiguriert.
+* Deployment-/Skript-Tooling: 152 Tests erfolgreich, keine echten AWS-Clients.
+* Isoliertes PostgreSQL 15 ohne Netzwerk: vorhandene Migrationen, Request-
+  Eindeutigkeit, aktive/unklare Aufträge, Mitarbeiter-Zeilensperre, parallele
+  Anforderungen und eindeutige Stripe-Payout-IDs erfolgreich geprüft.
+* Browser-Fakes bei 1440, 390 und 320 Pixeln: maskierte Bank, Teilbetrag,
+  Bestätigung, genau ein gemockter Payout-POST, Status pending/in_transit/paid,
+  veränderte tatsächliche Mock-Balance und Sperre bei Pending-only erfolgreich.
+  Kein Browserkontakt zu externen Diensten und kein horizontales Überlaufen.
+* `git diff --check` erfolgreich.
+* Read-only-Dry-Run gegen die drei laufenden Sandbox-Konten erfolgreich,
+  keine Settings- oder Payout-POSTs.
+
+Ein bestehender Fokus-Regressionsfall wartete zuvor nur auf das Schließen des
+Dialogs, nicht auf die asynchrone Fokusrückgabe. Er wartet jetzt ausdrücklich
+auf das tatsächliche Fokusziel. Keine Design- oder Berechtigungsänderung dadurch.
+
+
+== Geänderte Dateien
+
+* `.env.example`
+* `.github/workflows/deploy-production.yml`
+* `.github/workflows/release.yml`
+* `backend/payment-service/src/main/java/com/gratilo/payment/config/SandboxConfiguration.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/controller/ConnectedAccountController.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/controller/PayoutController.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/controller/StripeWebhookController.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/PayoutStore.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripePayoutService.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripePayoutSetup.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripePayoutSetupWorker.java`
+* `backend/payment-service/src/main/java/com/gratilo/payment/service/StripeStatusSync.java`
+* `backend/payment-service/src/main/resources/application.yml`
+* `backend/payment-service/src/test/java/com/gratilo/payment/SandboxSecurityTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/controller/PayoutWebhookTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/ManualPayoutTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/PayoutAuthorizationHttpTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeAccountFixtures.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripePayoutSetupTest.java`
+* `backend/payment-service/src/test/java/com/gratilo/payment/service/StripeStatusSyncTest.java`
+* `deployment/scripts/deploy_ecs.sh`
+* `deployment/scripts/prepare_manual_payout_accounts.py`
+* `deployment/scripts/render_task_definition.py`
+* `deployment/tests/test_ecs_deployment.py`
+* `deployment/tests/test_manual_payout_setup.py`
+* `docker-compose/compose.stripe-test.yml`
+* `docker-compose/docker-compose.services.yml`
+* `docs/manual-sandbox-payouts-automation.adoc`
+* `docs/manual-stripe-payouts.adoc`
+* `frontend/src/PayoutManager.test.tsx`
+* `frontend/src/PayoutManager.tsx`
+* `frontend/src/PersonalAccountPanel.tsx`
+* `frontend/src/PoolMembersPanel.test.tsx`

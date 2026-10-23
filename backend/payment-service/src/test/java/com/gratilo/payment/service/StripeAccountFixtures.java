@@ -6,7 +6,7 @@ import io.micronaut.json.JsonMapper;
 final class StripeAccountFixtures {
     static String readyJson() {
         return """
-            {"id":"acct_fixture","object":"v2.core.account","livemode":false,"closed":false,
+            {"id":"acct_fixture","object":"v2.core.account","livemode":false,"closed":false,"dashboard":"express",
              "applied_configurations":["merchant","recipient"],
              "defaults":{"responsibilities":{"fees_collector":"application","losses_collector":"application"}},
              "configuration":{

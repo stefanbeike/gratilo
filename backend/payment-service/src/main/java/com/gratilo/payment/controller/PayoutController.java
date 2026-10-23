@@ -19,12 +19,17 @@ public class PayoutController {
     @Get public HttpResponse<?> history(Authentication auth) {return HttpResponse.ok(payouts.history(user(auth)).stream().map(TransactionResponse::from).toList()).header("Cache-Control","no-store");}
     @Get("/eligibility") public HttpResponse<?> eligibility(Authentication auth) {
         try {return HttpResponse.ok(payouts.eligibility(user(auth))).header("Cache-Control","no-store");}
+        catch(StripePayoutService.SetupException setup){return HttpResponse.status(HttpStatus.CONFLICT).body(setup.result).header("Cache-Control","no-store");}
         catch(IllegalStateException invalid){return error(HttpStatus.CONFLICT,invalid.getMessage());}
         catch(Exception unavailable){return error(HttpStatus.BAD_GATEWAY,"Die Auszahlungsvoraussetzungen konnten nicht zuverlässig geprüft werden.");}
+    }
+    @Post("/setup") public HttpResponse<?> setup(Authentication auth) {
+        return HttpResponse.ok(payouts.prepareAccount(user(auth))).header("Cache-Control","no-store");
     }
     @Post public HttpResponse<?> create(Authentication auth,@Body @Nullable PayoutRequest request) {
         if(request==null||request.requestId()==null)return error(HttpStatus.BAD_REQUEST,"Eine eindeutige Auszahlungs-ID ist erforderlich.");
         try {return HttpResponse.ok(TransactionResponse.from(payouts.create(user(auth),request.amountMinor(),request.requestId()))).header("Cache-Control","no-store");}
+        catch(StripePayoutService.SetupException setup){return HttpResponse.status(HttpStatus.CONFLICT).body(setup.result).header("Cache-Control","no-store");}
         catch(IllegalArgumentException invalid){return error(HttpStatus.BAD_REQUEST,invalid.getMessage());}
         catch(IllegalStateException invalid){return error(HttpStatus.CONFLICT,invalid.getMessage());}
         catch(Exception unavailable){return error(HttpStatus.BAD_GATEWAY,"Auszahlungsergebnis nicht verfügbar. Bitte dieselbe Anfrage erneut laden oder den Status abgleichen.");}

@@ -13,12 +13,13 @@ import static org.junit.jupiter.api.Assertions.*;
 class SandboxSecurityTest {
     private static final String WEBHOOK = "whsec_local_unit_test_fixture";
 
-    @Test void externalTestPayoutsRequireExplicitApprovalAndSpecificAccounts() {
-        assertDoesNotThrow(()->new SandboxConfiguration("sk_test_fixture",WEBHOOK,false,true,"fixture",false,"",true,"acct_fixture"));
+    @Test void externalTestPayoutsRequireEnvironmentApprovalAndSigningSecretWithOptionalAccountFilter() {
+        assertDoesNotThrow(()->new SandboxConfiguration("sk_test_fixture",WEBHOOK,false,true,"fixture",false,WEBHOOK,true,"acct_fixture"));
         assertThrows(IllegalStateException.class,()->new SandboxConfiguration("sk_test_fixture",WEBHOOK,false,true,"fixture",false,"",false,"acct_fixture"));
+        assertDoesNotThrow(()->new SandboxConfiguration("sk_test_fixture",WEBHOOK,false,true,"fixture",false,WEBHOOK,true,""));
         assertThrows(IllegalStateException.class,()->new SandboxConfiguration("sk_test_fixture",WEBHOOK,false,true,"fixture",false,"",true,""));
-        assertThrows(IllegalStateException.class,()->new SandboxConfiguration("sk_test_fixture",WEBHOOK,false,true,"fixture",false,"",true,"acct_fixture,*"));
-        assertThrows(IllegalStateException.class,()->new SandboxConfiguration("sk_live_fixture",WEBHOOK,false,true,"fixture",false,"",true,"acct_fixture"));
+        assertThrows(IllegalStateException.class,()->new SandboxConfiguration("sk_test_fixture",WEBHOOK,false,true,"fixture",false,WEBHOOK,true,"acct_fixture,*"));
+        assertThrows(IllegalStateException.class,()->new SandboxConfiguration("sk_live_fixture",WEBHOOK,false,true,"fixture",false,WEBHOOK,true,"acct_fixture"));
     }
     @Test void rejectsLiveKeysAndRealPayoutConfiguration() {
         assertThrows(IllegalStateException.class, () -> new SandboxConfiguration("sk_live_rejected_fixture", WEBHOOK, true, true, "test"));

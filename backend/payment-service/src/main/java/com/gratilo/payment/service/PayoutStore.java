@@ -76,4 +76,12 @@ public class PayoutStore {
         if("STRIPE".equals(tx.getProvider()))PayoutState.apply(tx,account,payout,time);
         return true;
     }
+    @Transactional public TransactionEntity rejected(UUID user,UUID id,String code,String requestId,String message) {
+        var tx=failed(user,id,false);
+        // A signed webhook may already have established success; never overwrite it.
+        if(tx.getProviderReference()!=null||tx.getStatus()!=TransactionStatus.FAILED)return tx;
+        tx.setFailureCode(code);tx.setFailureMessage(message);
+        var metadata=PayoutState.metadata(tx);metadata.put("stripeErrorCode",code);metadata.put("stripeRequestId",requestId);
+        PayoutState.metadata(tx,metadata);return tx;
+    }
 }

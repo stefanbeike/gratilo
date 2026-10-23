@@ -9,10 +9,19 @@ on:
         default: patch
         options: [patch, minor, major]
       stripe_test_mode:
-        description: 'Enable Stripe test payments only (requires a second confirmation; live keys and Stripe payouts remain blocked)'
+        description: 'Enable Stripe test payments; live keys blocked; sandbox payouts need separate approval'
         required: true
         type: boolean
         default: false
+      stripe_test_payouts_enabled:
+        description: 'Enable real Stripe sandbox payout objects and automatic manual schedules (no live payouts)'
+        required: true
+        type: boolean
+        default: false
+      stripe_test_payout_confirmation:
+        description: 'For sandbox payouts, type ENABLE STRIPE TEST PAYOUTS'
+        required: false
+        type: string
       new_pricing_enabled:
         description: 'Enable versioned Direct Charges and provisional pool commission (Stripe sandbox only)'
         required: true
@@ -85,3 +94,5 @@ jobs:
       stripe_test_mode: ${{ inputs.stripe_test_mode }}
       stripe_test_confirmation: ${{ inputs.stripe_test_confirmation }}
       new_pricing_enabled: ${{ inputs.new_pricing_enabled }}
+      stripe_test_payouts_enabled: ${{ inputs.stripe_test_payouts_enabled }}
+      stripe_test_payout_confirmation: ${{ inputs.stripe_test_payout_confirmation }}

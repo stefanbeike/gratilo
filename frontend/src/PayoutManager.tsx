@@ -88,16 +88,29 @@ export function PayoutManager({ accessToken, userId, onChanged }: { accessToken:
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Statusabgleich fehlgeschlagen.') }
     finally { lock.current = false; setBusy(false) }
   }
+  async function prepareAccount() {
+    if(lock.current)return
+    lock.current=true;setBusy(true);setError('')
+    try {
+      const result=await api<{ready:boolean;message:string;code:string}>('/payment-service/payouts/setup',{},accessToken)
+      await load()
+      if(!result.ready)setError(result.message)
+      else setNotice(result.message)
+    }catch(cause){setError(cause instanceof Error?cause.message:'Die Stripe-Einrichtung konnte nicht geprüft werden.')}
+    finally{lock.current=false;setBusy(false)}
+  }
   return <div className="manual-payout-manager">
     {loading && <p role="status">Auszahlungsvoraussetzungen werden geprüft …</p>}
     {error && <p role="alert" className="message error">{error}</p>}
     {notice && <p role="status">{notice}</p>}
+    <button className="text-button" disabled={loading||busy} onClick={prepareAccount}>Auszahlungseinrichtung prüfen</button>
     {eligibility && <>
       <p><strong>{eligibility.simulation ? 'Testmodus · lokale Auszahlungssimulation' : 'Stripe-Testmodus · Standardauszahlung'}</strong></p>
-      <p>{eligibility.simulation ? 'Hier wird keine Bankauszahlung ausgelöst. Simulierte Auszahlungen ändern dein echtes Stripe-Guthaben nicht.' : 'Die Auszahlung erfolgt ausschließlich auf deine bei Stripe hinterlegte EUR-Bankverbindung.'}</p>
+      <p>{eligibility.simulation ? 'Hier wird keine Bankauszahlung ausgelöst. Simulierte Auszahlungen ändern dein echtes Stripe-Guthaben nicht.' : 'Stripe erstellt eine Testauszahlung für deine hinterlegte EUR-Bankverbindung. Es wird kein Geld auf ein Bankkonto überwiesen.'}</p>
       <p>Bankverbindung: {eligibility.bankName || 'Bei Stripe hinterlegte Bank'} · •••• {eligibility.bankLast4 || 'verborgen'}</p>
       <p>{eligibility.simulation ? 'Für die Simulation noch verfügbar' : 'Verfügbar zur Auszahlung'}: <strong>{money(available)}</strong></p>
       {eligibility.message && <p>{eligibility.message}</p>}
+      {!eligibility.simulation&&<p>Bitte zahle verfügbares Guthaben regelmäßig aus. Stripe begrenzt die Haltedauer bei manuellen Auszahlungen; es kann nicht unbegrenzt auf dem Stripe-Konto verbleiben.</p>}
       <p>Gratilo erhebt keine zusätzliche Auszahlungsprovision. Individuelle Stripe-Vertragsgebühren sind hier nicht als bestätigt gebührenfrei ausgewiesen.</p>
       {pending && <p role="status">Eine Auszahlung wird bereits verarbeitet. Bitte gleiche ihren Status ab.</p>}
       <form onSubmit={event => { event.preventDefault(); if (valid) setConfirm(true) }}>

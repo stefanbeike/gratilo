@@ -18,9 +18,13 @@ class StripeStatusSyncTest {
         });
         var stripe=new StripeConnectService("sk_test_fixture","http://localhost") { @Override public String retrieveAccount(String id) {if(body.get()==null)throw new IllegalStateException("offline");return body.get();} };
         var sync=new StripeStatusSync(repo,stripe);
-        assertEquals("READY",sync.refresh(row.getUserId()).status());assertTrue(row.isTransfersEnabled()); assertNotNull(row.getStatusCheckedAt());
+        int[] preparations={0};sync.payouts=new StripePayoutService(null,null,null,null,"sk_test_fixture",true,false,""){
+            @Override public boolean automaticPreparationEnabled(){return true;}
+            @Override public StripePayoutSetup.Result prepareAccount(UUID user){assertEquals(row.getUserId(),user);preparations[0]++;return null;}
+        };
+        assertEquals("READY",sync.refresh(row.getUserId()).status());assertTrue(row.isTransfersEnabled()); assertNotNull(row.getStatusCheckedAt());assertEquals(0,preparations[0]);
         body.set(StripeAccountFixtures.readyJson().replace("active","restricted"));
-        assertTrue(sync.refreshAccount("acct_fixture"));assertFalse(row.isTransfersEnabled()); assertEquals("ACTION_REQUIRED",row.getStripeStatus());
+        assertTrue(sync.refreshAccount("acct_fixture"));assertEquals(1,preparations[0]);assertFalse(row.isTransfersEnabled()); assertEquals("ACTION_REQUIRED",row.getStripeStatus());
         body.set(null);assertFalse(sync.refreshAccount("acct_fixture"));assertFalse(row.isTransfersEnabled());assertEquals("UNAVAILABLE",row.getStripeStatus());
     }
     @Test void ownerCannotInspectAnotherOwnersMembers() {

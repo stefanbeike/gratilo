@@ -9,6 +9,7 @@ import java.util.UUID;
 /** Every eligibility decision retrieves current v2 state; saved state is for display and auditing only. */
 @Singleton
 public class StripeStatusSync {
+    @jakarta.inject.Inject @io.micronaut.core.annotation.Nullable StripePayoutService payouts;
     @Serdeable
     public record Status(UUID userId, String status, String onboardingStatus, boolean transfersEnabled,
                          boolean payoutsEnabled, OffsetDateTime checkedAt) {}
@@ -29,6 +30,9 @@ public class StripeStatusSync {
     }
     public boolean refreshAccount(String accountId) {
         var account = accounts.findByStripeAccountId(accountId).orElse(null);
-        return account == null || !"UNAVAILABLE".equals(refresh(account.getUserId()).status());
+        if(account==null)return true;
+        var status=refresh(account.getUserId());
+        if(payouts!=null&&payouts.automaticPreparationEnabled())payouts.prepareAccount(account.getUserId());
+        return !"UNAVAILABLE".equals(status.status());
     }
 }

@@ -34,9 +34,10 @@ public class SandboxConfiguration {
             throw new IllegalStateException("STRIPE_SECRET_KEY must be a Stripe test key");
         if (!webhook.startsWith("whsec_") || webhook.length() <= 6)
             throw new IllegalStateException("STRIPE_WEBHOOK_SECRET is required");
-        if (!testOnly || !sandboxPayouts && (!manualApproved || approvedAccounts.isBlank()
-                || java.util.Arrays.stream(approvedAccounts.split(",", -1)).anyMatch(id -> !id.trim().matches("acct_[A-Za-z0-9]+"))))
-            throw new IllegalStateException("Stripe test-only mode is required; external test payouts require explicit approval and an account allowlist");
+        if (!testOnly || !sandboxPayouts && !manualApproved
+                || !approvedAccounts.isBlank() && java.util.Arrays.stream(approvedAccounts.split(",", -1)).anyMatch(id -> !id.trim().matches("acct_[A-Za-z0-9]+")))
+            throw new IllegalStateException("Stripe test-only mode is required; external test payouts require explicit environment approval; account filters are optional");
+        if(!sandboxPayouts&&(!directWebhookSecret.startsWith("whsec_")||directWebhookSecret.length()<=6))throw new IllegalStateException("STRIPE_DIRECT_WEBHOOK_SECRET is required for external test payouts");
         if(newPricingEnabled && (!directWebhookSecret.startsWith("whsec_") || directWebhookSecret.length()<=6))
             throw new IllegalStateException("STRIPE_DIRECT_WEBHOOK_SECRET is required before enabling Direct Charges");
         if (internalKey.isBlank()) throw new IllegalStateException("INTERNAL_API_KEY is required");

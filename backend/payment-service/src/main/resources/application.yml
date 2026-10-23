@@ -55,6 +55,7 @@ stripe:
   connect-stripe-pricing-enabled: ${STRIPE_CONNECT_STRIPE_PRICING_ENABLED:false}
   manual-payout-approved-accounts: ${STRIPE_MANUAL_PAYOUT_APPROVED_ACCOUNTS:}
   manual-payouts-api-approved: ${STRIPE_MANUAL_PAYOUTS_API_APPROVED:false}
+  manual-payout-setup-enabled: ${STRIPE_MANUAL_PAYOUT_SETUP_ENABLED:false}
   sandbox-payouts: ${STRIPE_SANDBOX_PAYOUTS:true}
   secret-key: ${STRIPE_SECRET_KEY:}
   webhook-secret: ${STRIPE_WEBHOOK_SECRET:}

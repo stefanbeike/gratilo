@@ -22,6 +22,8 @@ public class StripeWebhookController {
     com.gratilo.payment.service.TipNotificationOutbox tipNotifications;
     @jakarta.inject.Inject @Nullable
     com.gratilo.payment.service.PayoutStore payouts;
+    @jakarta.inject.Inject @Nullable
+    com.gratilo.payment.service.StripePayoutService payoutSetup;
     private final TransactionRepository transactions;
     private final String secret;
     private final boolean testOnly;
@@ -52,6 +54,10 @@ public class StripeWebhookController {
         if (event != null && event.startsWith("v2.")) return HttpResponse.badRequest();
         var data = body.get("data") instanceof java.util.Map<?, ?> value ? value : java.util.Map.of();
         var object = data.get("object") instanceof java.util.Map<?, ?> value ? value : java.util.Map.of();
+        if(directEndpoint&&payoutSetup!=null&&java.util.Set.of("balance_settings.updated","account.external_account.created","account.external_account.updated","account.external_account.deleted").contains(event==null?"":event)) {
+            if(body.get("account") instanceof String account&&account.matches("acct_[A-Za-z0-9]+"))payoutSetup.prepareKnownAccount(account);
+            return HttpResponse.ok();
+        }
         if (payouts != null && java.util.Set.of("payout.created", "payout.updated", "payout.paid", "payout.failed", "payout.canceled").contains(event == null ? "" : event)) {
             String account = body.get("account") instanceof String id ? id : null;
             if (directEndpoint && payouts.webhook(account, object, number(body.get("created")))) return HttpResponse.ok();

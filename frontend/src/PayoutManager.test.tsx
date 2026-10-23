@@ -39,3 +39,28 @@ it('blocks new payouts when a previous result is unknown and never labels it pai
 it('shows history errors and blocks payouts instead of claiming no history',async()=>{
  vi.mocked(api).mockImplementation(async path=>{if(path.endsWith('eligibility'))return base as never;throw Error('offline')});mount();await screen.findByText('Die Auszahlungshistorie konnte nicht geladen werden.');fireEvent.change(screen.getByLabelText('Auszahlungsbetrag in EUR'),{target:{value:'25'}});expect(screen.getByRole('button',{name:'Auszahlen'})).toBeDisabled();expect(screen.queryByText('Noch keine Auszahlungen vorhanden.')).not.toBeInTheDocument()
 })
+
+it('prepares the own account and then reloads its actual payout eligibility',async()=>{
+ let prepared=false
+ vi.mocked(api).mockImplementation(async(path)=>{
+  if(path.endsWith('/setup')){prepared=true;return {ready:true,message:'Manuelle Testauszahlungen sind eingerichtet.',code:''} as never}
+  if(path.endsWith('/eligibility')){if(!prepared)throw Error('Die Auszahlungseinrichtung ist noch erforderlich.');return {...base,simulation:false} as never}
+  return [] as never
+ })
+ mount();await screen.findByRole('alert');fireEvent.click(screen.getByRole('button',{name:'Auszahlungseinrichtung prüfen'}))
+ expect(await screen.findByText('Manuelle Testauszahlungen sind eingerichtet.')).toBeInTheDocument()
+ expect(screen.getByText('Stripe-Testmodus · Standardauszahlung')).toBeInTheDocument()
+ expect(vi.mocked(api).mock.calls.find(([path])=>path.endsWith('/setup'))).toEqual(['/payment-service/payouts/setup',{},'own-token'])
+ expect(vi.mocked(api).mock.calls.some(([path])=>path==='/payment-service/payouts'&&prepared)).toBe(true)
+})
+it('shows a concrete Stripe setup rejection and never opens a payout form',async()=>{
+ vi.mocked(api).mockImplementation(async path=>{
+  if(path.endsWith('/setup'))return {ready:false,message:'Stripe lehnt die Einrichtung ab: permission_denied.',code:'permission_denied'} as never
+  if(path.endsWith('/eligibility'))throw Error('Manuelle Einrichtung erforderlich.')
+  return [] as never
+ })
+ mount();await screen.findByRole('alert');fireEvent.click(screen.getByRole('button',{name:'Auszahlungseinrichtung prüfen'}))
+ await waitFor(()=>expect(screen.getByRole('alert')).toHaveTextContent('permission_denied'))
+ expect(screen.queryByLabelText('Auszahlungsbetrag in EUR')).not.toBeInTheDocument()
+ expect(vi.mocked(api).mock.calls.some(([path,body])=>path==='/payment-service/payouts'&&body)).toBe(false)
+})

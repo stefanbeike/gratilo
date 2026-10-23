@@ -20,6 +20,12 @@ on:
       stripe_test_mode:
         type: boolean
         default: false
+      stripe_test_payouts_enabled:
+        type: boolean
+        default: false
+      stripe_test_payout_confirmation:
+        type: string
+        default: ''
       new_pricing_enabled:
         type: boolean
         default: false
@@ -54,6 +60,8 @@ jobs:
       EXPECTED_USER_SERVICE_IMAGE: ${{ inputs.user_service_image }}
       EXPECTED_PAYMENT_SERVICE_IMAGE: ${{ inputs.payment_service_image }}
       STRIPE_TEST_MODE: ${{ inputs.stripe_test_mode }}
+      STRIPE_TEST_PAYOUTS_ENABLED: ${{ inputs.stripe_test_payouts_enabled }}
+      STRIPE_TEST_PAYOUT_CONFIRMATION: ${{ inputs.stripe_test_payout_confirmation }}
       GRATILO_NEW_PRICING_ENABLED: ${{ inputs.new_pricing_enabled }}
       STRIPE_TEST_CONFIRMATION: ${{ inputs.stripe_test_confirmation }}
       AWS_RETRY_MODE: standard

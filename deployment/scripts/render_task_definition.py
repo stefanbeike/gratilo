@@ -46,6 +46,13 @@ def render(response, images, config):
     test_mode = config.get("STRIPE_TEST_MODE", "false")
     require(test_mode in ("true", "false"), "STRIPE_TEST_MODE must be explicitly true or false")
     stripe_test_mode = test_mode == "true"
+    payout_mode=config.get("STRIPE_TEST_PAYOUTS_ENABLED","false")
+    require(payout_mode in ("true","false"),"STRIPE_TEST_PAYOUTS_ENABLED must be explicitly true or false")
+    external_payouts=payout_mode=="true"
+    require(not external_payouts or stripe_test_mode,"External payouts require Stripe test mode")
+    require(not external_payouts or config.get("STRIPE_TEST_PAYOUT_CONFIRMATION")=="ENABLE STRIPE TEST PAYOUTS","External test payouts require their separate confirmation")
+    payout_accounts=config.get("STRIPE_MANUAL_PAYOUT_APPROVED_ACCOUNTS","")
+    require(not payout_accounts or all(re.fullmatch(r"acct_[A-Za-z0-9]+",a.strip()) for a in payout_accounts.split(",")),"Invalid optional payout account filter")
     pricing_mode=config.get("GRATILO_NEW_PRICING_ENABLED","false")
     require(pricing_mode in ("true","false"),"GRATILO_NEW_PRICING_ENABLED must be explicitly true or false")
     require(pricing_mode!="true" or stripe_test_mode,"New pricing can only be enabled in Stripe test mode")
@@ -66,8 +73,11 @@ def render(response, images, config):
                 # The selected release mode is authoritative, not the previous
                 # deployment's flags. Disabled releases must work after test runs.
                 values.update(PAYMENTS_ENABLED=pools_enabled,
-                              STRIPE_SANDBOX_PAYOUTS=pools_enabled,
+                              STRIPE_SANDBOX_PAYOUTS="false" if external_payouts else pools_enabled,
                               STRIPE_TEST_ONLY="true", STRIPE_DEMO_ENABLED="false")
+                values.update(STRIPE_MANUAL_PAYOUTS_API_APPROVED=payout_mode,
+                              STRIPE_MANUAL_PAYOUT_SETUP_ENABLED=payout_mode,
+                              STRIPE_MANUAL_PAYOUT_APPROVED_ACCOUNTS=payout_accounts if external_payouts else "")
                 # A release may explicitly enable the versioned model; inherited true is never implicit approval.
                 if "GRATILO_NEW_PRICING_ENABLED" in config or "GRATILO_NEW_PRICING_ENABLED" in values:
                     values["GRATILO_NEW_PRICING_ENABLED"]=pricing_mode
@@ -118,8 +128,8 @@ def render(response, images, config):
                     require(env.get("STRIPE_TEST_ONLY", "false").lower() == "true", "Stripe test mode requires STRIPE_TEST_ONLY=true")
                     require(not demo_enabled, "Demo payment mode must remain disabled")
                     # true means the payout endpoint only writes a local sandbox ledger entry;
-                    # false calls Stripe's /v1/payouts API. Keep external payouts unreachable.
-                    require(sandbox_payouts, "Stripe test mode requires simulated payouts; Stripe payout API must remain disabled")
+                    # false is permitted only for a separately confirmed test-payout rollout.
+                    require(sandbox_payouts == (not external_payouts), "Payout simulation must match the explicitly approved test-payout mode")
                     require(env.get("PAYMENTS_TEST_USER_IDS", "") == "", "Use the account-bound activation code instead of a UUID allowlist")
                     stripe_secret = secret.get("STRIPE_SECRET_KEY", "")
                     webhook_secret = secret.get("STRIPE_WEBHOOK_SECRET", "")
@@ -130,6 +140,11 @@ def render(response, images, config):
                     require(activation_secret.startswith(test_secret_prefix) and activation_secret.endswith(":activation_code::"), "Stripe test access requires the private activation-code secret JSON field")
                     stripe_arns = {value.rsplit(":", 3)[0] for value in (stripe_secret, webhook_secret, activation_secret)}
                     require(len(stripe_arns) == 1, "Stripe key, webhook, and activation code must use the same test secret")
+                    if external_payouts:
+                        direct_reference=next(iter(stripe_arns))+":direct_webhook_secret::"
+                        require(secret.get("STRIPE_DIRECT_WEBHOOK_SECRET",direct_reference)==direct_reference,"Payout events must use the same dedicated Stripe test secret")
+                        secret["STRIPE_DIRECT_WEBHOOK_SECRET"]=direct_reference
+                        container["secrets"]=[{"name":key,"valueFrom":value} for key,value in secret.items()]
                     if pricing_mode=="true":
                         direct_reference=next(iter(stripe_arns))+":direct_webhook_secret::"
                         if "STRIPE_DIRECT_WEBHOOK_SECRET" in secret:

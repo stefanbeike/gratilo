@@ -1,7 +1,13 @@
 = Manuelle EUR-Standardauszahlungen
 :toc:
 
-Stand: 22.10.2026. Ausschließlich lokale Implementierung; keine Stripe-Payouts,
+Aktuelle Ergänzung vom 23.10.2026:
+link:manual-sandbox-payouts-automation.adoc[Automatische Sandbox-Auszahlungseinrichtung].
+Eine Account-Liste ist jetzt optional. Der echte Stripe-Testpfad kann nach
+separater Umgebungsfreigabe aktiviert werden; die Kontoeinrichtung erfolgt dann
+wiederholbar nach Statusabgleich, Webhooks und durch einen Hintergrundjob.
+
+Historische Bestandsaufnahme vom 22.10.2026. Ausschließlich lokale Implementierung; keine Stripe-Payouts,
 Kontoeinstellungen, AWS-Ressourcen oder bestehenden Datenbanken verändert.
 
 == Bestandsaufnahme
@@ -39,11 +45,14 @@ Preview-Pfad erstellt werden. Dieser Auftrag ändert das Onboarding nicht.
 Payout-, Balance-Settings- und Bankabfragen verwenden die bestehende stabile
 API-Version `2026-09-30.endive`; keine globale Preview-Umstellung.
 
-Die konkrete Berechtigung für API-Payouts sowie die Vertragsgebühren des neuen
-Express-Modells wurden durch diesen Auftrag NICHT an echten Sandbox-Konten
-nachgewiesen. Externe Payout-POSTs bleiben deshalb gesperrt. Vor späterem E2E-Test
-müssen Stripe beziehungsweise die Plattformkontoeinstellungen die Berechtigung
-bestätigen. Eine nicht unterstützte Konfiguration wird nicht umgangen.
+Aktualisierung vom 23.10.: Die offizielle Express-Dokumentation erlaubt der
+Plattform die Verwaltung von Zeitplänen und manuelle Payouts. Der native v2-Abgleich
+der drei laufenden Sandbox-Konten und der Dry-Run bestätigen die strukturellen
+Voraussetzungen. Es gibt keine Pflichtfreigabe einzelner Accounts. Ein echter
+Stripe-Schreibtest wurde ausschließlich wegen der Ausführungsgrenze des Auftrags
+nicht ausgeführt. Ein separater Bestätigungsschritt aktiviert den Testbetrieb;
+er behauptet keine veränderten Rechte bei Stripe. Unbestätigte Vertragstarife
+werden nicht pauschal als gebührenfrei behandelt.
 
 == Geldfluss und Guthaben
 
@@ -201,19 +210,21 @@ Ein späterer, SEPARAT freizugebender externer Sandbox-Test erfordert:
 . Den Plan separat über die dafür freigegebene Stripe-Oberfläche einstellen;
   diese Implementierung ändert ihn niemals automatisch.
 . Connected-Account-Payout-Events am bestehenden signierten Endpunkt abonnieren.
-. Nur für ausdrücklich freigegebene Account-IDs setzen:
+. Nach ausdrücklicher Umgebungsfreigabe setzen:
   `STRIPE_MANUAL_PAYOUTS_API_APPROVED=true`,
-  `STRIPE_MANUAL_PAYOUT_APPROVED_ACCOUNTS=acct_<freigegebenes_testkonto>`,
+  `STRIPE_MANUAL_PAYOUT_SETUP_ENABLED=true`,
+  `STRIPE_MANUAL_PAYOUT_APPROVED_ACCOUNTS=` (leer, optionaler Testfilter),
   `STRIPE_SANDBOX_PAYOUTS=false`.
 . Kleinen EUR-Standardbetrag bewusst bestätigen und Payout, Balance Transaction,
   Bankstatus und eventuelle Kosten prüfen. Keine Live-Freigabe aus einem Test ableiten.
 
-Die bestehenden Deployment-Sicherungen verlangen weiterhin simulierte Auszahlungen.
-Sie wurden hier NICHT gelockert. Die anwendungsinterne Startsperre akzeptiert
-einen explizit freigegebenen externen Testmodus nur mit Testschlüssel, Test-only,
-separatem Approval-Flag und gültiger nicht leerer Account-Allowlist. Ein späterer externer Test benötigt daher zusätzlich
-einen ausdrücklich geprüften Rollout; keine Empfehlung, einfach produktiv Flags
-umzustellen. Bestehende Connected Accounts bleiben unverändert.
+Die aktuelle Release-Konfiguration erlaubt externen Stripe-Testbetrieb ausschließlich
+mit `STRIPE_TEST_MODE=true`, `STRIPE_TEST_PAYOUTS_ENABLED=true` und der separaten
+Bestätigung `ENABLE STRIPE TEST PAYOUTS`. Standardmäßig bleibt Simulation aktiv.
+Die Account-Liste ist optional; eine leere Liste lässt alle fachlich berechtigten,
+in Gratilo zugeordneten Testkonten zu. Stripe selbst entscheidet über die
+Plattformberechtigung. Kein Flag ersetzt eine Stripe-Freigabe.
+Diese Einstellungen wurden nicht auf die laufende Umgebung angewendet.
 
 == Prüfungen
 

@@ -14,8 +14,9 @@ class ManualPayoutTest {
     final UUID user=UUID.randomUUID();
     final Store store=new Store();
     long available=10000;String schedule="manual";boolean payouts=true,bank=true;boolean timeout=false,reject=false;
-    final List<String> posts=new ArrayList<>();
-    StripePayoutService service(boolean simulation,boolean approved) {
+    final List<String> posts=new ArrayList<>();int settingsWrites;boolean denySetup;
+    StripePayoutService service(boolean simulation,boolean approved) {return service(simulation,approved,false,approved?"acct_fixture":"");}
+    StripePayoutService service(boolean simulation,boolean approved,boolean auto,String filter) {
         var account=new ConnectedAccountEntity();account.setStripeAccountId("acct_fixture");account.setUserId(user);
         var accounts=StripeFeeAuditTest.proxy(ConnectedAccountRepository.class,(p,m,args)->user.equals(args[0])?Optional.of(account):Optional.empty());
         var balance=new StripeBalanceService(accounts,"sk_test_fixture"){
@@ -24,7 +25,7 @@ class ManualPayoutTest {
         var connect=new StripeConnectService("sk_test_fixture","http://localhost"){
             @Override public String retrieveAccount(String id){assertEquals("acct_fixture",id);return payouts?StripeAccountFixtures.readyJson():StripeAccountFixtures.readyJson().replace("\"payouts\":{\"status\":\"active\"}","\"payouts\":{\"status\":\"pending\"}");}
         };
-        return new StripePayoutService(store,accounts,balance,connect,"sk_test_fixture",simulation,approved,approved?"acct_fixture":""){
+        return new StripePayoutService(store,accounts,balance,connect,"sk_test_fixture",simulation,approved,filter,auto){
             @Override protected Map<?,?> get(String path,String account) {
                 assertEquals("acct_fixture",account);
                 if(path.equals("/v1/balance_settings"))return Map.of("payments",Map.of("payouts",Map.of("status","enabled","schedule",Map.of("interval",schedule))));
@@ -33,6 +34,7 @@ class ManualPayoutTest {
             }
             @Override protected Map<?,?> request(String path,String form,String account,String key)throws Exception {
                 assertFalse(simulation,"No POST even for a test key in simulation");assertTrue(approved);assertEquals("acct_fixture",account);
+                if(path.equals("/v1/balance_settings")){assertTrue(auto);settingsWrites++;if(denySetup)throw new StripeRejected(403,"permission_denied","req_fixture","Your platform cannot manage payout schedules.");assertEquals("payments[payouts][schedule][interval]=manual",form);schedule="manual";return Map.of();}
                 assertEquals("/v1/payouts",path);assertTrue(form.contains("method=standard"));assertTrue(form.contains("destination=ba_fixture"));assertFalse(form.contains("application_fee"));assertEquals("gratilo-payout-"+store.values.values().iterator().next().getId(),key);
                 posts.add(form);if(timeout)throw new java.net.http.HttpTimeoutException("private-provider-info");if(reject)throw new StripeRejected();
                 return simulated(store.values.values().iterator().next(),"pending");
@@ -72,10 +74,10 @@ class ManualPayoutTest {
     @Test void unavailablePendingNegativeAndExcessiveAmountsCannotBePaid()throws Exception {
         var s=service(true,false);for(long amount:new long[]{-1,0,99,10001,Long.MAX_VALUE})assertThrows(IllegalArgumentException.class,()->s.create(user,amount,UUID.randomUUID()));assertTrue(store.values.isEmpty());available=0;assertFalse(s.eligibility(user).eligible());assertThrows(IllegalArgumentException.class,()->s.create(user,null,UUID.randomUUID()));available=-100;assertThrows(IllegalArgumentException.class,()->s.create(user,null,UUID.randomUUID()));
     }
-    @Test void accountReadinessBankAndManualScheduleAreMandatory() {
-        var s=service(true,false);bank=false;assertThrows(IllegalStateException.class,()->s.eligibility(user));bank=true;schedule="weekly";assertThrows(IllegalStateException.class,()->s.eligibility(user));schedule="manual";payouts=false;assertThrows(IllegalStateException.class,()->s.create(user,100L,UUID.randomUUID()));assertTrue(store.values.isEmpty());
+    @Test void accountReadinessBankAndManualScheduleAreMandatory()throws Exception {
+        var s=service(true,false);bank=false;assertThrows(IllegalStateException.class,()->s.eligibility(user));bank=true;schedule="weekly";assertTrue(s.eligibility(user).eligible());assertThrows(IllegalStateException.class,()->service(false,true).eligibility(user));schedule="manual";payouts=false;assertThrows(IllegalStateException.class,()->s.create(user,100L,UUID.randomUUID()));assertTrue(store.values.isEmpty());
     }
-    @Test void unapprovedExternalModeIsBlockedBeforeCreatingAnIntent()throws Exception {var s=service(false,false);assertFalse(s.eligibility(user).eligible());assertThrows(IllegalStateException.class,()->s.create(user,100L,UUID.randomUUID()));assertTrue(store.values.isEmpty());}
+    @Test void unapprovedExternalModeIsBlockedBeforeCreatingAnIntent()throws Exception {var s=service(false,false);assertThrows(IllegalStateException.class,()->s.eligibility(user));assertThrows(IllegalStateException.class,()->s.create(user,100L,UUID.randomUUID()));assertTrue(store.values.isEmpty());}
     @Test void timeoutIsPersistedAndCannotCreateAnotherPayoutEvenAfterRepeatedRequests()throws Exception {
         timeout=true;var s=service(false,true);var key=UUID.randomUUID();var tx=s.create(user,2500L,key);assertEquals(TransactionStatus.AUTHORIZED,tx.getStatus());assertEquals(1,posts.size());s.create(user,2500L,key);assertEquals(1,posts.size());assertThrows(IllegalStateException.class,()->s.create(user,2500L,UUID.randomUUID()));assertEquals(TransactionStatus.BOOKED,s.reconcile(user,tx.getId()).getStatus());assertEquals(1,posts.size());
     }
@@ -100,6 +102,24 @@ class ManualPayoutTest {
     }
     @Test void actualHttpRequestUsesFrozenAccountStableVersionAndIdempotencyAndSimulationBlocksPosts() {
         var s=service(false,true);var request=s.httpRequest("/v1/payouts","amount=100&currency=eur&method=standard","acct_fixture","frozen-key");assertEquals("acct_fixture",request.headers().firstValue("Stripe-Account").orElseThrow());assertEquals(StripeConnectService.STABLE_VERSION,request.headers().firstValue("Stripe-Version").orElseThrow());assertEquals("frozen-key",request.headers().firstValue("Idempotency-Key").orElseThrow());assertEquals("POST",request.method());assertThrows(IllegalStateException.class,()->service(true,true).httpRequest("/v1/payouts","amount=100","acct_fixture","same"));assertThrows(IllegalStateException.class,()->s.httpRequest("/v1/payouts","amount=100","acct_other","same"));
+    }
+    @Test void emptyOptionalAllowlistPreparesExistingAccountAndCreatesOnlyOneMockedTestPayout()throws Exception {
+        schedule="daily";var s=service(false,true,true,"");
+        assertTrue(s.prepareAccount(user).ready());assertEquals(1,settingsWrites);assertEquals("manual",schedule);
+        assertTrue(s.prepareAccount(user).ready());assertEquals(1,settingsWrites);
+        var key=UUID.randomUUID();var tx=s.create(user,2500L,key);s.create(user,2500L,key);
+        assertEquals(TransactionStatus.PENDING,tx.getStatus());assertEquals(1,posts.size());
+    }
+    @Test void stripePermissionRejectionIsExposedWithExactCodeAndRequestAndNeverCreatesPayout()throws Exception {
+        schedule="daily";denySetup=true;var s=service(false,true,true,"");var result=s.prepareAccount(user);
+        assertFalse(result.ready());assertEquals("permission_denied",result.code());assertEquals("req_fixture",result.requestId());assertTrue(result.message().contains("cannot manage payout schedules"));
+        var error=assertThrows(StripePayoutService.SetupException.class,()->s.eligibility(user));assertEquals("permission_denied",error.result.code());
+        assertThrows(StripePayoutService.SetupException.class,()->s.create(user,2500L,UUID.randomUUID()));assertTrue(posts.isEmpty());assertTrue(store.values.isEmpty());
+    }
+    @Test void providerErrorsRemainAuditableAndSecretsAndBankDetailsAreRedacted(){
+        var error=new StripePayoutService.StripeRejected(403,"permission_denied","req_fixture","Refused sk_test_secretvalue test@example.test DE89370400440532013000");
+        assertEquals("permission_denied",error.code);assertEquals("req_fixture",error.requestId);
+        assertFalse(error.getMessage().contains("secretvalue"));assertFalse(error.getMessage().contains("test@example"));assertFalse(error.getMessage().contains("DE893"));
     }
     @Test void controllerRequiresRequestIdAndUsesAuthenticatedUserOnly()throws Exception {
         var controller=new PayoutController(service(true,false));var auth=Authentication.build(user.toString());assertEquals(400,controller.create(auth,new PayoutRequest(100L,null)).code());assertTrue(store.values.isEmpty());var key=UUID.randomUUID();assertEquals(200,controller.create(auth,new PayoutRequest(100L,key)).code());assertEquals(user,store.values.values().iterator().next().getAccountUserId());assertEquals(1,store.values.size());

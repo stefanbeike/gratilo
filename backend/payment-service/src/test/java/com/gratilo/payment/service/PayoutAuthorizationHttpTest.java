@@ -18,6 +18,7 @@ class PayoutAuthorizationHttpTest {
         var store=new ManualPayoutTest.Store();store.values.put(id,tx);
         UUID[] caller={null};
         var service=new StripePayoutService(store,null,null,null,"sk_test_fixture",true,false,""){
+            @Override public StripePayoutSetup.Result prepareAccount(UUID user){caller[0]=user;return new StripePayoutSetup.Result("READY",true,true,"manual","","Ready","",java.time.OffsetDateTime.now());}
             @Override public TransactionEntity create(UUID user,Long amount,UUID request){caller[0]=user;assertEquals(2500L,amount);return tx;}
             @Override public List<TransactionEntity> history(UUID user){return user.equals(owner)?List.of(tx):List.of();}
             @Override public TransactionEntity reconcile(UUID user,UUID payout){if(!owner.equals(user)||!id.equals(payout))throw new IllegalArgumentException();return tx;}
@@ -32,6 +33,9 @@ class PayoutAuthorizationHttpTest {
                 int status=client.send(HttpRequest.newBuilder(base.resolve(path)).GET().build(),HttpResponse.BodyHandlers.discarding()).statusCode();assertTrue(status==401||status==403);
             }
             assertEquals(401,client.send(HttpRequest.newBuilder(base.resolve("/payment-service/payouts")).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(),HttpResponse.BodyHandlers.discarding()).statusCode());assertNull(caller[0]);
+            assertEquals(401,client.send(HttpRequest.newBuilder(base.resolve("/payment-service/payouts/setup")).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(),HttpResponse.BodyHandlers.discarding()).statusCode());assertNull(caller[0]);
+            var setup=client.send(HttpRequest.newBuilder(base.resolve("/payment-service/payouts/setup")).header("Authorization","Bearer "+jwt(owner,secret)).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(),HttpResponse.BodyHandlers.ofString());
+            assertEquals(200,setup.statusCode(),setup.body());assertEquals(owner,caller[0]);
             var created=client.send(HttpRequest.newBuilder(base.resolve("/payment-service/payouts")).header("Authorization","Bearer "+jwt(owner,secret)).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(),HttpResponse.BodyHandlers.ofString());
             assertEquals(200,created.statusCode(),created.body());assertEquals(owner,caller[0]);
             var foreign=client.send(HttpRequest.newBuilder(base.resolve("/payment-service/payouts/"+id+"/reconcile")).header("Authorization","Bearer "+jwt(other,secret)).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString("{}")).build(),HttpResponse.BodyHandlers.ofString());assertEquals(404,foreign.statusCode());assertFalse(foreign.body().contains(owner.toString()));

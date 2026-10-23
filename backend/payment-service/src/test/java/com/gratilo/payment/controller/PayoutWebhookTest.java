@@ -31,6 +31,18 @@ class PayoutWebhookTest {
         String old=payload(tx,"acct_own","payout.updated","pending",100,false);
         direct.receive(old,sign(old,"whsec_direct"));assertEquals(TransactionStatus.BOOKED,tx.getStatus());assertEquals("po_fixture",tx.getProviderReference());
     }
+    @Test void settingsEventsPrepareOnlyAfterTheConnectedEndpointSignatureWasVerified()throws Exception {
+        var processor=new StripeWebhookController(null,"whsec_platform",true,JsonMapper.createDefault());int[] calls={0};
+        processor.payoutSetup=new StripePayoutService(null,null,null,null,"sk_test_fixture",true,false,""){
+            @Override public void prepareKnownAccount(String id){assertEquals("acct_own",id);calls[0]++;}
+        };
+        var direct=new StripeDirectWebhookController("whsec_direct",processor);
+        String event="{\"type\":\"balance_settings.updated\",\"account\":\"acct_own\",\"livemode\":false,\"data\":{\"object\":{}}}";
+        assertEquals(401,direct.receive(event,null).code());assertEquals(0,calls[0]);
+        assertEquals(200,processor.receive(event,sign(event,"whsec_platform")).code());assertEquals(0,calls[0]);
+        for(int i=0;i<2;i++)assertEquals(200,direct.receive(event,sign(event,"whsec_direct")).code());
+        assertEquals(2,calls[0]); // Preparation itself re-reads Stripe, so duplicate events do not rewrite manual schedules.
+    }
     private static String payload(TransactionEntity tx,String account,String event,String state,long created,boolean live)throws Exception {
         return JsonMapper.createDefault().writeValueAsString(Map.of("type",event,"account",account,"created",created,"livemode",live,"data",Map.of("object",Map.of("id","po_fixture","amount",1250,"currency","eur","method","standard","type","bank_account","status",state,"livemode",live,"metadata",Map.of("transaction_id",tx.getId().toString())))));
     }

@@ -51,6 +51,8 @@ class EcsDeploymentTest(unittest.TestCase):
             expected.pop(key, None)
         for container in expected["containerDefinitions"]:
             container["image"] = self.images[container["name"]]
+            if container["name"]=="payment-service":
+                container["environment"].extend([{"name":"STRIPE_MANUAL_PAYOUTS_API_APPROVED","value":"false"},{"name":"STRIPE_MANUAL_PAYOUT_SETUP_ENABLED","value":"false"},{"name":"STRIPE_MANUAL_PAYOUT_APPROVED_ACCOUNTS","value":""}])
         expected["tags"] = original["tags"]
         self.assertEqual(expected, actual)
         self.assertEqual(original, self.response)
@@ -158,6 +160,28 @@ class EcsDeploymentTest(unittest.TestCase):
         payment["secrets"].append({"name":"STRIPE_DIRECT_WEBHOOK_SECRET","valueFrom":root+":webhook_secret::"})
         with self.assertRaisesRegex(ValueError,"Direct webhook"):
             renderer.render(response,self.images,config)
+
+    def test_external_sandbox_payouts_require_explicit_confirmation_and_never_inherit_account_filters(self):
+        response=copy.deepcopy(self.response)
+        payment=response["taskDefinition"]["containerDefinitions"][2]
+        root="arn:aws:secretsmanager:eu-central-1:123456789012:secret:gratilo/prd/stripe-test-fixture"
+        payment["secrets"].extend([{"name":name,"valueFrom":root+":"+field+"::"} for name,field in [
+            ("STRIPE_SECRET_KEY","secret_key"),("STRIPE_WEBHOOK_SECRET","webhook_secret"),("PAYMENTS_TEST_ACTIVATION_CODE","activation_code")]])
+        payment["environment"].append({"name":"STRIPE_MANUAL_PAYOUT_APPROVED_ACCOUNTS","value":"acct_old"})
+        config={**self.config,"STRIPE_TEST_MODE":"true","STRIPE_TEST_PAYOUTS_ENABLED":"true"}
+        with self.assertRaisesRegex(ValueError,"separate confirmation"):
+            renderer.render(response,self.images,config)
+        config["STRIPE_TEST_PAYOUT_CONFIRMATION"]="ENABLE STRIPE TEST PAYOUTS"
+        rendered=renderer.render(response,self.images,config)
+        payment=rendered["containerDefinitions"][2]
+        env={v["name"]:v["value"] for v in payment["environment"]}
+        self.assertEqual("false",env["STRIPE_SANDBOX_PAYOUTS"])
+        self.assertEqual("true",env["STRIPE_MANUAL_PAYOUTS_API_APPROVED"])
+        self.assertEqual("true",env["STRIPE_MANUAL_PAYOUT_SETUP_ENABLED"])
+        self.assertEqual("",env["STRIPE_MANUAL_PAYOUT_APPROVED_ACCOUNTS"])
+        self.assertEqual(root+":direct_webhook_secret::",next(v["valueFrom"] for v in payment["secrets"] if v["name"]=="STRIPE_DIRECT_WEBHOOK_SECRET"))
+        with self.assertRaisesRegex(ValueError,"require Stripe test mode"):
+            renderer.render(response,self.images,{**config,"STRIPE_TEST_MODE":"false"})
 
     def test_new_pricing_is_disabled_on_a_following_release_unless_explicitly_requested(self):
         response=copy.deepcopy(self.response)

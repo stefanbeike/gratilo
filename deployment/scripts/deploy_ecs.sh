@@ -12,6 +12,11 @@ if [[ "$STRIPE_TEST_MODE" == true ]]; then
     echo 'Stripe test deployment requires manual main-branch approval and its dedicated confirmation.' >&2; exit 1;
   }
 fi
+if [[ "${STRIPE_TEST_PAYOUTS_ENABLED:-false}" == true ]]; then
+  [[ "$STRIPE_TEST_MODE" == true && "${STRIPE_TEST_PAYOUT_CONFIRMATION:-}" == 'ENABLE STRIPE TEST PAYOUTS' ]] || {
+    echo 'External test payouts require Stripe test mode and their separate confirmation.' >&2; exit 1;
+  }
+fi
 [[ "${ECS_DESIRED_COUNT:-1}" =~ ^[1-9][0-9]*$ ]]
 [[ "$IMAGE_TAG" =~ ^sha-[0-9a-f]{40}-[0-9]+-[0-9]+$ || "$IMAGE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
 export AWS_PAGER=''

@@ -12,6 +12,8 @@ import com.gratilo.payment.service.StripeConnectService;
 @io.micronaut.scheduling.annotation.ExecuteOn(io.micronaut.scheduling.TaskExecutors.BLOCKING)
 public class ConnectedAccountController {
     @jakarta.inject.Inject @io.micronaut.core.annotation.Nullable
+    com.gratilo.payment.service.StripePayoutService payouts;
+    @jakarta.inject.Inject @io.micronaut.core.annotation.Nullable
     com.gratilo.payment.service.StripeBalanceService balances;
     private final ConnectedAccountRepository repository;
     private final StripeConnectService stripe;
@@ -64,7 +66,9 @@ public class ConnectedAccountController {
         try {
             String body = stripe.retrieveAccount(account.getStripeAccountId());
             com.gratilo.payment.service.StripeAccountStatus.parse(account.getStripeAccountId(), body).applyTo(account);
-            return HttpResponse.ok(ConnectedAccountResponse.from(repository.update(account)));
+            repository.update(account);
+            if(payouts!=null&&payouts.automaticPreparationEnabled())payouts.prepareAccount(account.getUserId());
+            return HttpResponse.ok(ConnectedAccountResponse.from(repository.findByUserId(account.getUserId()).orElse(account)));
         } catch (Exception e) {
             new com.gratilo.payment.service.StripeAccountStatus(false).applyTo(account);
             repository.update(account);

@@ -34,7 +34,7 @@ it('keeps keyboard focus on the matching action after a participant moves betwee
  p.onToggle.mockImplementation(async()=>{view.rerender(<PoolMembersPanel {...p} members={[{...members[0],effectiveSharePercent:100},{...members[1],active:false,effectiveSharePercent:0},members[2]]}/>)});
  const trigger=screen.getByRole('button',{name:'Deaktivieren'});trigger.focus();fireEvent.click(trigger);fireEvent.click(screen.getByRole('button',{name:'Bestätigen'}));
  await waitFor(()=>expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
- expect(within(screen.getByRole('group',{name:'Aktionen für Sam'})).getByRole('button',{name:'Reaktivieren'})).toHaveFocus();
+ await waitFor(()=>expect(within(screen.getByRole('group',{name:'Aktionen für Sam'})).getByRole('button',{name:'Reaktivieren'})).toHaveFocus());
 })
 
 it('shows draft totals without inventing effective shares and blocks invalid precision',()=>{
