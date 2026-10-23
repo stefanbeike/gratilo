@@ -6,6 +6,8 @@ import com.gratilo.user.api.*; import com.gratilo.user.service.PoolService; impo
 public class PoolController { private final PoolService service; public PoolController(PoolService service){this.service=service;}
  @Get public HttpResponse<?> mine(Authentication a){return HttpResponse.ok(service.mine(id(a)));}
  @Get("/memberships") public HttpResponse<?> memberships(Authentication a){return HttpResponse.ok(service.memberships(id(a)));}
+ @Get("/all") public HttpResponse<?> all(Authentication a){return HttpResponse.ok(service.allPools(id(a)));}
+ @Get("/{poolId}") public HttpResponse<?> details(UUID poolId,Authentication a){try{return HttpResponse.ok(service.details(id(a),poolId));}catch(Exception e){return error(e);}}
  @Post public HttpResponse<?> create(@Body @Valid PoolRequests.Create r,Authentication a){try{return HttpResponse.ok(service.create(id(a),r.name()));}catch(Exception e){return error(e);}}
  @Put("/{poolId}") public HttpResponse<?> rename(UUID poolId,@Body @Valid PoolRequests.Create r,Authentication a){try{return HttpResponse.ok(service.rename(id(a),poolId,r.name()));}catch(Exception e){return error(e);}}
  @io.micronaut.serde.annotation.Serdeable public record TeamImage(@io.micronaut.core.annotation.Nullable String profileImage) {}

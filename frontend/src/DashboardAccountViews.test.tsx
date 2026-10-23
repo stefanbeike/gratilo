@@ -15,8 +15,7 @@ function mount({multiple=false,admin=false,balanceError=false}:{multiple?:boolea
   else if(url==='/payment-service/connect-account/balance'){data={availableMinor:123456,pendingMinor:4750,currency:'EUR',checkedAt:new Date().toISOString()};ok=!balanceError}
   else if(url==='/payment-service/transactions')data=[{id:'personal',type:'TIP',amountMinor:1000,recipientAmountMinor:950,status:'BOOKED',createdAt:new Date().toISOString()}]
   else if(url==='/payment-service/pool-transfers')data=[{id:'a',poolId:'team-a',poolName:'Team A',amountMinor:4750,reversedAmountMinor:0,status:'TRANSFERRED',historicalSharePercent:50,poolDistributionAmountMinor:9500,selectedTipAmountMinor:10000,createdAt:new Date().toISOString()},...(multiple?[{id:'b',poolId:'team-b',poolName:'Team B',amountMinor:1333,reversedAmountMinor:0,status:'PENDING',createdAt:new Date().toISOString()}]:[])]
-  else if(url==='/user-service/pools')data=admin?a:null
-  else if(url==='/user-service/pools/memberships')data=multiple?[a,b]:admin?[]:[a]
+  else if(url==='/user-service/pools/all')data=multiple?[a,b]:admin?[a]:[a]
   else if(url.endsWith('/eligibility'))data={canReceiveTips:true}
   else if(url.endsWith('/members'))data=[{userId:'member',status:'READY',transfersEnabled:true,payoutsEnabled:true,checkedAt:new Date().toISOString()}]
   return {ok,status:ok?200:502,json:async()=>data}
@@ -25,12 +24,12 @@ function mount({multiple=false,admin=false,balanceError=false}:{multiple?:boolea
 }
 it('keeps the same personal Stripe balance when switching views and teams',async()=>{
  const calls=mount({multiple:true});await screen.findByText('1.234,56 €');
- fireEvent.click(screen.getByRole('button',{name:'Team'}));
+ fireEvent.click(screen.getByRole('button',{name:'Meine Pools'}));
  expect(await screen.findByRole('button',{name:'Transaktion pool-transfer-a ansehen'})).toBeInTheDocument();expect(screen.queryByRole('button',{name:'Transaktion pool-transfer-b ansehen'})).not.toBeInTheDocument()
  fireEvent.change(screen.getByLabelText('Teamansicht und Historie'),{target:{value:'team-b'}})
  expect(await screen.findByRole('button',{name:'Transaktion pool-transfer-b ansehen'})).toBeInTheDocument();expect(screen.queryByRole('button',{name:'Transaktion pool-transfer-a ansehen'})).not.toBeInTheDocument()
  expect(screen.getByText('1.234,56 €')).toBeInTheDocument();expect(calls.mock.calls.filter(([url])=>url.endsWith('/balance'))).toHaveLength(1)
- expect(screen.queryByText('Team-Einstellungen und Mitglieder verwalten')).not.toBeInTheDocument()
+ expect(screen.queryByText('Pool-Einstellungen und Mitglieder verwalten')).not.toBeInTheDocument()
  const balanceCall=calls.mock.calls.find(([url])=>url.endsWith('/balance'))!;expect(balanceCall[1]?.headers).toEqual({Authorization:'Bearer private-test-token'})
 })
 it('shows a balance API failure without substituting personal or pool income',async()=>{
@@ -38,6 +37,6 @@ it('shows a balance API failure without substituting personal or pool income',as
  expect(region).toHaveTextContent('—');expect(region).not.toHaveTextContent('9,50 €')
 })
 it('keeps owner image upload while hiding motif presets',async()=>{
- mount({admin:true});await screen.findByText('1.234,56 €');fireEvent.click(screen.getByRole('button',{name:'Team'}));
- expect(await screen.findByText('Team-Einstellungen und Mitglieder verwalten')).toBeInTheDocument();expect(screen.getByLabelText('Team-Profilbild bearbeiten')).toBeInTheDocument();expect(screen.queryByText('Eigenes Motiv oder eine Vorlage:')).not.toBeInTheDocument()
+ mount({admin:true});await screen.findByText('1.234,56 €');fireEvent.click(screen.getByRole('button',{name:'Meine Pools'}));
+ expect(await screen.findByText('Pool-Einstellungen und Mitglieder verwalten')).toBeInTheDocument();expect(screen.getByLabelText('Team-Profilbild bearbeiten')).toBeInTheDocument();expect(screen.queryByText('Eigenes Motiv oder eine Vorlage:')).not.toBeInTheDocument()
 })

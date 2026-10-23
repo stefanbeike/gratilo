@@ -1,0 +1,38 @@
+= Mehrfach-Pools und Pool-Dashboard
+
+== Datenmodell
+
+Eine Gratilo-Identität behält genau ihr persönliches Stripe-Connected-Account. Pools sind davon unabhängig. `pools.owner_id` benennt den Administrator/Ersteller eines Pools; Mitgliedschaften bleiben eigenständige Zeilen in `pool_members` mit `pool_id`, `user_id`, Rolle über den Poolbesitz, Status, gespeichertem Gewicht und Deaktivierungsdaten. Die bestehende Eindeutigkeit `(pool_id, user_id)` verhindert doppelte Mitgliedschaften innerhalb eines Pools, ohne Mitgliedschaften in anderen Pools zu verhindern.
+
+Migration `019_multi_pool_memberships.sql` entfernt den bisherigen Unique-Index auf `pools.owner_id` und ergänzt einen eindeutigen öffentlichen Pfad pro Pool. Vorhandene IDs und belegte Link-Inventar-Zuordnungen bleiben erhalten. Die Migration ist additiv; sie löscht weder Pools noch Mitglieder noch Zahlungsdaten. Der bestehende Pool-Linkbestand kann weiter für bereits zugeordnete Links verwendet werden. Neue Pools erhalten eine eindeutige `team-<pool UUID>`-Route, wenn kein vorgefertigter Link verfügbar oder zugeordnet ist.
+
+== APIs und Berechtigungen
+
+* `GET /user-service/pools/all` liefert alle vom angemeldeten Benutzer verwalteten Pools sowie seine offenen und aktiven Mitgliedschaften.
+* `GET /user-service/pools/{poolId}` ist auf den Besitzer beziehungsweise ein Mitglied dieses Pools beschränkt. Nicht-Administratoren erhalten nur ihre eigene Mitgliedschaft, keine fremden Pool-Mitgliederdaten.
+* Bestehende mutationsfähige Routen bleiben unter `/pools/{poolId}` und prüfen serverseitig den tatsächlichen `owner_id`. Ein Benutzer kann deshalb in Pool A Mitglied und in Pool B Administrator sein.
+* Einladungen und Antworten sind pro Pool/Mitgliedschaft gespeichert. Eine offene Einladung oder Mitgliedschaft in einem anderen Pool verhindert weder eine weitere Einladung noch die Erstellung eines eigenen Pools. Doppelte offene Einladungen innerhalb desselben Pools bleiben abgewiesen.
+
+Einladungen unterstützen weiterhin bereits registrierte Gratilo-Benutzer. Die Einladung an eine noch nicht registrierte E-Mail-Adresse ist im vorhandenen Backend nicht implementiert; die UI erklärt diesen Fall. Einladungstoken und Ablaufzeit bleiben die vorhandene Zuordnungs- und Ablaufkontrolle.
+
+== Öffentliche Team-Zahlungslinks
+
+Jeder Pool ist über seine `poolId` eindeutig. Neue Checkout-Aufrufe verwenden diese Pool-ID, nicht mehr die Besitzer-ID. Der Payment-Service fragt damit genau die Verteilung des gewählten Pools ab und verwendet weiterhin die Besitzer-ID nur dort, wo bestehende Transaktions-Fremdschlüssel das Besitzerkonto verlangen. Die eingefrorene Allokation enthält weiterhin Pool-ID und beim Checkout gespeicherte Mitgliedsanteile.
+
+Belegte Link-Inventar-URLs werden zuerst anhand ihrer bestehenden Zuordnung aufgelöst. Historische besitzerbasierte URLs werden nur auf den unveränderten ursprünglichen Pool aufgelöst; sie werden nicht auf einen später erstellten Pool desselben Besitzers umgebogen. Neue öffentliche Pfade werden in `pools.public_path` gespeichert und eindeutig indiziert.
+
+== Gewichtungen und Zahlungen
+
+Die bestehenden gespeicherten Gewichte und `PoolWeights`-Berechnung bleiben maßgeblich. Gespeicherte Gewichte sind relative Gewichtungen; die effektiven Prozente der aktiven, für die Zahlung berechtigten Mitglieder werden serverseitig normalisiert. Prozentwerte werden mit der bestehenden Basis-Punkt- und Largest-Remainder-Logik centgenau und deterministisch verteilt. Der Auftrag ändert keine bestehenden Zahlungs-Snapshots, Transfers, Stripe-Gebühren, Provisionsregeln, Reversals oder historischen Pool-Allokationen.
+
+== Dashboard
+
+„Meine Pools“ lädt die vollständige sichtbare Pool-Liste, kennzeichnet Besitz/Administration und Mitgliedschaft, zeigt effektive eigene Anteile und lässt unabhängig von bereits vorhandenen Pools einen weiteren Pool erstellen. Die ausgewählte Poolansicht zeigt QR-Code, Link und Status. Verwaltungsaktionen erscheinen nur für den jeweiligen Pool, dessen Besitzer der angemeldete Benutzer ist. Normale Mitglieder sehen ihre eigene Mitgliedschaft und können – sofern nicht vom Besitzer gesperrt – die vorhandenen Selbstbedienungsaktionen verwenden. Persönliche Zahlungsseite, Stripe-Konto und persönliche Transaktionen bleiben benutzerbezogen und unverändert.
+
+Das Dashboard bleibt im vorhandenen hellen Modus. Die Änderungen verwenden vorhandene Gratilo-Komponenten und ergänzen nur responsive Stile für Pool-Liste und Pool-Erstellung.
+
+== Verifikation
+
+Backend-Regressionen decken einen Benutzer ab, der mehreren Pools beitritt, mehrere Pools erstellt und parallel Einladungen annimmt. Frontend-Regressionen prüfen die gleichzeitige Mitgliedschaft und Administration, Poolwechsel, rollenabhängige Aktionen und die eindeutige Pool-ID beim öffentlichen Checkout. Die Zahlungsschnittstellen werden in Tests gemockt; Stripe-, AWS- und produktive Datenbank-Schreibzugriffe werden nicht ausgeführt.
+
+Vor einem Deployment muss die additive Migration regulär in einer isolierten Umgebung geprüft werden. Es wurden im Rahmen dieser Änderung keine produktiven Datenbanken verändert und kein Deployment beziehungsweise Push ausgeführt.

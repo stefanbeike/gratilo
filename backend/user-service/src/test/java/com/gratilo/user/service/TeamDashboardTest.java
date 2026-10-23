@@ -17,27 +17,29 @@ class TeamDashboardTest {
     TeamDashboardTest(){when(users.findByIdForUpdate(user)).thenReturn(Optional.of(new UserEntity()));}
     PoolMemberEntity membership(UUID team,boolean active,String status){var m=new PoolMemberEntity();m.setId(UUID.randomUUID());m.setPoolId(team);m.setUserId(user);m.setActive(active);m.setDeactivationReason(active?null:"SELF");m.setStatus(status);m.setSharePercent(50);return m;}
     PoolEntity pool(){var p=new PoolEntity();p.setId(teamId);p.setOwnerId(other);p.setName("Team");when(pools.findById(teamId)).thenReturn(Optional.of(p));when(pools.findByIdForUpdate(teamId)).thenReturn(Optional.of(p));return p;}
-    @Test void createRejectsAnotherActiveTeamBeforeWriting(){
+    @Test void creatingAnotherPoolDoesNotDependOnExistingMemberships(){
         when(members.findByUserId(user)).thenReturn(List.of(membership(UUID.randomUUID(),true,"ACTIVE")));
-        assertThrows(IllegalStateException.class,()->service.create(user,"New"));verify(pools,never()).save(any());
-        var order=inOrder(users,members);order.verify(users).findByIdForUpdate(user);order.verify(members).findByUserId(user);
+        when(pools.save(any())).thenAnswer(i->i.getArgument(0));
+        assertNotNull(service.create(user,"New").id());verify(pools).save(any());verify(members).save(any());
     }
-    @Test void acceptingInvitationRejectsExistingOwnedTeam(){
+    @Test void acceptingInvitationIsIndependentOfPoolsTheMemberOwns(){
         pool();var invitation=membership(teamId,true,"INVITED");when(members.findPoolIdByInvitationToken("token")).thenReturn(Optional.of(teamId));when(members.findByInvitationToken("token")).thenReturn(Optional.of(invitation));
         var owned=new PoolEntity();owned.setId(UUID.randomUUID());when(pools.findByOwnerId(user)).thenReturn(Optional.of(owned));
-        assertThrows(IllegalStateException.class,()->service.respond("token",user,true));assertEquals("INVITED",invitation.getStatus());verify(members,never()).update(any());
+        when(members.findByPoolId(teamId)).thenReturn(List.of(invitation));
+        assertNotNull(service.respond("token",user,true));assertEquals("ACTIVE",invitation.getStatus());verify(members).update(invitation);
     }
-    @Test void selfReactivationRejectsDifferentActiveTeam(){
+    @Test void selfReactivationIsIndependentOfMembershipsInOtherPools(){
         var m=membership(teamId,false,"ACTIVE");pool();when(members.findById(m.getId())).thenReturn(Optional.of(m));when(members.findPoolIdByMemberId(m.getId())).thenReturn(Optional.of(teamId));
         when(members.findByUserId(user)).thenReturn(List.of(m,membership(UUID.randomUUID(),true,"ACTIVE")));
-        assertThrows(IllegalStateException.class,()->service.setMemberActive(user,m.getId(),true));assertFalse(m.isActive());verify(members,never()).update(any());
+        when(members.findByPoolId(teamId)).thenReturn(List.of(m));
+        service.setMemberActive(user,m.getId(),true);assertTrue(m.isActive());verify(members).update(m);
     }
-    @Test void ownerReactivationUsesTheSameMemberLockAndGuard(){
+    @Test void ownerCanManageMembershipWithoutCrossPoolChecks(){
         var p=pool();var ownerMember=membership(teamId,true,"ACTIVE");ownerMember.setUserId(other);
         when(members.findByPoolIdAndUserId(teamId,other)).thenReturn(Optional.of(ownerMember));
         var m=membership(teamId,false,"ACTIVE");when(members.findById(m.getId())).thenReturn(Optional.of(m));when(members.findPoolIdByMemberId(m.getId())).thenReturn(Optional.of(teamId));
         when(members.findByUserId(user)).thenReturn(List.of(membership(UUID.randomUUID(),true,"ACTIVE")));
-        assertThrows(IllegalStateException.class,()->service.setActive(other,p.getId(),m.getId(),true));verify(users).findByIdForUpdate(user);assertFalse(m.isActive());
+        service.setActive(other,p.getId(),m.getId(),true);assertTrue(m.isActive());verify(members).update(m);
     }
     @Test void invitationsAndInactiveTeamsDoNotPreventCreatingTheFirstActiveTeam(){
         when(members.findByUserId(user)).thenReturn(List.of(membership(UUID.randomUUID(),false,"ACTIVE"),membership(UUID.randomUUID(),true,"INVITED")));
@@ -50,7 +52,7 @@ class TeamDashboardTest {
         var result=service.memberships(user).getFirst();assertEquals(1,result.members().size());assertEquals(user,result.members().getFirst().userId());
     }
     @Test void publicTeamDoesNotExposeNamesEmailsOrMemberIds(){
-        var p=pool();p.setProfileImage("saved-image");when(pools.findByOwnerId(other)).thenReturn(Optional.of(p));
+        var p=pool();p.setProfileImage("saved-image");when(pools.findFirstByOwnerIdOrderByCreatedAtAsc(other)).thenReturn(Optional.of(p));
         var result=service.publicDetails(other);assertEquals("saved-image",result.profileImage());assertTrue(result.memberNames().isEmpty());verifyNoInteractions(members,users);
     }
     @Test void teamImageRequiresOwnershipAndRejectsInvalidImage(){

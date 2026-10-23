@@ -23,24 +23,28 @@ class PoolCheckoutTest {
         assertThrows(IllegalArgumentException.class,()->new PoolPaymentLimits(200,50001));
     }
     @Test void historicalOutOfRangePoolSessionResumesItsOriginalFortyFiveCentAgreement()throws Exception {
+        UUID owner=UUID.randomUUID(), poolId=UUID.randomUUID();
         var tx=new TransactionEntity();tx.setId(UUID.randomUUID());tx.setAmountMinor(100000);tx.setType(TransactionType.TIP);
         tx.setProvider("STRIPE");tx.setProviderReference("cs_test_historical");tx.setStatus(TransactionStatus.PENDING);
         var old=new com.gratilo.payment.api.TipQuote(100000,3278,103278,"EUR",new java.math.BigDecimal("3.15"),25,99955,true,3278,"Historical",5,java.math.BigDecimal.ZERO,45);
-        var data=TipPricingSnapshot.metadata(old,true);data.put("poolId",UUID.randomUUID().toString());data.put("chargeModel","POOL");
+        var data=TipPricingSnapshot.metadata(old,true);data.put("poolId",poolId.toString());data.put("chargeModel","POOL");
         tx.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(data));var original=tx.getMetadata();
         var repo=proxy(TransactionRepository.class,(p,m,a)->{assertEquals("findByAccountUserIdAndIdempotencyKey",m.getName());return Optional.of(tx);});
         var allocations=proxy(PoolTransferRepository.class,(p,m,a)->{throw new AssertionError("Historical allocations must not be changed");});
-        var service=new StripeCheckoutService(repo,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null,new PoolDistributionClient("http://localhost","fixture",true),allocations){
+        var poolClient=new PoolDistributionClient("http://localhost","fixture",true){@Override public Optional<Distribution> find(UUID requested){return Optional.of(new Distribution(poolId,"Old team",List.of(new Member(owner,"A",100,true)),owner));}};
+        var service=new StripeCheckoutService(repo,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null,poolClient,allocations){
             @Override protected String stripeRequest(String path,String form,String key){assertNull(form);return "{\"id\":\"cs_test_historical\",\"livemode\":false,\"url\":\"https://checkout.stripe.com/old\"}";}
         };
-        var result=service.createPool(UUID.randomUUID(),new TipPaymentRequest(100000L,null,"old",true)).orElseThrow();
+        var result=service.createPool(poolId,new TipPaymentRequest(100000L,null,"old",true)).orElseThrow();
         assertEquals(5,result.quote().pricingVersion());assertEquals(45,result.quote().platformFeeMinor());assertEquals(99955,result.quote().recipientAmountMinor());
         assertEquals(original,tx.getMetadata());
     }
     @Test void manipulatedNewPoolAmountsAreRejectedBeforeProviderOrAllocationOperations(){
+        UUID owner=UUID.randomUUID(), poolId=UUID.randomUUID();
         var repo=proxy(TransactionRepository.class,(p,m,a)->{assertEquals("findByAccountUserIdAndIdempotencyKey",m.getName());return Optional.empty();});
         var allocations=proxy(PoolTransferRepository.class,(p,m,a)->{throw new AssertionError("No allocation writes");});
-        var service=new StripeCheckoutService(repo,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null,new PoolDistributionClient("http://localhost","fixture",true),allocations);
+        var poolClient=new PoolDistributionClient("http://localhost","fixture",true){@Override public Optional<Distribution> find(UUID requested){return Optional.of(new Distribution(poolId,"Team",List.of(),owner));}};
+        var service=new StripeCheckoutService(repo,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null,poolClient,allocations);
         for(long amount:new long[]{199,50001})for(boolean covered:new boolean[]{true,false}){
             assertThrows(PoolPaymentLimits.InvalidPoolAmount.class,()->service.createPool(UUID.randomUUID(),new TipPaymentRequest(amount,null,"invalid",covered)));
             var response=new com.gratilo.payment.controller.TipController(service,new java.math.BigDecimal("3.15"),25)
@@ -80,8 +84,8 @@ class PoolCheckoutTest {
         if(distribution.size()==3)members.add(new PoolDistributionClient.Member(third,"C",distribution.get(2),true));
         UUID frozenPoolId=UUID.randomUUID();
         var poolClient = new PoolDistributionClient("http://localhost", "fixture", true) {
-            @Override public Optional<Distribution> find(UUID id) { return Optional.of(new Distribution(frozenPoolId, "Team",
-                    members)); }
+            @Override public Optional<Distribution> find(UUID id) { assertEquals(frozenPoolId,id);return Optional.of(new Distribution(frozenPoolId, "Team",
+                    members,owner)); }
         };
         var accounts = accountRepository(Map.of(first, "acct_first", second, "acct_second",third,"acct_third"));
         var connect = new StripeConnectService("sk_test_fixture", "https://gratilo.test") {
@@ -126,11 +130,12 @@ class PoolCheckoutTest {
                 return "{\"livemode\":false,\"id\":\"cs_test_pool\",\"url\":\"https://checkout.stripe.com/test\"}";
             }
         };
-        assertThrows(StripeCheckoutService.PoolNotReadyException.class,()->service.createPool(owner,
+        assertThrows(StripeCheckoutService.PoolNotReadyException.class,()->service.createPool(frozenPoolId,
                 new TipPaymentRequest(tip,"Team danke","wrong-target",covered,null,null,UUID.randomUUID())));
         assertTrue(calls.isEmpty());assertNull(stored.get());assertTrue(snapshots.isEmpty());
-        var response = service.createPool(owner, new TipPaymentRequest(tip, "Team danke", "pool-key", covered,null,null,frozenPoolId)).orElseThrow();
-        assertThrows(StripeCheckoutService.CheckoutConflictException.class,()->service.createPool(owner,
+        var response = service.createPool(frozenPoolId, new TipPaymentRequest(tip, "Team danke", "pool-key", covered,null,null,frozenPoolId)).orElseThrow();
+        assertEquals(owner,stored.get().getAccountUserId(),"Pool transactions remain attached to their actual owner for legacy payment and audit records");
+        assertThrows(StripeCheckoutService.CheckoutConflictException.class,()->service.createPool(frozenPoolId,
                 new TipPaymentRequest(tip,"Team danke","pool-key",covered,null,null,UUID.randomUUID())));
         assertEquals("https://checkout.stripe.com/test", response.checkoutUrl());
         var form = calls.getFirst();
@@ -139,7 +144,7 @@ class PoolCheckoutTest {
         assertFalse(form.contains("transfer_data%5Bdestination%5D"));
         assertFalse(form.contains("application_fee_amount"));
         assertFalse(form.contains("payment_method_types"));
-        service.createPool(owner,new TipPaymentRequest(tip,"Team danke","pool-key",covered));
+        service.createPool(frozenPoolId,new TipPaymentRequest(tip,"Team danke","pool-key",covered));
         assertEquals(1,calls.stream().filter(c->c.contains("unit_amount")).count());
         assertEquals(distribution.size(), snapshots.size());
         assertEquals(expected,response.quote());

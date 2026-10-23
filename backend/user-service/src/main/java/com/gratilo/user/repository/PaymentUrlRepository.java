@@ -15,6 +15,7 @@ public interface PaymentUrlRepository extends CrudRepository<PaymentUrlEntity, L
     Optional<PaymentUrlEntity> findByLegacyOwnerId(UUID id);
     Optional<PaymentUrlEntity> findByPublicPath(String path);
     Optional<PaymentUrlEntity> findByPaymentUrl(String paymentUrl);
+    long countByAssignedAtIsNullAndAssignedUserIdIsNullAndAssignedPoolIdIsNullAndOriginalPoolIdIsNullAndRetiredAtIsNull();
     long countByAssignedAtIsNotNull();
     long countByAssignedUserIdIsNotNull();
 }

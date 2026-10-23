@@ -20,7 +20,7 @@ class PaymentLinkInventoryTest {
     PoolEntity pool() {var p=new PoolEntity();p.setId(UUID.randomUUID());p.setOwnerId(UUID.randomUUID());p.setName("Team");when(pools.findByIdForUpdate(p.getId())).thenReturn(Optional.of(p));return p;}
 
     @Test void reservesExistingInventoryUrlWithoutRewritingOrCreatingIt() {
-        var p=pool();var slot=slot(2);when(urls.findAvailableForUpdate()).thenReturn(Optional.of(slot));
+        var p=pool();var slot=slot(2);when(urls.countByAssignedAtIsNullAndAssignedUserIdIsNullAndAssignedPoolIdIsNullAndOriginalPoolIdIsNullAndRetiredAtIsNull()).thenReturn(1L);when(urls.findAvailableForUpdate()).thenReturn(Optional.of(slot));
         assertEquals(slot.getPaymentUrl(),links.assignPool(p.getId()));
         assertEquals(p.getId(),slot.getAssignedPoolId());assertEquals(p.getId(),slot.getOriginalPoolId());
         assertEquals(p.getOwnerId(),slot.getLegacyOwnerId());assertNull(slot.getAssignedUserId());assertNotNull(slot.getAssignedAt());
@@ -36,7 +36,7 @@ class PaymentLinkInventoryTest {
     @Test void legacyOwnerAliasCannotMoveFromDeletedTeamToReplacement() {
         var p=pool();var retired=slot(1);retired.setRetiredAt(java.time.OffsetDateTime.now());
         when(urls.findByLegacyOwnerId(p.getOwnerId())).thenReturn(Optional.of(retired));var next=slot(2);when(urls.findAvailableForUpdate()).thenReturn(Optional.of(next));
-        links.assignPool(p.getId());assertNull(next.getLegacyOwnerId());
+        when(urls.countByAssignedAtIsNullAndAssignedUserIdIsNullAndAssignedPoolIdIsNullAndOriginalPoolIdIsNullAndRetiredAtIsNull()).thenReturn(1L);links.assignPool(p.getId());assertNull(next.getLegacyOwnerId());
     }
     @Test void personalAndTeamPathsResolveToDifferentTargetsForSameOwner() {
         var p=pool();var user=new UserEntity();user.setId(p.getOwnerId());user.setFirstName("Alex");user.setPaymentEnabled(true);
@@ -66,10 +66,13 @@ class PaymentLinkInventoryTest {
         assertThrows(IllegalArgumentException.class,()->service.delete(UUID.randomUUID(),p.getId()));assertThrows(IllegalArgumentException.class,()->service.rename(UUID.randomUUID(),p.getId(),"Other"));
         verifyNoInteractions(urls);
     }
-    @Test void repeatedCreateReturnsSamePoolAndDoesNotReserveSecondLink() {
-        var p=pool();var u=new UserEntity();u.setId(p.getOwnerId());when(users.findByIdForUpdate(u.getId())).thenReturn(Optional.of(u));when(pools.findByOwnerId(u.getId())).thenReturn(Optional.of(p));
-        var service=new PoolService(pools,members,users,mock(EmailSendService.class),"http://localhost",true);service.paymentLinks=links;
-        assertEquals(p.getId(),service.create(u.getId(),p.getName()).id());verify(urls,never()).findAvailableForUpdate();verify(pools,never()).save(any());
-        assertThrows(IllegalStateException.class,()->service.create(u.getId(),"Different"));
+    @Test void repeatedCreateCreatesIndependentPoolsWithoutNeedingInventory() {
+        var owner=UUID.randomUUID();var u=new UserEntity();u.setId(owner);when(users.findByIdForUpdate(owner)).thenReturn(Optional.of(u));
+        when(pools.save(any())).thenAnswer(invocation->invocation.getArgument(0));
+        when(members.findByPoolIdAndUserId(any(),eq(owner))).thenReturn(Optional.empty());
+        var service=new PoolService(pools,members,users,mock(EmailSendService.class),"http://localhost",true);
+        var first=service.create(owner,"First");var second=service.create(owner,"Second");
+        assertNotEquals(first.id(),second.id());assertNotEquals(first.paymentUrl(),second.paymentUrl());
+        verify(pools,times(2)).save(any());verify(members,times(2)).save(any());
     }
 }

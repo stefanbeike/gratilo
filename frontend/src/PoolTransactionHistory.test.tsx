@@ -12,7 +12,7 @@ function install(historical: unknown = 50, distribution: number | null | undefin
   const fetch = vi.fn(async (url: string, options?: RequestInit) => ({ ok: true, json: async () => {
     if (url === '/payment-service/transactions') return []
     if (url === '/payment-service/pool-transfers') return [transfer]
-    if (url === '/user-service/pools/memberships') return [{ id: 'pool', name: 'testpool', ownerId: 'owner', members: [{ id: 'membership', userId: session.userId, name: 'Alex', email: session.email, sharePercent: currentShare, effectiveSharePercent: currentShare, status: 'ACTIVE', active: true }] }]
+    if (url === '/user-service/pools/all') return [{ id: 'pool', name: 'testpool', ownerId: 'owner', members: [{ id: 'membership', userId: session.userId, name: 'Alex', email: session.email, sharePercent: currentShare, effectiveSharePercent: currentShare, status: 'ACTIVE', active: true }] }]
     if (url.startsWith('/user-service/pools/memberships/membership?')) {
       currentShare = 70
       return { id: 'pool', name: 'testpool', ownerId: 'owner', members: [{ id: 'membership', userId: session.userId, name: 'Alex', email: session.email, sharePercent: currentShare, effectiveSharePercent: currentShare, status: 'ACTIVE', active: false }] }
@@ -22,7 +22,7 @@ function install(historical: unknown = 50, distribution: number | null | undefin
   } }))
   vi.stubGlobal('fetch', fetch)
   render(<Dashboard session={session} profile={{ email: session.email, firstName: 'Alex' }} onProfile={vi.fn()} onLogout={vi.fn()} />)
-  fireEvent.click(screen.getByRole('button',{name:'Team'}))
+  fireEvent.click(screen.getByRole('button',{name:'Meine Pools'}))
   return { transfer, fetch }
 }
 it('shows the frozen fifty-percent share and the whole distribution rather than the personal transfer', async () => {
@@ -45,7 +45,7 @@ it('keeps the historical share after changing the current membership and distrib
   const f = install(30); f.transfer.amountMinor = 750
   await screen.findByText(/30 % eigener Anteil/)
   fireEvent.click(screen.getByRole('button', { name: 'Mitgliedschaft pausieren' }))
-  await screen.findByText('70 % effektiver Anteil');expect(screen.getByText('Inaktiv')).toBeInTheDocument()
+  await screen.findByText('70 % effektiver Anteil');expect(await screen.findAllByText('Inaktiv')).not.toHaveLength(0)
   expect(screen.getByText(/30 % eigener Anteil/)).toHaveTextContent(/Pool-Verteilungsbetrag 25,00/)
 })
 for (const missing of [null, undefined, 0, '50', NaN, Infinity, -1, 101]) it(`does not turn missing or invalid historical percentages (${String(missing)}) into zero`, async () => {

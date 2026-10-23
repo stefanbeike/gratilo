@@ -182,11 +182,12 @@ public class StripeCheckoutService {
         validateRequest(request);
         if (poolClient == null || poolTransfers == null) throw new PoolNotReadyException();
         if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
-        var resumed=resumeExisting(owner,request,true);if(resumed.isPresent())return resumed;
-        // Resume existing immutable sessions first; only a genuinely new payment gets new limits.
-        if(transactions.findByAccountUserIdAndIdempotencyKey(owner,request.idempotencyKey()).isEmpty())
-            poolLimits.validate(request.tipAmountMinor());
         var pool = poolClient.find(owner).orElseThrow(PoolNotReadyException::new);
+        UUID poolOwner = pool.ownerId() == null ? owner : pool.ownerId();
+        var resumed=resumeExisting(poolOwner,request,true);if(resumed.isPresent())return resumed;
+        // Resume existing immutable sessions first; only a genuinely new payment gets new limits.
+        if(transactions.findByAccountUserIdAndIdempotencyKey(poolOwner,request.idempotencyKey()).isEmpty())
+            poolLimits.validate(request.tipAmountMinor());
         if (request.expectedPoolId()!=null && !request.expectedPoolId().equals(pool.poolId())) throw new PoolNotReadyException();
         if (pool.poolId() == null || pool.members().isEmpty()) throw new PoolNotReadyException();
         var eligible = new ArrayList<PoolEligible>();
@@ -201,14 +202,14 @@ public class StripeCheckoutService {
             }
         }
         if (eligible.isEmpty()) throw new PoolNotReadyException();
-        var quote = quoteForAttempt(owner,request,true);
+        var quote = quoteForAttempt(poolOwner,request,true);
         validateQuote(request, quote);
         long fee = quote.serviceFeeMinor(), total = quote.totalAmountMinor();
         var weights = eligible.stream().map(e -> new PoolAllocation.Weight(e.userId(), e.sharePercent())).toList();
         var shares = PoolAllocation.split(quote.recipientAmountMinor(), weights);
         if (shares.stream().anyMatch(share -> share.amountMinor() < TipPricing.MIN_RECIPIENT_MINOR)) throw new TipPricing.NoDistributableTipException();
         var idempotency = request.idempotencyKey();
-        var existing = transactions.findByAccountUserIdAndIdempotencyKey(owner, idempotency);
+        var existing = transactions.findByAccountUserIdAndIdempotencyKey(poolOwner, idempotency);
         TransactionEntity tx;
         if (existing.isPresent()) {
             tx = existing.get();
@@ -226,7 +227,7 @@ public class StripeCheckoutService {
                 return Optional.of(new CheckoutResponse((String) session.get("url"), tx.getId().toString(), false, quote));
             }
         } else {
-            tx = new TransactionEntity(); tx.setAccountUserId(owner); tx.setAmountMinor(request.tipAmountMinor()); tx.setCurrency("EUR");
+            tx = new TransactionEntity(); tx.setAccountUserId(poolOwner); tx.setAmountMinor(request.tipAmountMinor()); tx.setCurrency("EUR");
             tx.setType(TransactionType.TIP); tx.setStatus(TransactionStatus.PENDING); tx.setDescription(request.message());
             tx.setIdempotencyKey(idempotency); tx.setProvider("STRIPE");
             var pricing = TipPricingSnapshot.metadata(quote,request.feeCovered());

@@ -12,7 +12,7 @@ function mount(enabled?: boolean) {
       if (enabled === undefined) throw new Error('offline')
       return { ok: true, json: async () => ({ tipPoolsEnabled: enabled }) }
     }
-    if (url === '/user-service/pools') return { ok: true, json: async () => null }
+    if (url === '/user-service/pools/all') return { ok: true, json: async () => [] }
     return { ok: true, json: async () => [] }
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -32,9 +32,9 @@ it.each([false, undefined])('hides pools and skips pool requests when disabled o
 
 it('restores pool management and requests when enabled by the backend', async () => {
   const fetchMock = mount(true)
-  fireEvent.click(screen.getByRole('button',{name:'Team'}))
-  expect(await screen.findByText('Du bist noch keinem Team zugeordnet.')).toBeInTheDocument()
-  await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === '/user-service/pools/memberships')).toBe(true))
+  fireEvent.click(screen.getByRole('button',{name:'Meine Pools'}))
+  expect(await screen.findByText('Du bist noch keinem Pool beigetreten.')).toBeInTheDocument()
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === '/user-service/pools/all')).toBe(true))
 })
 
 it('blocks invitation links while disabled', () => {

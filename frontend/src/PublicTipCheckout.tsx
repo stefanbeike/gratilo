@@ -82,7 +82,7 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
       .then((profile: Recipient & { ownerId?: string; name?: string; paymentTarget?: string; poolId?: string }) => {
         if (!current) return
         const team = routeIsPool || profile.paymentTarget === 'POOL'
-        const recipientProfile: Recipient = team ? { userId: profile.ownerId!, poolName: profile.name, poolId: profile.poolId, profileImage: profile.profileImage } : profile
+        const recipientProfile: Recipient = team ? { userId: profile.poolId || profile.ownerId!, poolName: profile.name, poolId: profile.poolId, profileImage: profile.profileImage } : profile
         if (team !== isPool) setFlow(savedFlow(`gratilo:checkout:${team ? 'pool' : 'individual'}:${recipientPath}`, legacyFlowStorageKey, team))
         setIsPool(team); setRecipient(recipientProfile); setRecipientId(recipientProfile.userId)
         sessionStorage.setItem('gratilo:last-recipient', recipientPath); sessionStorage.setItem('gratilo:last-pool', String(team))
@@ -209,14 +209,14 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
     </>}
     {flow.step === 2 && !quote && <><p role="status">{error || 'Gebührenberechnung wird aktualisiert …'}</p><button className="text-button result-action" onClick={() => update({step:1})}>← Betrag ändern</button></>}
     {flow.step === 2 && quote && <>
-      <p className="tip-intro">Dein ausgewählter Betrag beträgt {money(flow.amount)}. Wenn du möchtest, kannst du die geschätzten Stripe-Zahlungsgebühren freiwillig übernehmen.</p>
+      <p className="tip-intro">Dein ausgewählter Betrag beträgt {money(flow.amount)}. Wenn du möchtest, kannst du die Stripe-Zahlungsgebühren freiwillig übernehmen.</p>
       <label className="fee-toggle"><input type="checkbox" checked={flow.feeCovered} onChange={event => update({ feeCovered: event.target.checked })} /><span>Zahlungsgebühren freiwillig übernehmen</span></label>
-      {!flow.feeCovered && <p className="hint" role="status">Du übernimmst die Gebühren nicht. Die geschätzten Zahlungsgebühren werden von deinem Trinkgeld abgezogen. Voraussichtlich kommen {money(quote.recipientAmountMinor)} {isPool ? 'beim Pool' : 'beim Empfänger'} an.</p>}
+      {!flow.feeCovered && <p className="hint" role="status">Du übernimmst die Gebühren nicht. Die Zahlungsgebühren werden von deinem Trinkgeld abgezogen. Voraussichtlich kommen {money(quote.recipientAmountMinor)} {isPool ? 'beim Pool' : 'beim Empfänger'} an.</p>}
       <p className="hint">Die Gebührenübernahme ist eine Schätzung. Zahlungsmethode, Kartenherkunft, Kartentyp und gegebenenfalls Währungsumrechnung beeinflussen die tatsächlichen Kosten. {quote.recipientAmountEstimated ? 'Stripe zieht seine tatsächlichen Gebühren direkt beim Empfänger ein. Der Gastaufschlag geht nicht zusätzlich an Gratilo; der voraussichtliche Nettoanteil kann abweichen. Dein bestätigter Gesamtbetrag bleibt unverändert.' : 'Mehrkosten trägt Gratilo. Dein bestätigter Gesamtbetrag und der festgelegte Empfängerbetrag bleiben nach der Zahlung unverändert.'}</p>
       <div className="tip-breakdown" aria-live="polite">
         <SummaryLine label="Ausgewählter Betrag" value={money(quote.tipAmountMinor)} />
         {quote.platformFeeMinor != null && <SummaryLine noWrap label={[9,10,11].includes(quote.pricingVersion || 0) ? 'Gratilo-Servicegebühr: 0,45 € + 5 % des Trinkgeldbetrags' : quote.pricingVersion === 6 || quote.pricingVersion === 7 || quote.pricingVersion === 8 ? 'Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags' : 'Gratilo-Servicegebühr (bei Zahlungsbeginn vereinbart)'} value={`− ${money(quote.platformFeeMinor)}`} />}
-        <SummaryLine noWrap label={flow.feeCovered ? 'Zusätzlich übernommene Gebühren (geschätzt)' : 'Geschätzte Stripe-Gebühren als Abzug'} value={flow.feeCovered ? money(quote.serviceFeeMinor) : `− ${money(quote.estimatedStripeFeeMinor ?? 0)}`} />
+        <SummaryLine noWrap label={flow.feeCovered ? 'Zusätzlich übernommene Gebühren' : 'Stripe-Gebühren als Abzug'} value={flow.feeCovered ? money(quote.serviceFeeMinor) : `− ${money(quote.estimatedStripeFeeMinor ?? 0)}`} />
         <SummaryLine noWrap label={flow.feeCovered && !quote.recipientAmountEstimated ? (isPool ? 'Für den Pool festgelegt' : 'Für den Empfänger festgelegt') : (isPool ? 'Voraussichtlicher Nettobetrag für den Pool' : 'Voraussichtlicher Nettobetrag für den Empfänger')} value={money(quote.recipientAmountMinor)} />
         <SummaryLine label="Du bezahlst insgesamt" value={money(quote.totalAmountMinor)} total />
       </div>
@@ -234,7 +234,7 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
         {flow.message.length > 0 && <SummaryLine label="Deine Nachricht" value={flow.message} />}
         <SummaryLine label="Gebührenausgleich" value={flow.feeCovered ? 'Freiwillig ausgewählt' : 'Nicht ausgewählt'} />
         {quote.platformFeeMinor != null && <SummaryLine noWrap label={[9,10,11].includes(quote.pricingVersion || 0) ? 'Gratilo-Servicegebühr: 0,45 € + 5 % des Trinkgeldbetrags' : quote.pricingVersion === 6 || quote.pricingVersion === 7 || quote.pricingVersion === 8 ? 'Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags' : 'Gratilo-Servicegebühr (bei Zahlungsbeginn vereinbart)'} value={`− ${money(quote.platformFeeMinor)}`} />}
-        <SummaryLine noWrap label={flow.feeCovered ? 'Zusätzlich übernommene Gebühren (geschätzt)' : 'Geschätzte Stripe-Gebühren als Abzug'} value={flow.feeCovered ? money(quote.serviceFeeMinor) : `− ${money(quote.estimatedStripeFeeMinor ?? 0)}`} />
+        <SummaryLine noWrap label={flow.feeCovered ? 'Zusätzlich übernommene Gebühren' : 'Stripe-Gebühren als Abzug'} value={flow.feeCovered ? money(quote.serviceFeeMinor) : `− ${money(quote.estimatedStripeFeeMinor ?? 0)}`} />
         <SummaryLine noWrap label={flow.feeCovered && !quote.recipientAmountEstimated ? (isPool ? 'Für den Pool festgelegt' : 'Für den Empfänger festgelegt') : (isPool ? 'Voraussichtlicher Nettobetrag für den Pool' : 'Voraussichtlicher Nettobetrag für den Empfänger')} value={money(quote.recipientAmountMinor)} />
         <SummaryLine label="Du bezahlst insgesamt" value={money(quote.totalAmountMinor)} total />
       </div>

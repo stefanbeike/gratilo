@@ -21,10 +21,10 @@ public class PoolDistributionController {
         this.service = service;
         this.expected = expected;
     }
-    @Get("/{ownerId}")
-    public HttpResponse<?> distribution(UUID ownerId, @Header("X-Internal-Secret") @Nullable String secret) {
+    @Get("/{poolId}")
+    public HttpResponse<?> distribution(UUID poolId, @Header("X-Internal-Secret") @Nullable String secret) {
         if (!InternalSecret.matches(expected, secret)) return HttpResponse.unauthorized();
-        var result = service.distribution(ownerId);
+        var result = service.distribution(poolId);
         return result == null ? HttpResponse.notFound() : HttpResponse.ok(result);
     }
 }

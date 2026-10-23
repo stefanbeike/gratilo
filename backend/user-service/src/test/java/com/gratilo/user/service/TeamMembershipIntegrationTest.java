@@ -34,24 +34,33 @@ class TeamMembershipIntegrationTest implements TestPropertyProvider {
     @MockBean(EmailSendService.class) EmailSendService mail(){return mock(EmailSendService.class);}
     final List<UUID> createdUsers=new ArrayList<>();
     UUID user(){var u=new UserEntity();u.setEmail(UUID.randomUUID()+"@example.invalid");u.setPasswordHash("unused-test-only");u=users.save(u);createdUsers.add(u.getId());return u.getId();}
-    @AfterEach void cleanup() throws Exception {for(var id:createdUsers){for(var m:members.findByUserId(id))members.deleteById(m.getId());pools.findByOwnerId(id).ifPresent(p->pools.deleteById(p.getId()));}clearInventory();for(var id:createdUsers)users.deleteById(id);createdUsers.clear();}
-    void race(Runnable first,Runnable second) throws Exception {
+    @AfterEach void cleanup() throws Exception {for(var id:createdUsers){for(var m:members.findByUserId(id))members.deleteById(m.getId());for(var p:pools.findAllByOwnerIdOrderByCreatedAtAsc(id))pools.deleteById(p.getId());}clearInventory();for(var id:createdUsers)users.deleteById(id);createdUsers.clear();}
+    void concurrently(Runnable first,Runnable second) throws Exception {
         var start=new CountDownLatch(1);var executor=Executors.newFixedThreadPool(2);
         try {
             var futures=List.of(executor.submit(()->attempt(start,first)),executor.submit(()->attempt(start,second)));start.countDown();
-            var outcomes=new ArrayList<Boolean>();for(var future:futures)outcomes.add(future.get(30,TimeUnit.SECONDS));
-            assertEquals(1,outcomes.stream().filter(Boolean::booleanValue).count(),"Exactly one concurrent membership change may succeed");
+            for(var future:futures)assertTrue(future.get(30,TimeUnit.SECONDS),"Independent pool operations must both succeed");
         } finally {executor.shutdownNow();}
     }
     boolean attempt(CountDownLatch start,Runnable action){try{start.await();action.run();return true;}catch(IllegalStateException expected){assertTrue(expected.getMessage().contains("Team")||expected.getMessage().contains("Pool"));return false;}catch(InterruptedException interrupted){Thread.currentThread().interrupt();throw new AssertionError(interrupted);}}
-    @Test void parallelTeamCreationCannotCreateTwoActiveTeams() throws Exception{
-        UUID user=user();race(()->service.create(user,"First"),()->service.create(user,"Second"));
-        assertEquals(1,members.findByUserId(user).stream().filter(m->m.isActive()&&"ACTIVE".equals(m.getStatus())).count());assertTrue(pools.findByOwnerId(user).isPresent());
+    @Test void aUserCanOwnMultiplePoolsAndStayMemberOfOtherPools() throws Exception{
+        UUID ownerA=user(),ownerC=user(),member=user();var first=service.create(ownerA,"First");var third=service.create(ownerC,"Third");
+        var inviteA=service.invite(ownerA,first.id(),users.findById(member).orElseThrow().getEmail()).members().stream().filter(m->m.userId().equals(member)).findFirst().orElseThrow();
+        var inviteC=service.invite(ownerC,third.id(),users.findById(member).orElseThrow().getEmail()).members().stream().filter(m->m.userId().equals(member)).findFirst().orElseThrow();
+        service.respond(inviteA.invitationToken(),member,true);service.respond(inviteC.invitationToken(),member,true);
+        var second=service.create(member,"Second");var fourth=service.create(member,"Fourth");
+        assertEquals(2,pools.findAllByOwnerIdOrderByCreatedAtAsc(member).size());
+        assertEquals(4,members.findByUserId(member).stream().filter(m->m.isActive()&&"ACTIVE".equals(m.getStatus())).count());
+        assertTrue(service.allPools(member).stream().anyMatch(p->p.id().equals(first.id())));
+        assertTrue(service.allPools(member).stream().anyMatch(p->p.id().equals(third.id())));
+        assertTrue(service.allPools(member).stream().anyMatch(p->p.id().equals(second.id())));
+        assertTrue(service.allPools(member).stream().anyMatch(p->p.id().equals(fourth.id())));
     }
-    @Test void acceptingAnInvitationAndCreatingATeamCannotBothSucceed() throws Exception{
+    @Test void acceptingAnInvitationAndCreatingOwnPoolCanHappenConcurrently() throws Exception{
         UUID owner=user(),member=user();var p=service.create(owner,"Existing");
         var invited=service.invite(owner,p.id(),users.findById(member).orElseThrow().getEmail()).members().stream().filter(m->m.userId().equals(member)).findFirst().orElseThrow();
-        race(()->service.respond(invited.invitationToken(),member,true),()->service.create(member,"New"));
-        assertEquals(1,members.findByUserId(member).stream().filter(m->m.isActive()&&"ACTIVE".equals(m.getStatus())).count());
+        concurrently(()->service.respond(invited.invitationToken(),member,true),()->service.create(member,"New"));
+        assertEquals(2,members.findByUserId(member).stream().filter(m->m.isActive()&&"ACTIVE".equals(m.getStatus())).count());
+        assertEquals(1,pools.findAllByOwnerIdOrderByCreatedAtAsc(member).size());
     }
 }

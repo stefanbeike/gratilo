@@ -11,7 +11,7 @@ import java.util.*;
 @Singleton
 public class PoolDistributionClient {
     public record Member(UUID userId, String name, double sharePercent, boolean active) {}
-    public record Distribution(UUID poolId, String poolName, List<Member> members) {}
+    public record Distribution(UUID poolId, String poolName, List<Member> members, UUID ownerId) { public Distribution(UUID poolId,String poolName,List<Member> members){this(poolId,poolName,members,null);} }
     private final String base, key;
     private final boolean enabled;
 
@@ -40,6 +40,7 @@ public class PoolDistributionClient {
                     member.get("sharePercent") instanceof Number amount ? amount.doubleValue() : 0,
                     Boolean.TRUE.equals(member.get("active"))));
         }
-        return Optional.of(new Distribution(poolId, name, List.copyOf(members)));
+        UUID ownerId=json.get("ownerId") instanceof String value?UUID.fromString(value):owner;
+        return Optional.of(new Distribution(poolId, name, List.copyOf(members), ownerId));
     }
 }

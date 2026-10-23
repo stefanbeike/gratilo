@@ -90,19 +90,23 @@ class RegistrationIntegrationTest implements TestPropertyProvider {
     }
 
     @Test
-    void poolCreationIsAtomicAndPersonalAndTeamInventoryStayIndependent() {
+    void poolCreationFallsBackToUniquePathsAndUsesInventoryWhenAvailable() {
         UserEntity user=new UserEntity();user.setEmail("owner-local@example.invalid");user.setPasswordHash("test-hash");user.setPaymentEnabled(true);
         user=users.save(user);
         var first=urls.findById(1L).orElseThrow();first.setAssignedUserId(user.getId());first.setAssignedAt(OffsetDateTime.now());urls.update(first);
         final var owner=user.getId();
-        assertThrows(IllegalStateException.class,()->poolService.create(owner,"Team"));
-        assertTrue(pools.findByOwnerId(owner).isEmpty());assertTrue(users.findById(owner).orElseThrow().isPaymentEnabled());
+        var generated=poolService.create(owner,"Team");
+        assertTrue(generated.paymentUrl().contains(generated.id().toString().replace("-","")));
+        assertTrue(users.findById(owner).orElseThrow().isPaymentEnabled());
+        assertTrue(urls.findById(1L).orElseThrow().getAssignedPoolId()==null);
         PaymentUrlEntity free=new PaymentUrlEntity();free.setId(2L);free.setPublicPath("gratilo-002");free.setPaymentUrl("http://localhost:3000/pay/gratilo-002");urls.save(free);
-        var team=poolService.create(owner,"Team");
+        var team=poolService.create(owner,"Second Team");
         assertEquals("http://localhost:3000/pay/gratilo-002",team.paymentUrl());
         assertEquals(team.id(),urls.findById(2L).orElseThrow().getAssignedPoolId());
         assertEquals(owner,urls.findById(1L).orElseThrow().getAssignedUserId());
-        assertEquals(team.id(),poolService.create(owner,"Team").id());assertEquals(2,urls.countByAssignedAtIsNotNull());
+        var third=poolService.create(owner,"Third Team");
+        assertNotEquals(team.id(),third.id());assertTrue(third.paymentUrl().contains(third.id().toString().replace("-","")));
+        assertEquals(3,pools.findAllByOwnerIdOrderByCreatedAtAsc(owner).size());assertEquals(2,urls.countByAssignedAtIsNotNull());
         assertTrue(com.gratilo.user.api.UserResponses.PublicProfile.from(users.findById(owner).orElseThrow(),"Team").paymentEnabled());
     }
 

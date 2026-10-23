@@ -37,23 +37,36 @@ public class PaymentUrlPoolService {
     }
     @Transactional
     public String assignPool(UUID poolId) {
+        return assignPoolIfAvailable(poolId).orElseThrow(()->new NoAvailablePaymentLinkException(
+                "Keine freien vorgefertigten Zahlungslinks verfügbar. Bitte kontaktiere den Gratilo-Support."));
+    }
+    @Transactional
+    public Optional<String> assignPoolIfAvailable(UUID poolId) {
         flushPendingInserts();
         var pool=pools.findByIdForUpdate(poolId).orElseThrow();
         var old=urls.findByAssignedPoolId(poolId);
-        if(old.isPresent()) return old.get().getPaymentUrl();
+        if(old.isPresent()) return old.map(PaymentUrlEntity::getPaymentUrl);
+        // Avoid issuing the locking query when inventory is already known to be exhausted.
+        // The row lock and database uniqueness still resolve concurrent reservations.
+        if(urls.countByAssignedAtIsNullAndAssignedUserIdIsNullAndAssignedPoolIdIsNullAndOriginalPoolIdIsNullAndRetiredAtIsNull()==0)return Optional.empty();
         long before=urls.countByAssignedAtIsNotNull();
-        var slot=available();
+        var slotResult=urls.findAvailableForUpdate();
+        if(slotResult.isEmpty())return Optional.empty();
+        var slot=slotResult.get();
         // Query before mutating the managed slot: JPA could otherwise flush an incomplete assignment.
         boolean bindLegacy=urls.findByLegacyOwnerId(pool.getOwnerId()).isEmpty();
         slot.setAssignedPoolId(poolId); slot.setOriginalPoolId(poolId);
         // A printed owner-based legacy QR must never start pointing to a later replacement team.
         if(bindLegacy) slot.setLegacyOwnerId(pool.getOwnerId());
-        save(slot,before); return slot.getPaymentUrl();
+        save(slot,before); return Optional.of(slot.getPaymentUrl());
     }
     private void flushPendingInserts() {if(entities!=null)entities.flush();}
     private PaymentUrlEntity available() {
-        return urls.findAvailableForUpdate().orElseThrow(()->new IllegalStateException(
+        return urls.findAvailableForUpdate().orElseThrow(()->new NoAvailablePaymentLinkException(
                 "Keine freien vorgefertigten Zahlungslinks verfügbar. Bitte kontaktiere den Gratilo-Support."));
+    }
+    public static class NoAvailablePaymentLinkException extends IllegalStateException {
+        public NoAvailablePaymentLinkException(String message) { super(message); }
     }
     private void save(PaymentUrlEntity slot,long before) {
         slot.setAssignedAt(OffsetDateTime.now()); urls.update(slot);

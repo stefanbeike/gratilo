@@ -12,7 +12,7 @@ it('keeps the personal QR active for owners while an unready team stays blocked'
     if(url.endsWith('/test-access'))return {enabled:true,restricted:false}
     if(url.includes('/connect-account/pools/'))return [{userId:'owner',status:'READY',transfersEnabled:true,payoutsEnabled:true,checkedAt:new Date().toISOString()},{userId:'other',status:'NOT_STARTED',transfersEnabled:false,payoutsEnabled:false,checkedAt:new Date().toISOString()}]
     if(url.includes('/connect-account'))return {stripeAccountId:'acct_fixture',chargesEnabled:true,payoutsEnabled:true,transfersEnabled:true,stripeStatus:'READY',onboardingStatus:'COMPLETE',statusCheckedAt:new Date().toISOString()}
-    if(url==='/user-service/pools')return pool
+    if(url==='/user-service/pools/all')return [pool]
     if(url.endsWith('/memberships')||url.endsWith('/transactions')||url.endsWith('/pool-transfers'))return []
     return {}
   }})))
@@ -20,9 +20,9 @@ it('keeps the personal QR active for owners while an unready team stays blocked'
   await waitFor(()=>expect(screen.getByRole('button',{name:'Zahlungslink kopieren'})).toBeEnabled())
   expect(screen.queryByText(/Dein persönlicher Zahlungslink ist pausiert/)).not.toBeInTheDocument()
   expect(screen.getByRole('button',{name:'Zahlungslink kopieren'})).toBeEnabled()
-  fireEvent.click(screen.getByRole('button',{name:'Team'}))
+  fireEvent.click(screen.getByRole('button',{name:'Meine Pools'}))
   expect(await screen.findByLabelText('Team-Trinkgeldlink')).toHaveValue('http://localhost:3000/pay/gratilo-002')
-  fireEvent.click(await screen.findByText('Team-Einstellungen und Mitglieder verwalten'))
+  fireEvent.click(await screen.findByText('Pool-Einstellungen und Mitglieder verwalten'))
   expect(await screen.findByText('1 von 2 Mitgliedern sind für Stripe bereit.')).toBeInTheDocument()
   expect(screen.getByText('Onboarding ausstehend')).toBeInTheDocument()
   expect(screen.getByRole('button',{name:'Team-Link kopieren'})).toBeEnabled()
