@@ -28,7 +28,25 @@ class StripeStatusSyncTest {
         body.set(null);assertFalse(sync.refreshAccount("acct_fixture"));assertFalse(row.isTransfersEnabled());assertEquals("UNAVAILABLE",row.getStripeStatus());
     }
     @Test void ownerCannotInspectAnotherOwnersMembers() {
-        var controller=new PoolMemberStripeStatusController(null,null);
-        assertEquals(HttpStatus.FORBIDDEN,controller.get(UUID.randomUUID(),Authentication.build(UUID.randomUUID().toString())).getStatus());
+        UUID poolId=UUID.randomUUID();
+        var client=new PoolDistributionClient("http://localhost","test",true){
+            @Override public Optional<Distribution> find(UUID id){return Optional.of(new Distribution(poolId,"Pool",List.of(),UUID.randomUUID()));}
+        };
+        var controller=new PoolMemberStripeStatusController(client,null);
+        assertEquals(HttpStatus.FORBIDDEN,controller.get(poolId,Authentication.build(UUID.randomUUID().toString())).getStatus());
+    }
+    @Test void poolMemberStripeStatusLookupUsesPoolIdEvenWhenOwnerHasSeveralPools() {
+        UUID owner=UUID.randomUUID(),poolId=UUID.randomUUID();
+        var queried=new java.util.concurrent.atomic.AtomicReference<UUID>();
+        var client=new PoolDistributionClient("http://localhost","test",true){
+            @Override public Optional<Distribution> find(UUID id){queried.set(id);return Optional.of(new Distribution(poolId,"Pool",List.of(),owner));}
+        };
+        var stripe=new StripeStatusSync(null,null){
+            @Override public Status refresh(UUID user){return new Status(user,"READY","COMPLETE",true,false,java.time.OffsetDateTime.now());}
+        };
+        var controller=new PoolMemberStripeStatusController(client,stripe);
+        var response=controller.get(poolId,Authentication.build(owner.toString()));
+        assertEquals(HttpStatus.OK,response.getStatus());
+        assertEquals(poolId,queried.get());
     }
 }

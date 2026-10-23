@@ -22,6 +22,16 @@ class TeamDashboardTest {
         when(pools.save(any())).thenAnswer(i->i.getArgument(0));
         assertNotNull(service.create(user,"New").id());verify(pools).save(any());verify(members).save(any());
     }
+    @Test void distributionResolvesAnExactPoolWhenItsOwnerHasSeveralPools(){
+        UUID owner=UUID.randomUUID(),poolA=UUID.randomUUID(),poolB=UUID.randomUUID();
+        var a=new PoolEntity();a.setId(poolA);a.setOwnerId(owner);a.setName("Pool A");
+        var b=new PoolEntity();b.setId(poolB);b.setOwnerId(owner);b.setName("Pool B");
+        when(pools.findById(poolA)).thenReturn(Optional.of(a));when(pools.findAllByOwnerIdOrderByCreatedAtAsc(owner)).thenReturn(List.of(a,b));
+        when(members.findByPoolId(poolA)).thenReturn(List.of());
+        var result=service.distribution(poolA);
+        assertEquals(poolA,result.poolId());assertEquals(owner,result.ownerId());assertEquals("Pool A",result.poolName());
+        assertNull(service.distribution(owner),"An ambiguous legacy owner-ID lookup must not return another pool's distribution");
+    }
     @Test void acceptingInvitationIsIndependentOfPoolsTheMemberOwns(){
         pool();var invitation=membership(teamId,true,"INVITED");when(members.findPoolIdByInvitationToken("token")).thenReturn(Optional.of(teamId));when(members.findByInvitationToken("token")).thenReturn(Optional.of(invitation));
         var owned=new PoolEntity();owned.setId(UUID.randomUUID());when(pools.findByOwnerId(user)).thenReturn(Optional.of(owned));

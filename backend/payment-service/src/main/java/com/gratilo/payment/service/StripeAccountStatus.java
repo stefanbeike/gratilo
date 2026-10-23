@@ -21,9 +21,11 @@ public record StripeAccountStatus(boolean canReceiveTips, boolean canReceiveTran
                 || !Boolean.FALSE.equals(account.get("livemode")) || (account.get("closed") != null && !Boolean.FALSE.equals(account.get("closed"))))
             return new StripeAccountStatus(false);
         Object applied = account.get("applied_configurations");
-        if (!(applied instanceof List<?> configurations) || !configurations.contains("merchant"))
+        if (!(applied instanceof List<?> configurations))
             return new StripeAccountStatus(false);
-        boolean active = "active".equals(at(account, "configuration", "merchant", "capabilities", "card_payments", "status"))
+        boolean merchantActive = configurations.contains("merchant")
+                && "active".equals(at(account, "configuration", "merchant", "capabilities", "card_payments", "status"));
+        boolean active = merchantActive
                 && "active".equals(at(account, "configuration", "recipient", "capabilities", "stripe_balance", "payouts", "status"))
                 && "active".equals(at(account, "configuration", "recipient", "capabilities", "stripe_balance", "stripe_transfers", "status"));
         // Requirements must have been explicitly included. A null value means none exist.
@@ -48,14 +50,20 @@ public record StripeAccountStatus(boolean canReceiveTips, boolean canReceiveTran
         }
         String transfers = Objects.toString(at(account, "configuration", "recipient", "capabilities", "stripe_balance", "stripe_transfers", "status"), "");
         String payouts = Objects.toString(at(account, "configuration", "recipient", "capabilities", "stripe_balance", "payouts", "status"), "");
-        boolean charges = "active".equals(at(account, "configuration", "merchant", "capabilities", "card_payments", "status"));
+        boolean charges = merchantActive;
         String deadline = Objects.toString(at(account, "requirements", "summary", "minimum_deadline", "status"), "");
         Object entries = at(account, "requirements", "entries");
         boolean awaitingStripe = entries instanceof List<?> list && !list.isEmpty()
                 && list.stream().allMatch(e -> e instanceof Map<?, ?> m && "stripe".equals(m.get("awaiting_action_from")));
         boolean restricted = List.of("restricted", "rejected", "inactive").contains(transfers)
                 || "past_due".equals(deadline);
-        boolean transferReady = complete && "active".equals(transfers);
+        // For Separate Charges and Transfers the recipient capability is the
+        // authoritative permission to receive a platform transfer. Account-wide
+        // onboarding requirements, payout capability and payout schedule are
+        // separate concerns and must not block this permission when Stripe has
+        // explicitly marked stripe_transfers active.
+        boolean recipientConfigured = configurations.contains("recipient");
+        boolean transferReady = recipientConfigured && "active".equals(transfers);
         String display = transferReady ? "READY" : restricted ? "ACTION_REQUIRED"
                 : awaitingStripe || complete && "pending".equals(transfers) ? "UNDER_REVIEW"
                 : !complete && ("currently_due".equals(deadline) || entries instanceof List<?> list && !list.isEmpty()) ? "INCOMPLETE" : "UNAVAILABLE";

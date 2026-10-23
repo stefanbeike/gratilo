@@ -9,6 +9,7 @@ import java.util.UUID;
 /** Every eligibility decision retrieves current v2 state; saved state is for display and auditing only. */
 @Singleton
 public class StripeStatusSync {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(StripeStatusSync.class);
     @jakarta.inject.Inject @io.micronaut.core.annotation.Nullable StripePayoutService payouts;
     @Serdeable
     public record Status(UUID userId, String status, String onboardingStatus, boolean transfersEnabled,
@@ -24,7 +25,12 @@ public class StripeStatusSync {
         StripeAccountStatus status;
         if (account.getStripeAccountId() == null) status = StripeAccountStatus.notStarted();
         else try { status = StripeAccountStatus.parse(account.getStripeAccountId(), stripe.retrieveAccount(account.getStripeAccountId())); }
-        catch (Exception unavailable) { status = new StripeAccountStatus(false); }
+        catch (Exception unavailable) {
+            // Do not turn a transient lookup problem into a Stripe restriction or
+            // reveal account IDs, response bodies, or personal data in logs.
+            LOG.warn("Stripe connected-account status lookup failed: {}", unavailable.getClass().getSimpleName());
+            status = new StripeAccountStatus(false);
+        }
         status.applyTo(account); accounts.update(account);
         return new Status(user, status.displayStatus(), status.onboardingStatus(), status.canReceiveTransfers(), status.canPayout(), account.getStatusCheckedAt());
     }

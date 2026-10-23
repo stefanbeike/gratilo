@@ -15,12 +15,14 @@ public class PoolMemberStripeStatusController {
     private final PoolDistributionClient pools;
     private final StripeStatusSync stripe;
     public PoolMemberStripeStatusController(PoolDistributionClient pools, StripeStatusSync stripe) { this.pools=pools; this.stripe=stripe; }
-    @Get("/{owner}/members")
-    public HttpResponse<?> get(UUID owner, Authentication auth) {
-        if (!owner.toString().equals(auth.getName())) return HttpResponse.status(HttpStatus.FORBIDDEN);
+    @Get("/{poolId}/members")
+    public HttpResponse<?> get(UUID poolId, Authentication auth) {
         try {
-            var pool=pools.find(owner).orElse(null);
+            // The account that owns a pool can now own several pools. Resolve this
+            // status request by the immutable pool ID, never by owner ID.
+            var pool=pools.find(poolId).orElse(null);
             if (pool==null) return HttpResponse.notFound();
+            if (pool.ownerId()==null || !pool.ownerId().toString().equals(auth.getName())) return HttpResponse.status(HttpStatus.FORBIDDEN);
             return HttpResponse.ok(pool.members().stream().map(m -> stripe.refresh(m.userId())).toList()).header("Cache-Control", "no-store");
         } catch (Exception unavailable) { return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE); }
     }

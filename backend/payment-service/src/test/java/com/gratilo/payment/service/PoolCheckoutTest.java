@@ -168,7 +168,7 @@ class PoolCheckoutTest {
         };
         var ready=new java.util.concurrent.atomic.AtomicBoolean(false);
         var connect=new StripeConnectService("sk_test_fixture", "http://localhost") {
-            @Override public String retrieveAccount(String id) { return StripeAccountFixtures.readyJson().replace("acct_fixture",id).replace("active", id.equals("acct_second") && !ready.get() ? "pending" : "active"); }
+            @Override public String retrieveAccount(String id) { return StripeAccountFixtures.readyJson().replace("acct_fixture",id).replace("active", id.equals("acct_second") && !ready.get() ? "pending" : "active").replace("\"payouts\":{\"status\":\"active\"}","\"payouts\":{\"status\":\"pending\"}"); }
         };
         var recipients=new RecipientAvailability("http://localhost") { @Override public void requireEnabled(UUID id) { throw new AssertionError("Pool cannot depend on personal link"); } @Override public void requirePoolMemberEnabled(UUID id) {} };
         var txRepo=proxy(TransactionRepository.class,(p,m,a)->{if(m.getName().equals("findByAccountUserIdAndIdempotencyKey"))return Optional.empty();throw new AssertionError("No writes before eligibility");});

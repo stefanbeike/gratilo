@@ -7,7 +7,7 @@ const descriptions: Record<string, [string, string, string]> = {
   UNDER_REVIEW: ['Stripe-Prüfung läuft', 'Stripe prüft die übermittelten Angaben. Die Transferfreigabe steht noch aus.', 'pending'],
   READY: ['Bereit für Trinkgelder', 'Der Empfang von Stripe-Transfers ist freigegeben.', 'booked'],
   ACTION_REQUIRED: ['Handlungsbedarf', 'Das Mitglied muss erforderliche Angaben oder Einschränkungen bei Stripe prüfen.', 'blocked'],
-  UNAVAILABLE: ['Nicht verfügbar', 'Der Stripe-Status konnte nicht zuverlässig ermittelt werden. Es besteht keine Freigabe.', 'inactive'],
+  UNAVAILABLE: ['Prüfung fehlgeschlagen', 'Der aktuelle Stripe-Status konnte nicht ermittelt werden. Es wird keine Transferfreigabe angenommen. Bitte erneut prüfen.', 'inactive'],
 }
 export function stripeDisplay(status?: MemberStripeStatus) {
   const current = status?.checkedAt && Date.now() - Date.parse(status.checkedAt) < 120000
@@ -23,7 +23,7 @@ export function memberPayoutReady(status?:MemberStripeStatus) {
 export function MemberStripeBadge({ status }: { status?: MemberStripeStatus }) {
   const [label, explanation, tone] = stripeDisplay(status)
   return <div className="member-stripe-status"><span className={`status-pill ${tone}`}>{label}</span><small>{explanation}</small>
-    <small>Transferempfang: {memberTransferReady(status) ? 'Freigegeben' : 'Nicht freigegeben'} · Bankauszahlung: {memberPayoutReady(status) ? 'Freigegeben' : 'Nicht bestätigt'}</small>
+    <small>Transferempfang: {memberTransferReady(status) ? 'Freigegeben' : 'Nicht freigegeben'} · Stripe-Payout-Fähigkeit: {memberPayoutReady(status) ? 'Aktiv' : 'Nicht bestätigt'}</small>
     {status?.checkedAt && <small>Zuletzt geprüft: {new Date(status.checkedAt).toLocaleString('de-DE')}</small>}
   </div>
 }

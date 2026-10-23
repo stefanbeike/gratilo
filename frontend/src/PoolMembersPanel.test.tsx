@@ -6,11 +6,12 @@ afterEach(cleanup)
 const members:PoolParticipant[]=[{id:'a',userId:'a',email:'a@example.test',name:'Alex',sharePercent:30,effectiveSharePercent:30,status:'ACTIVE',active:true},{id:'b',userId:'b',email:'b@example.test',name:'Sam',sharePercent:70,effectiveSharePercent:70,status:'ACTIVE',active:true},{id:'c',userId:'c',email:'c@example.test',name:'Kim',sharePercent:0,effectiveSharePercent:0,status:'ACTIVE',active:false}]
 const ready=(userId:string):MemberStripeStatus=>({userId,status:'READY',onboardingStatus:'COMPLETE',transfersEnabled:true,payoutsEnabled:true,checkedAt:new Date().toISOString()})
 const props=()=>({members,ownerId:'a',stripe:{a:ready('a'),b:{...ready('b'),payoutsEnabled:false}},drafts:{},onDraft:vi.fn(),onToggle:vi.fn().mockResolvedValue(undefined),onRemove:vi.fn().mockResolvedValue(undefined),onResend:vi.fn().mockResolvedValue(undefined),onDistribute:vi.fn(),onSave:vi.fn().mockResolvedValue(undefined)})
-it('shows stored weights separately from authoritative effective shares and bank payout readiness',()=>{
+it('shows stored weights separately from effective shares and keeps payout capability separate',()=>{
  render(<PoolMembersPanel {...props()}/>);expect(screen.getByText('100,00 %')).toBeInTheDocument();expect(screen.getByText('★ Poolinhaber')).toBeInTheDocument();expect(screen.getByText('30,00 %')).toBeInTheDocument();expect(screen.getByText('70,00 %')).toBeInTheDocument();expect(screen.getByText('0,00 %')).toBeInTheDocument()
  expect(within(screen.getByRole('list',{name:'Aktive Teilnehmer'})).getAllByRole('listitem')).toHaveLength(2)
  expect(within(screen.getByRole('list',{name:'Inaktive Teilnehmer und Einladungen'})).getAllByRole('listitem')).toHaveLength(1)
- expect(within(screen.getByRole('list',{name:'Aktive Teilnehmer'})).getByText(/Bankauszahlung: Nicht bestätigt/)).toBeInTheDocument();expect(screen.getByLabelText('Prozentgewicht für Sam')).toHaveValue('70')
+ expect(within(screen.getByRole('list',{name:'Aktive Teilnehmer'})).getByText(/Stripe-Payout-Fähigkeit: Nicht bestätigt/)).toBeInTheDocument();expect(screen.getByLabelText('Prozentgewicht für Sam')).toHaveValue('70')
+ expect(screen.getByText('2 von 2 aktiven Mitgliedern mit Anteil sind für Transfers bereit.')).toBeInTheDocument()
 })
 it('requires confirmation for deactivation and restores focus on cancel',async()=>{
  const p=props();render(<PoolMembersPanel {...p}/>);const trigger=screen.getByRole('button',{name:'Deaktivieren'});trigger.focus();fireEvent.click(trigger)
@@ -24,6 +25,9 @@ it('supports keyboard cancellation and requires confirmation before removal or s
 })
 it('shows missing transfer permission without redistributing the displayed share',()=>{
  const p=props();p.stripe.b={...ready('b'),status:'INCOMPLETE',transfersEnabled:false};render(<PoolMembersPanel {...p}/>);expect(screen.getByText('70,00 %')).toBeInTheDocument();expect(screen.getByText(/Verhindert derzeit neue Pool-Zahlungen/)).toBeInTheDocument()
+})
+it('offers an explicit status refresh for pool transfer readiness',()=>{
+ const p={...props(),onRefreshStripe:vi.fn()};render(<PoolMembersPanel {...p}/>);fireEvent.click(screen.getByRole('button',{name:'Stripe-Status erneut prüfen'}));expect(p.onRefreshStripe).toHaveBeenCalledOnce()
 })
 it('renders reactivated members using returned server shares and never overwrites saved weights',()=>{
  const p=props();const view=render(<PoolMembersPanel {...p} members={[{...members[0],effectiveSharePercent:100},{...members[1],active:false,effectiveSharePercent:0}]}/>);expect(screen.getAllByText('100,00 %')).toHaveLength(2)
