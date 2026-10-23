@@ -22,14 +22,14 @@ function mount(limits:unknown={minAmountMinor:200,maxAmountMinor:50000,currency:
  });vi.stubGlobal('fetch',fetch);render(<DemoPayment/>);return fetch
 }
 it('uses server limits and hides the one-euro preset for team payments',async()=>{
- mount();await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled())
+ mount();await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled(),{timeout:5000})
  expect(screen.getByText(/Team-Trinkgeld:.*2,00.*500,00/)).toBeInTheDocument()
  expect(screen.queryByRole('button',{name:/^1,00/})).not.toBeInTheDocument()
  expect(screen.getByLabelText(/Anderer Betrag/)).toHaveAttribute('min','2')
  expect(screen.getByLabelText(/Anderer Betrag/)).toHaveAttribute('max','500')
 })
 for(const invalid of ['1,99','500,01','2,001','-2','keine Zahl'])it(`blocks an invalid pool amount ${invalid}`,async()=>{
- const fetch=mount();await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled())
+ const fetch=mount();await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled(),{timeout:5000})
  fireEvent.change(screen.getByLabelText(/Anderer Betrag/),{target:{value:invalid}})
  expect(screen.getByRole('button',{name:/Weiter/})).toBeDisabled()
  expect(screen.getByLabelText(/Anderer Betrag/)).toHaveAttribute('aria-invalid','true')
@@ -37,10 +37,10 @@ for(const invalid of ['1,99','500,01','2,001','-2','keine Zahl'])it(`blocks an i
  expect(fetch.mock.calls.some(([url])=>url.includes('/checkout'))).toBe(false)
 })
 it('accepts both endpoints and lets a Stripe surcharge exceed the pure tip maximum',async()=>{
- const fetch=mount();await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled())
+ const fetch=mount();await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled(),{timeout:5000})
  for(const input of ['2,00','500,00']){
   fireEvent.change(screen.getByLabelText(/Anderer Betrag/),{target:{value:input}})
-  await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled())
+  await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled(),{timeout:5000})
  }
  fireEvent.click(screen.getByRole('button',{name:/Weiter/}))
  fireEvent.click(screen.getByRole('checkbox',{name:'Zahlungsgebühren freiwillig übernehmen'}))

@@ -209,7 +209,9 @@ Ein späterer, SEPARAT freizugebender externer Sandbox-Test erfordert:
   Bankstatus und eventuelle Kosten prüfen. Keine Live-Freigabe aus einem Test ableiten.
 
 Die bestehenden Deployment-Sicherungen verlangen weiterhin simulierte Auszahlungen.
-Sie wurden hier NICHT gelockert. Ein späterer externer Test benötigt daher zusätzlich
+Sie wurden hier NICHT gelockert. Die anwendungsinterne Startsperre akzeptiert
+einen explizit freigegebenen externen Testmodus nur mit Testschlüssel, Test-only,
+separatem Approval-Flag und gültiger nicht leerer Account-Allowlist. Ein späterer externer Test benötigt daher zusätzlich
 einen ausdrücklich geprüften Rollout; keine Empfehlung, einfach produktiv Flags
 umzustellen. Bestehende Connected Accounts bleiben unverändert.
 
@@ -227,3 +229,38 @@ Dateien: `StripePayoutService`, `PayoutStore`, `PayoutState`, `PayoutRequest`,
 `PayoutController`, `StripeWebhookController`, Payment-YAML-Konfigurationen,
 Changelog/Migration 015; Frontend `PayoutManager`, `PersonalAccountPanel`,
 `Dashboard`, Dashboard-CSS; zugehörige Tests und dieses Dokument.
+
+== Abschlussprüfung am 23.10.2026
+
+* Payment-Service: 221 Tests erfolgreich, keine Fehler oder Skips.
+* User-Service: 75 Tests erfolgreich, keine Fehler oder Skips.
+* Frontend: 156 Tests erfolgreich; TypeScript/Vite-Build erfolgreich.
+* Deployment-/Workflow-Tooling: 141 Tests erfolgreich.
+* Isoliertes PostgreSQL 15: alle Migrationen, alte Datensätze, Request- und
+  Payout-ID-Eindeutigkeit, aktive/unklare Anforderungen, Mitarbeiter-Sperre und
+  konkurrierende Inserts erfolgreich geprüft. Container anschließend entfernt.
+* Chromium mit vollständig gemockten API-Antworten bei 1440, 390 und 320 Pixeln:
+  maskierte Bankdaten, Betrag/Bestätigung, genau eine gemockte Anforderung,
+  Simulationsstatus bis zum Abschluss, unveränderte echte Balance-Anzeige und
+  kein horizontales Überlaufen. Kein Browserzugriff auf externe Dienste zugelassen.
+* Neuer HTTP-Test: anonyme Zugriffe gesperrt, authentifizierte Benutzerzuordnung
+  bindend trotz manipulierter fremder IDs, fremde Auszahlung nicht abrufbar.
+* Payout-Webhooks: Signatur, abweichendes Signaturgeheimnis, Live-Ereignisse,
+  fremder Account, wiederholte und ältere Ereignisse geprüft.
+
+Die bestehenden Checkout-Tests wurden an zwei Stellen zeitlich stabilisiert:
+Auf den tatsächlich erfolgten Status-Request warten, statt nur auf die bereits
+vor dem Request gerenderte Pending-Überschrift; längere Wartefrist für den
+asynchronen initialen Pool-Quote-Aufruf. Keine Checkout-Geschäftslogik geändert.
+Eine alte Dashboard-Erwartung auf entfernten Bild-Upload wurde an den zuvor
+wiederhergestellten Upload angepasst.
+
+Die lokale Implementierung ist für Simulation und für die spätere getrennte
+Sandbox-Abnahme vorbereitet. Eine Freigabe der tatsächlichen Stripe-Payout-
+Berechtigung oder konkreter Vertragstarife wird damit nicht behauptet.
+
+Zusätzlich geänderte Dateien: `SandboxConfiguration`/`SandboxSecurityTest`,
+`PayoutAuthorizationHttpTest`, `PayoutWebhookTest`, `.env.example`,
+`.github/workflows/002_unit_tests.yml` (isolierten Payout-Datenbanktest ergänzt),
+`DashboardAccountViews.test.tsx`, `PoolCheckoutLimits.test.tsx`,
+`StripePayment.test.tsx`.

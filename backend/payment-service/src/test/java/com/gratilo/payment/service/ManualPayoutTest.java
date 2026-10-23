@@ -29,7 +29,7 @@ class ManualPayoutTest {
                 assertEquals("acct_fixture",account);
                 if(path.equals("/v1/balance_settings"))return Map.of("payments",Map.of("payouts",Map.of("status","enabled","schedule",Map.of("interval",schedule))));
                 if(path.contains("external_accounts"))return Map.of("data",bank?List.of(Map.of("id","ba_fixture","object","bank_account","currency","eur","default_for_currency",true,"status","verified","last4","6789","bank_name","Testbank")):List.of());
-                var tx=store.values.values().iterator().next();return Map.of("data",List.of(simulated(tx,"paid")),"has_more",false);
+                var tx=store.values.values().iterator().next();var paid=simulated(tx,"paid");paid.put("metadata",Map.of("transaction_id",tx.getId().toString()));return Map.of("data",List.of(paid),"has_more",false);
             }
             @Override protected Map<?,?> request(String path,String form,String account,String key)throws Exception {
                 assertFalse(simulation,"No POST even for a test key in simulation");assertTrue(approved);assertEquals("acct_fixture",account);
@@ -85,11 +85,19 @@ class ManualPayoutTest {
         try{var tasks=executor.invokeAll(List.<Callable<TransactionEntity>>of(()->s.create(user,1000L,key),()->s.create(user,1000L,key)));assertEquals(tasks.get(0).get().getId(),tasks.get(1).get().getId());assertEquals(1,store.values.size());assertThrows(IllegalStateException.class,()->s.create(user,1000L,UUID.randomUUID()));}finally{executor.shutdownNow();}
     }
     @Test void eventsBindAccountPayoutAmountAndCurrencyAndNeverUndoPaidWithOldEvents()throws Exception {
-        var tx=service(true,false).create(user,1000L,UUID.randomUUID());var pending=StripePayoutService.simulated(tx,"pending");var paid=StripePayoutService.simulated(tx,"paid");assertFalse(PayoutState.apply(tx,"acct_other",paid,10));assertEquals(TransactionStatus.PENDING,tx.getStatus());assertTrue(PayoutState.apply(tx,"acct_fixture",paid,20));assertFalse(PayoutState.apply(tx,"acct_fixture",pending,10));assertFalse(PayoutState.apply(tx,"acct_fixture",pending,30));assertTrue(PayoutState.apply(tx,"acct_fixture",paid,20));assertEquals(TransactionStatus.BOOKED,tx.getStatus());
+        var tx=service(true,false).create(user,1000L,UUID.randomUUID());var original=PayoutState.metadata(tx);original.remove("lastPayoutEventAt");PayoutState.metadata(tx,original);var pending=StripePayoutService.simulated(tx,"pending");var paid=StripePayoutService.simulated(tx,"paid");assertFalse(PayoutState.apply(tx,"acct_other",paid,10));assertEquals(TransactionStatus.PENDING,tx.getStatus());assertTrue(PayoutState.apply(tx,"acct_fixture",paid,20));assertFalse(PayoutState.apply(tx,"acct_fixture",pending,10));assertFalse(PayoutState.apply(tx,"acct_fixture",pending,30));assertTrue(PayoutState.apply(tx,"acct_fixture",paid,20));assertEquals(TransactionStatus.BOOKED,tx.getStatus());
         var bad=new LinkedHashMap<>(paid);bad.put("amount",999);assertFalse(PayoutState.apply(tx,"acct_fixture",bad,30));bad.put("amount",1000);bad.put("currency","usd");assertFalse(PayoutState.apply(tx,"acct_fixture",bad,30));bad.put("currency","eur");bad.put("id","po_other");assertFalse(PayoutState.apply(tx,"acct_fixture",bad,30));
         assertFalse(PayoutState.apply(tx,"acct_fixture",StripePayoutService.simulated(tx,"failed"),19));assertTrue(PayoutState.apply(tx,"acct_fixture",StripePayoutService.simulated(tx,"failed"),31));assertEquals(TransactionStatus.FAILED,tx.getStatus());assertFalse(PayoutState.apply(tx,"acct_fixture",paid,40));
     }
     @Test void anotherEmployeeCannotSeeOrReconcileAnOwnPayout()throws Exception {var s=service(true,false);var tx=s.create(user,1000L,UUID.randomUUID());assertTrue(s.history(UUID.randomUUID()).isEmpty());assertThrows(IllegalArgumentException.class,()->s.reconcile(UUID.randomUUID(),tx.getId()));}
+    @Test void requestDtoRejectsFractionalAndOverflowingMinorUnits()throws Exception {
+        try(var context=io.micronaut.context.ApplicationContext.builder().enableDefaultPropertySources(false).environmentPropertySource(false).start()) {
+        var json=context.getBean(io.micronaut.json.JsonMapper.class);var key=UUID.randomUUID();
+        for(String amount:List.of("100.1","9223372036854775808","\"NaN\""))assertThrows(Exception.class,()->json.readValue("{\"amountMinor\":"+amount+",\"requestId\":\""+key+"\"}",PayoutRequest.class));
+        var valid=json.readValue("{\"amountMinor\":2500,\"requestId\":\""+key+"\"}",PayoutRequest.class);assertEquals(2500L,valid.amountMinor());
+        assertNull(json.readValue("{\"amountMinor\":null,\"requestId\":\""+key+"\"}",PayoutRequest.class).amountMinor());
+        }
+    }
     @Test void actualHttpRequestUsesFrozenAccountStableVersionAndIdempotencyAndSimulationBlocksPosts() {
         var s=service(false,true);var request=s.httpRequest("/v1/payouts","amount=100&currency=eur&method=standard","acct_fixture","frozen-key");assertEquals("acct_fixture",request.headers().firstValue("Stripe-Account").orElseThrow());assertEquals(StripeConnectService.STABLE_VERSION,request.headers().firstValue("Stripe-Version").orElseThrow());assertEquals("frozen-key",request.headers().firstValue("Idempotency-Key").orElseThrow());assertEquals("POST",request.method());assertThrows(IllegalStateException.class,()->service(true,true).httpRequest("/v1/payouts","amount=100","acct_fixture","same"));assertThrows(IllegalStateException.class,()->s.httpRequest("/v1/payouts","amount=100","acct_other","same"));
     }

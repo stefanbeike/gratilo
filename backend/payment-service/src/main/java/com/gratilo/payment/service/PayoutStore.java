@@ -60,6 +60,7 @@ public class PayoutStore {
         if(tx==null||!user.equals(tx.getAccountUserId()))throw new IllegalArgumentException("Auszahlung nicht gefunden.");
         if(tx.getProviderReference()!=null||!PayoutState.active(tx))return tx;
         tx.setStatus(uncertain?TransactionStatus.AUTHORIZED:TransactionStatus.FAILED);
+        if(!uncertain)tx.setCompletedAt(OffsetDateTime.now());
         tx.setFailureCode(uncertain?"PAYOUT_OUTCOME_UNKNOWN":"PAYOUT_REJECTED");
         tx.setFailureMessage(uncertain?"Das Stripe-Ergebnis ist unklar. Bitte den Status abgleichen; keine neue Auszahlung anfordern.":"Die Auszahlung wurde nicht erstellt. Bitte prüfe Guthaben und Stripe-Einstellungen.");
         var m=PayoutState.metadata(tx);m.put("payoutStatus",uncertain?"unknown":"failed");PayoutState.metadata(tx,m);return tx;

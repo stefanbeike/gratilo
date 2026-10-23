@@ -16,6 +16,7 @@ function label(payout: Payout) {
   if (stage === 'unknown') return 'Ergebnis unklar – Statusabgleich erforderlich'
   if (stage === 'paid') return payout.provider === 'STRIPE_SANDBOX' ? 'Simulation abgeschlossen' : 'Ausgezahlt'
   if (stage === 'in_transit') return 'Auf dem Weg zur Bank'
+  if (payout.status === 'BOOKED' || payout.status === 'COMPLETED') return payout.provider === 'STRIPE_SANDBOX' ? 'Simulation abgeschlossen' : 'Gebucht'
   if (payout.status === 'FAILED') return 'Fehlgeschlagen'
   if (payout.status === 'CANCELLED') return 'Storniert'
   return 'Wird verarbeitet'
@@ -47,7 +48,19 @@ export function PayoutManager({ accessToken, userId, onChanged }: { accessToken:
     ])
     setLoading(false)
   }
-  useEffect(() => { void load() }, [accessToken, userId])
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(key)
+      if (saved) {
+        const request = JSON.parse(saved) as { requestId?: string; amountMinor?: number | null }
+        if (!request.requestId || (request.amountMinor !== null && !Number.isSafeInteger(request.amountMinor))) throw Error('Ungültige gespeicherte Anfrage.')
+        setAll(request.amountMinor === null)
+        if (typeof request.amountMinor === 'number') setAmount(`${Math.floor(request.amountMinor / 100)},${String(request.amountMinor % 100).padStart(2, '0')}`)
+        setNotice('Eine vorherige Anfrage ist noch ungeklärt. Wiederholungen verwenden dieselbe Auszahlungs-ID.')
+      }
+    } catch { setNotice('Die gespeicherte Auszahlungsanfrage konnte nicht gelesen werden. Bitte zuerst die Historie prüfen.') }
+    void load()
+  }, [accessToken, userId])
   const available = eligibility ? (eligibility.simulation ? eligibility.simulationAvailableMinor : eligibility.availableMinor) : 0
   const minor = all ? available : payoutAmount(amount)
   const pending = payouts.some(p => ['PENDING', 'AUTHORIZED'].includes(p.status))
@@ -64,7 +77,7 @@ export function PayoutManager({ accessToken, userId, onChanged }: { accessToken:
       if (!result.id || !Number.isSafeInteger(result.amountMinor)) throw Error('Unklares Auszahlungsergebnis. Bitte dieselbe Anfrage wiederholen.')
       localStorage.removeItem(key); setConfirm(false)
       await load(); onChanged()
-      setNotice(result.status === 'FAILED' ? result.failureMessage || 'Die Auszahlung wurde abgelehnt.' : eligibility?.simulation ? 'Deine simulierte Auszahlung wurde angestoßen. Es erfolgt keine Bankauszahlung.' : 'Deine Auszahlung wurde angestoßen. Sie ist noch nicht auf deinem Bankkonto angekommen.')
+      setNotice(result.status === 'AUTHORIZED' ? 'Das Auszahlungsergebnis ist noch unklar. Bitte den Status abgleichen; keine neue Auszahlung anfordern.' : result.status === 'BOOKED' ? (result.provider === 'STRIPE_SANDBOX' ? 'Simulation abgeschlossen.' : 'Stripe hat die Auszahlung als ausgezahlt bestätigt.') : result.status === 'FAILED' ? result.failureMessage || 'Die Auszahlung wurde abgelehnt.' : result.provider === 'STRIPE_SANDBOX' ? 'Deine simulierte Auszahlung wurde angestoßen. Es erfolgt keine Bankauszahlung.' : 'Deine Auszahlung wurde angestoßen. Sie ist noch nicht auf deinem Bankkonto angekommen.')
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unklares Ergebnis. Bitte dieselbe Anfrage erneut prüfen.') }
     finally { lock.current = false; setBusy(false) }
   }

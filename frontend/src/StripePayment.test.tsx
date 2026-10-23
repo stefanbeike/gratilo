@@ -197,7 +197,7 @@ for(const pool of [false,true])for(const status of ['PAID','PENDING'])it(`resolv
  fireEvent.click(await screen.findByRole('button',{name:/Weiter zur Zusammenfassung/}));fireEvent.click(await screen.findByRole('button',{name:/Jetzt sicher bezahlen/}));
  await screen.findByRole('heading',{name:status==='PAID'?'Danke!':'Bitte noch nicht erneut bezahlen.'})
  expect(fetch.mock.calls.filter(([url])=>url.includes('/checkout')&&!url.includes('/confirm'))).toHaveLength(1)
- expect(fetch.mock.calls.some(([url])=>url.includes('/confirm?sessionId=cs_test_prior'))).toBe(true)
+ await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url.includes('/confirm?sessionId=cs_test_prior'))).toBe(true))
  if(status==='PENDING')expect(screen.queryByRole('button',{name:/Jetzt sicher bezahlen|Erneut versuchen/})).not.toBeInTheDocument()
 })
 

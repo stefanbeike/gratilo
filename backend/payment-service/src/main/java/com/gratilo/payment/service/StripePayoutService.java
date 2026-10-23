@@ -25,7 +25,7 @@ public class StripePayoutService {
             @Value("${stripe.secret-key:}") String secret,@Value("${stripe.sandbox-payouts:true}") boolean simulation,
             @Value("${stripe.manual-payouts-api-approved:false}") boolean apiApproved,
             @Value("${stripe.manual-payout-approved-accounts:}") String approvedAccounts) {
-        StripeConnectService.requireTestKey(secret);this.store=store;this.accounts=accounts;this.balances=balances;this.connect=connect;this.secret=secret;this.simulation=simulation;this.apiApproved=apiApproved;this.approvedAccounts=new HashSet<>(Arrays.asList(approvedAccounts.split(",")));
+        StripeConnectService.requireTestKey(secret);this.store=store;this.accounts=accounts;this.balances=balances;this.connect=connect;this.secret=secret;this.simulation=simulation;this.apiApproved=apiApproved;this.approvedAccounts=new HashSet<>(Arrays.stream(approvedAccounts.split(",")).map(String::trim).filter(id->!id.isEmpty()).toList());
     }
     @Serdeable public record Eligibility(boolean simulation,boolean eligible,long availableMinor,long pendingMinor,long simulationAvailableMinor,
             String currency,String bankLast4,String bankName,String schedule,String message) { }
