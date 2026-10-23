@@ -1,5 +1,5 @@
 /* Gratilo's printed identity, scoped to authentication pages. */
-.auth-shell{--auth-ink:var(--gratilo-bg);--auth-panel:var(--gratilo-panel);--auth-teal:var(--gratilo-accent);--auth-pink:var(--gratilo-highlight);background:var(--auth-ink);color:#f7fbfa;grid-template-columns:1fr 1fr}
+.auth-shell{--auth-ink:#101719;--auth-panel:#171f22;--auth-teal:#45e2c5;--auth-pink:#ff72cb;background:var(--auth-ink);color:#f7fbfa;grid-template-columns:1fr 1fr}
 .auth-shell a{color:var(--auth-teal)}
 .auth-shell a:hover{color:#a0ffec}
 .auth-shell .story{position:relative;isolation:isolate;background:#101719;padding:44px clamp(28px,5vw,82px) 30px;border-right:1px solid #2b3b3c}

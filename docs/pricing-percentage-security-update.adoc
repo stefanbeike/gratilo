@@ -5,9 +5,17 @@
 
 Diese Änderung ist ausschließlich lokal. Kein Push, Deployment, externer
 Stripe-Schreibzugriff oder Zugriff auf bestehende Datenbanken ist erforderlich.
-Weitere Anpassungen an das Landingpage-Design wurden auf Nutzerwunsch gestoppt.
-Die bereits vorbereiteten lokalen Design-Dateien bleiben im aktuellen Stand;
-sie sind kein vollständig geprüftes oder abgeschlossenes Redesign.
+Die Designanpassungen wurden auf ausdrücklichen Nutzerwunsch zurückgenommen.
+Dashboard und Zahlungsseiten verwenden wieder die bisherigen Light-Mode-Styles
+in `styles.css`. Die neu hinzugefügten Dateien `design-tokens.css` und
+`product-brand.css` sowie ihre Imports wurden entfernt. `auth-brand.css` verwendet
+wieder seine bisherigen eigenen Farbwerte; die öffentlichen Einstiegsseiten
+behalten damit ihr ursprüngliches Design. Provision, Pool-Prozente und das
+DOMPurify-Update bleiben erhalten.
+Nach der Rücknahme wurden Frontend-Build/Typecheck und Browserprüfungen bei
+1440, 390 und 320 Pixeln erfolgreich ausgeführt. Der helle Dashboard-Hintergrund,
+Navigation, getrennte Transaktionen und das Fehlen horizontaler Überläufe wurden
+mit lokalen API-Fixtures bestätigt.
 
 == Neue Preisregel
 
@@ -172,8 +180,8 @@ wurden zur Fehlerumgehung gelöscht.
 
 == Geänderte Dateien
 
-Die Design-Dateien in dieser Liste wurden bereits vor dem Design-Stopp angelegt
-und bleiben auf ausdrücklichen Wunsch im damaligen Stand.
+Die Designanpassungen wurden anschließend zurückgenommen; die beiden neuen
+Design-Stylesheets sind entfernt. Alle fachlichen Änderungen bleiben bestehen.
 
 * `.env.example`
 * `backend/payment-service/src/main/java/com/gratilo/payment/api/TipNotification.java`
@@ -216,9 +224,7 @@ und bleiben auf ausdrücklichen Wunsch im damaligen Stand.
 * `frontend/src/PublicTipCheckout.tsx`
 * `frontend/src/StripePayment.test.tsx`
 * `frontend/src/auth-brand.css`
-* `frontend/src/design-tokens.css`
 * `frontend/src/dompurify.security.test.ts`
 * `frontend/src/main.tsx`
 * `frontend/src/poolPercentages.test.ts`
 * `frontend/src/poolPercentages.ts`
-* `frontend/src/product-brand.css`
