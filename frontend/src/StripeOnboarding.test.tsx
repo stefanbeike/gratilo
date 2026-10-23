@@ -1,9 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 vi.mock('./stripe', () => ({ paymentsEnabled: true }))
 vi.mock('./StripeOnboarding', () => ({ StripeOnboarding: () => null }))
 import { Dashboard } from './Dashboard'
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); window.history.replaceState({}, '', '/account') })
 
 it('automatically detects completed onboarding and only then exposes the QR code', async () => {
   let ready = false
@@ -16,14 +16,19 @@ it('automatically detects completed onboarding and only then exposes the QR code
     return []
   } }))
   vi.stubGlobal('fetch', fetch)
-  render(<Dashboard session={{ accessToken: 'test-jwt', userId: '11111111-1111-1111-1111-111111111111', email: 'tester@example.invalid' }} profile={{ email: 'tester@example.invalid' }} onProfile={vi.fn()} onLogout={vi.fn()} />)
-  await waitFor(() => expect(screen.getByRole('button', { name: /Jetzt einrichten|Einrichtung fortsetzen/ })).toBeEnabled())
+  // Flush the mocked access check, account lookup and status sync before asserting.
+  // A one-second DOM polling deadline can expire under concurrent CI/backend load.
+  await act(async () => {
+    render(<Dashboard session={{ accessToken: 'test-jwt', userId: '11111111-1111-1111-1111-111111111111', email: 'tester@example.invalid' }} profile={{ email: 'tester@example.invalid' }} onProfile={vi.fn()} onLogout={vi.fn()} />)
+  })
+  const start = screen.getByRole('button', { name: /Jetzt einrichten|Einrichtung fortsetzen/ })
+  expect(start).toBeEnabled()
   expect(screen.queryByTitle('QR-Code zur Test-Trinkgeldseite')).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: /Jetzt einrichten|Einrichtung fortsetzen/ }))
-  await screen.findByText('Auszahlungen einrichten')
+  await act(async () => { fireEvent.click(start) })
+  expect(screen.getByText('Auszahlungen einrichten')).toBeInTheDocument()
   ready = true
-  fireEvent(window, new Event('focus'))
-  await waitFor(() => expect(screen.queryByText('Auszahlungen einrichten')).not.toBeInTheDocument())
+  await act(async () => { fireEvent(window, new Event('focus')) })
+  expect(screen.queryByText('Auszahlungen einrichten')).not.toBeInTheDocument()
   expect(screen.getByTitle('QR-Code zur Test-Trinkgeldseite')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Zahlungslink kopieren' })).toBeEnabled()
 })
@@ -32,8 +37,8 @@ it('does not announce activation or close onboarding while transfer permission i
   const account={stripeAccountId:'acct_fixture',chargesEnabled:true,payoutsEnabled:true,transfersEnabled:false,detailsSubmitted:true,stripeStatus:'UNDER_REVIEW',onboardingStatus:'SUBMITTED',statusCheckedAt:new Date().toISOString()}
   vi.stubGlobal('fetch',vi.fn(async(url:string)=>({ok:true,json:async()=>url.endsWith('/test-access')?{restricted:false,enabled:true}:url.includes('/connect-account')?account:[]})))
   window.history.replaceState({},'','/account?stripe_onboarding=refresh')
-  render(<Dashboard session={{accessToken:'token',userId:'owner',email:'owner@example.test'}} profile={{email:'owner@example.test'}} onProfile={vi.fn()} onLogout={vi.fn()}/>);
-  const check=await screen.findByRole('button',{name:'Status bei Stripe prüfen'});fireEvent.click(check)
-  await screen.findByText('Der Stripe-Status wurde aktualisiert. Prüfe die einzelnen Freigaben in der Statuskarte.')
+  await act(async()=>{render(<Dashboard session={{accessToken:'token',userId:'owner',email:'owner@example.test'}} profile={{email:'owner@example.test'}} onProfile={vi.fn()} onLogout={vi.fn()}/>)});
+  const check=screen.getByRole('button',{name:'Status bei Stripe prüfen'});await act(async()=>{fireEvent.click(check)})
+  expect(screen.getByText('Der Stripe-Status wurde aktualisiert. Prüfe die einzelnen Freigaben in der Statuskarte.')).toBeInTheDocument()
   expect(screen.getByText('Auszahlungen einrichten')).toBeInTheDocument();expect(screen.queryByText(/Trinkgelder sind aktiv/)).not.toBeInTheDocument();expect(screen.getByRole('button',{name:'Zahlungslink kopieren'})).toBeDisabled();window.history.replaceState({},'','/account')
 })
