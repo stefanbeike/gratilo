@@ -3,13 +3,23 @@ import type { Session } from './api'
 import { paymentsEnabled } from './stripe'
 import { TeamAvatar } from './TeamImageEditor'
 
-type Quote = { tipAmountMinor: number; serviceFeeMinor: number; totalAmountMinor: number; currency: string; serviceFeePercent: number; fixedFeeMinor: number; recipientAmountMinor: number; feeEstimated?: boolean; estimatedStripeFeeMinor?: number; feeEstimateBasis?: string; pricingVersion?: number; platformFeeMinor?: number; platformFeePercent?: number; feesCollector?: string; recipientAmountEstimated?: boolean }
+type Quote = { tipAmountMinor: number; serviceFeeMinor: number; totalAmountMinor: number; currency: string; serviceFeePercent: number; fixedFeeMinor: number; recipientAmountMinor: number; feeEstimated?: boolean; estimatedStripeFeeMinor?: number; feeEstimateBasis?: string; pricingVersion?: number; platformFeeMinor?: number; platformFeeNetMinor?: number; platformFeeTaxMinor?: number; platformFeeVatPercent?: number; platformFeePercent?: number; feesCollector?: string; recipientAmountEstimated?: boolean }
 type Recipient = { userId: string; firstName?: string; lastName?: string; organisation?: string; profileImage?: string | null; paymentEnabled?: boolean; personalLinkPaused?: boolean; poolId?: string; poolName?: string | null; memberNames?: string[] }
 type SavedFlow = { amount: number; message: string; feeCovered: boolean; step: 1 | 2 | 3; attemptKey?: string; pendingSessionId?: string }
 type CheckoutStatus = { status: 'PAID' | 'PENDING' | 'FAILED'; confirmed: boolean; transactionId?: string; tipAmountMinor?: number; amountPaidMinor?: number; recipientUserId?: string; recipientAmountMinor?: number; recipientAmountEstimated?: boolean; checkoutUrl?: string }
 const MIN_TIP = 100
 const MAX_TIP = 1_000_000
 const money = (minor: number) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(minor / 100)
+const platformFeeLabel = (quote: Quote) => [12, 13, 14].includes(quote.pricingVersion || 0)
+  ? 'Gratilo-Servicegebühr inkl. 19 % USt. (0,45 € + 5 %)'
+  : [9, 10, 11].includes(quote.pricingVersion || 0)
+    ? 'Gratilo-Servicegebühr: 0,45 € + 5 % des Trinkgeldbetrags'
+    : [6, 7, 8].includes(quote.pricingVersion || 0)
+      ? 'Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags'
+      : 'Gratilo-Servicegebühr (bei Zahlungsbeginn vereinbart)'
+const platformVatBreakdown = (quote: Quote) => [12, 13, 14].includes(quote.pricingVersion || 0) && quote.platformFeeNetMinor != null && quote.platformFeeTaxMinor != null
+  ? `Enthalten: ${money(quote.platformFeeNetMinor)} Netto-Servicegebühr + ${money(quote.platformFeeTaxMinor)} Umsatzsteuer (${quote.platformFeeVatPercent ?? 19} %).`
+  : ''
 const parseMoney = (raw: string, minimum = MIN_TIP, maximum = MAX_TIP): number | null => {
   const value = raw.trim().replace(',', '.')
   if (!/^\d+(?:\.\d{0,2})?$/.test(value)) return null
@@ -215,7 +225,8 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
       <p className="hint">Die Gebührenübernahme ist eine Schätzung. Zahlungsmethode, Kartenherkunft, Kartentyp und gegebenenfalls Währungsumrechnung beeinflussen die tatsächlichen Kosten. {quote.recipientAmountEstimated ? 'Stripe zieht seine tatsächlichen Gebühren direkt beim Empfänger ein. Der Gastaufschlag geht nicht zusätzlich an Gratilo; der voraussichtliche Nettoanteil kann abweichen. Dein bestätigter Gesamtbetrag bleibt unverändert.' : 'Mehrkosten trägt Gratilo. Dein bestätigter Gesamtbetrag und der festgelegte Empfängerbetrag bleiben nach der Zahlung unverändert.'}</p>
       <div className="tip-breakdown" aria-live="polite">
         <SummaryLine label="Ausgewählter Betrag" value={money(quote.tipAmountMinor)} />
-        {quote.platformFeeMinor != null && <SummaryLine noWrap label={[9,10,11].includes(quote.pricingVersion || 0) ? 'Gratilo-Servicegebühr: 0,45 € + 5 % des Trinkgeldbetrags' : quote.pricingVersion === 6 || quote.pricingVersion === 7 || quote.pricingVersion === 8 ? 'Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags' : 'Gratilo-Servicegebühr (bei Zahlungsbeginn vereinbart)'} value={`− ${money(quote.platformFeeMinor)}`} />}
+        {quote.platformFeeMinor != null && <SummaryLine noWrap label={platformFeeLabel(quote)} value={`− ${money(quote.platformFeeMinor)}`} />}
+        {platformVatBreakdown(quote) && <p className="tip-note fee-vat-breakdown">{platformVatBreakdown(quote)}</p>}
         <SummaryLine noWrap label={flow.feeCovered ? 'Zusätzlich übernommene Gebühren' : 'Stripe-Gebühren als Abzug'} value={flow.feeCovered ? money(quote.serviceFeeMinor) : `− ${money(quote.estimatedStripeFeeMinor ?? 0)}`} />
         <SummaryLine noWrap label={flow.feeCovered && !quote.recipientAmountEstimated ? (isPool ? 'Für den Pool festgelegt' : 'Für den Empfänger festgelegt') : (isPool ? 'Voraussichtlicher Nettobetrag für den Pool' : 'Voraussichtlicher Nettobetrag für den Empfänger')} value={money(quote.recipientAmountMinor)} />
         <SummaryLine label="Du bezahlst insgesamt" value={money(quote.totalAmountMinor)} total />
@@ -233,7 +244,8 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
         <SummaryLine label="Freibetrag" value="Kein separater Freibetrag · Mindestbetrag 1,00 €" />
         {flow.message.length > 0 && <SummaryLine label="Deine Nachricht" value={flow.message} />}
         <SummaryLine label="Gebührenausgleich" value={flow.feeCovered ? 'Freiwillig ausgewählt' : 'Nicht ausgewählt'} />
-        {quote.platformFeeMinor != null && <SummaryLine noWrap label={[9,10,11].includes(quote.pricingVersion || 0) ? 'Gratilo-Servicegebühr: 0,45 € + 5 % des Trinkgeldbetrags' : quote.pricingVersion === 6 || quote.pricingVersion === 7 || quote.pricingVersion === 8 ? 'Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags' : 'Gratilo-Servicegebühr (bei Zahlungsbeginn vereinbart)'} value={`− ${money(quote.platformFeeMinor)}`} />}
+        {quote.platformFeeMinor != null && <SummaryLine noWrap label={platformFeeLabel(quote)} value={`− ${money(quote.platformFeeMinor)}`} />}
+        {platformVatBreakdown(quote) && <p className="tip-note fee-vat-breakdown">{platformVatBreakdown(quote)}</p>}
         <SummaryLine noWrap label={flow.feeCovered ? 'Zusätzlich übernommene Gebühren' : 'Stripe-Gebühren als Abzug'} value={flow.feeCovered ? money(quote.serviceFeeMinor) : `− ${money(quote.estimatedStripeFeeMinor ?? 0)}`} />
         <SummaryLine noWrap label={flow.feeCovered && !quote.recipientAmountEstimated ? (isPool ? 'Für den Pool festgelegt' : 'Für den Empfänger festgelegt') : (isPool ? 'Voraussichtlicher Nettobetrag für den Pool' : 'Voraussichtlicher Nettobetrag für den Empfänger')} value={money(quote.recipientAmountMinor)} />
         <SummaryLine label="Du bezahlst insgesamt" value={money(quote.totalAmountMinor)} total />

@@ -10,6 +10,9 @@ public class PaymentFeeAuditEntity {
     @Column(name="fee_source_reference") private String feeSourceReference;
     @Column(name="pricing_version") private Integer pricingVersion;
     @Column(name="platform_fee_minor") private Long platformFeeMinor;
+    @Column(name="platform_fee_net_minor") private Long platformFeeNetMinor;
+    @Column(name="platform_fee_tax_minor") private Long platformFeeTaxMinor;
+    @Column(name="platform_fee_vat_percent",precision=18,scale=8) private java.math.BigDecimal platformFeeVatPercent;
     @Column(name="platform_fee_percent",precision=18,scale=8) private java.math.BigDecimal platformFeePercent;
     @Column(name="exact_estimate_percent",precision=18,scale=8) private java.math.BigDecimal exactEstimatePercent;
     @Column(name="recipient_total_minor") private Long recipientTotalMinor;

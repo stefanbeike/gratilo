@@ -38,7 +38,7 @@ public class StripeFeeAuditService {
         var audit=new PaymentFeeAuditEntity();audit.setTransactionId(tx.getId());audit.setChargedMinor(quote.totalAmountMinor());
         audit.setSurchargeMinor(quote.serviceFeeMinor());audit.setEstimatedFeeMinor(quote.estimatedStripeFeeMinor());
         audit.setEstimatePercent(quote.serviceFeePercent().doubleValue());audit.setEstimateFixedMinor(quote.fixedFeeMinor());audit.setEstimateBasis(quote.feeEstimateBasis());
-        audit.setPricingVersion(quote.pricingVersion());audit.setPlatformFeeMinor(quote.platformFeeMinor());audit.setPlatformFeePercent(quote.platformFeePercent());audit.setRecipientTotalMinor(quote.recipientAmountMinor());audit.setExactEstimatePercent(quote.serviceFeePercent());
+        audit.setPricingVersion(quote.pricingVersion());audit.setPlatformFeeMinor(quote.platformFeeMinor());audit.setPlatformFeeNetMinor(quote.platformFeeNetMinor());audit.setPlatformFeeTaxMinor(quote.platformFeeTaxMinor());audit.setPlatformFeeVatPercent(quote.platformFeeVatPercent());audit.setPlatformFeePercent(quote.platformFeePercent());audit.setRecipientTotalMinor(quote.recipientAmountMinor());audit.setExactEstimatePercent(quote.serviceFeePercent());
         audit.setCommissionRefundStatus(quote.pricingVersion()>=3?"POLICY_UNDECIDED":"LEGACY");audits.save(audit);
     }
     @Scheduled(fixedDelay="PT60S") public void reconcile() {

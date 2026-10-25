@@ -22,6 +22,7 @@ public class StripeCheckoutService {
     private final RecipientAvailability recipients; private final TransactionRepository transactions; private final ConnectedAccountRepository accounts; private final StripeConnectService connect; private final String secret, successUrl, cancelUrl; private final BigDecimal feePercent; private final long fixedFeeMinor;
     private final StripeFeeAuditService feeAudit;
     private final BigDecimal platformPercent;
+    private final BigDecimal platformVatPercent;
 
     private final boolean pricingEnabled;
     private final PoolDistributionClient poolClient; private final PoolTransferRepository poolTransfers;
@@ -33,7 +34,7 @@ public class StripeCheckoutService {
     }
     public StripeCheckoutService(TransactionRepository transactions,ConnectedAccountRepository accounts,StripeConnectService connect,String secret,String successUrl,String cancelUrl,BigDecimal percent,long fixed,RecipientAvailability recipients,PoolDistributionClient pools,PoolTransferRepository transfers,StripeFeeAuditService audit){this(transactions,accounts,connect,secret,successUrl,cancelUrl,percent,fixed,recipients,pools,transfers,audit,TipPricing.DEFAULT_PLATFORM_PERCENT);}
     public StripeCheckoutService(TransactionRepository transactions,ConnectedAccountRepository accounts,StripeConnectService connect,String secret,String successUrl,String cancelUrl,BigDecimal feePercent,long fixedFeeMinor,RecipientAvailability recipients,PoolDistributionClient poolClient,PoolTransferRepository poolTransfers,StripeFeeAuditService feeAudit,BigDecimal platformPercent) {
-        this(transactions,accounts,connect,secret,successUrl,cancelUrl,feePercent,fixedFeeMinor,recipients,poolClient,poolTransfers,feeAudit,platformPercent,45,true);
+        this(transactions,accounts,connect,secret,successUrl,cancelUrl,feePercent,fixedFeeMinor,recipients,poolClient,poolTransfers,feeAudit,platformPercent,45,true,TipPricing.DEFAULT_PLATFORM_VAT_PERCENT);
     }
     @Inject
     public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect,
@@ -43,10 +44,11 @@ public class StripeCheckoutService {
             PoolDistributionClient poolClient, PoolTransferRepository poolTransfers, StripeFeeAuditService feeAudit,
             @Value("${gratilo.platform-fee-percent:5.00}") BigDecimal platformPercent,
             @Value("${gratilo.platform-fee-fixed-minor:45}") long platformFixedMinor,
-            @Value("${gratilo.new-pricing-enabled:false}") boolean pricingEnabled) {
-        if(platformPercent.compareTo(TipPricing.DEFAULT_PLATFORM_PERCENT)!=0||platformFixedMinor!=45)throw new IllegalArgumentException("Invalid commission configuration");
+            @Value("${gratilo.new-pricing-enabled:false}") boolean pricingEnabled,
+            @Value("${gratilo.platform-fee-vat-percent:19.00}") BigDecimal platformVatPercent) {
+        if(platformPercent.compareTo(TipPricing.DEFAULT_PLATFORM_PERCENT)!=0||platformFixedMinor!=45||platformVatPercent.compareTo(TipPricing.DEFAULT_PLATFORM_VAT_PERCENT)!=0)throw new IllegalArgumentException("Invalid commission or VAT configuration");
         this.pricingEnabled=pricingEnabled;
-        TipPricing.platformFee(100,platformPercent);this.platformPercent=platformPercent;this.feeAudit = feeAudit;
+        TipPricing.platformFee(100,platformPercent);this.platformPercent=platformPercent;this.platformVatPercent=platformVatPercent;this.feeAudit = feeAudit;
         this.recipients=recipients; this.transactions=transactions; this.accounts=accounts; this.connect=connect; this.poolClient=poolClient; this.poolTransfers=poolTransfers; StripeConnectService.requireTestKey(secret); this.secret=secret; this.successUrl=absoluteUrl(successUrl); this.cancelUrl=absoluteUrl(cancelUrl); this.feePercent=feePercent; this.fixedFeeMinor=fixedFeeMinor;
     }
     public TipQuote quote(long amount,boolean covered){return TipPricing.quote(amount,covered,feePercent,fixedFeeMinor,platformPercent);}
@@ -54,13 +56,13 @@ public class StripeCheckoutService {
         return directQuote(amount,covered,verifiedAccount(recipient,false).feesCollector());
     }
     private TipQuote directQuote(long amount,boolean covered,String collector) {
-        return "stripe".equals(collector)?TipPricing.directStripeQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent):quote(amount,covered);
+        return "stripe".equals(collector)?TipPricing.directStripeVatQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent,platformVatPercent):TipPricing.directApplicationVatQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent,platformVatPercent);
     }
     private static long applicationFee(com.gratilo.payment.api.TipQuote quote) {
         return TipPricingSnapshot.isStripeCollectorVersion(quote.pricingVersion()) ? quote.platformFeeMinor() : quote.totalAmountMinor()-quote.recipientAmountMinor();
     }
     public PoolPaymentLimits.Limits poolLimits(){return poolLimits.current();}
-    public TipQuote poolQuote(long amount,boolean covered){poolLimits.validate(amount);return TipPricing.poolQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent);}
+    public TipQuote poolQuote(long amount,boolean covered){poolLimits.validate(amount);return TipPricing.poolVatQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent,platformVatPercent);}
     public boolean isConfigured() { return !secret.isBlank(); }
     public boolean isSandbox() { return true; }
 
@@ -295,7 +297,18 @@ public class StripeCheckoutService {
     public static class PricingNotReleasedException extends IllegalStateException {public PricingNotReleasedException(){super("Die neue Gebührenregel ist noch nicht freigegeben.");}}
     private static String commissionMetadata(TransactionEntity tx,TipQuote q,String kind){
         if(q.pricingVersion()<3)return "";
-        var values=Map.of("pricing_version",Integer.toString(q.pricingVersion()),"platform_fee_minor",Long.toString(q.platformFeeMinor()),"platform_fee_percent",q.platformFeePercent().toPlainString(),"payment_kind",kind,"tip_amount_minor",Long.toString(q.tipAmountMinor()),"stripe_fee_surcharge_minor",Long.toString(q.serviceFeeMinor()),"stripe_cost_contribution_minor",Long.toString(TipPricingSnapshot.isStripeCollectorVersion(q.pricingVersion())?0:q.totalAmountMinor()-q.recipientAmountMinor()-q.platformFeeMinor()));
+        var values=Map.ofEntries(
+                Map.entry("pricing_version",Integer.toString(q.pricingVersion())),
+                Map.entry("platform_fee_minor",Long.toString(q.platformFeeMinor())),
+                Map.entry("platform_fee_net_minor",Long.toString(q.platformFeeNetMinor())),
+                Map.entry("platform_fee_tax_minor",Long.toString(q.platformFeeTaxMinor())),
+                Map.entry("platform_fee_vat_percent",q.platformFeeVatPercent().toPlainString()),
+                Map.entry("platform_fee_percent",q.platformFeePercent().toPlainString()),
+                Map.entry("platform_fee_fixed_minor",Long.toString(q.platformFeeNetMinor()-TipPricing.platformFee(q.tipAmountMinor(),q.platformFeePercent()))),
+                Map.entry("payment_kind",kind),
+                Map.entry("tip_amount_minor",Long.toString(q.tipAmountMinor())),
+                Map.entry("stripe_fee_surcharge_minor",Long.toString(q.serviceFeeMinor())),
+                Map.entry("stripe_cost_contribution_minor",Long.toString(TipPricingSnapshot.isStripeCollectorVersion(q.pricingVersion())?0:q.totalAmountMinor()-q.recipientAmountMinor()-q.platformFeeMinor())));
         var form=new StringBuilder();for(var entry:new java.util.TreeMap<>(values).entrySet()){form.append(param("metadata["+entry.getKey()+"]",entry.getValue()));form.append(param("payment_intent_data[metadata]["+entry.getKey()+"]",entry.getValue()));}return form.toString();
     }
 

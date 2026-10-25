@@ -13,6 +13,14 @@ link:pricing-percentage-security-update.adoc[die aktuelle Ergänzung].
 Die damaligen Konfigurationswerte für Festbetrag 0 dürfen nicht als aktueller
 Rollout-Plan übernommen werden; erforderlich ist jetzt Festbetrag 45 Cent.
 
+== Aktuelle lokale Ergänzung: Umsatzsteuer auf die Pool-Servicegebühr
+
+Neue Pool-Preisversion V13 speichert die einmalige Gratilo-Servicegebühr als
+Netto-Betrag 0,45 EUR + 5 % sowie 19 % Umsatzsteuer darauf. Die resultierende
+Brutto-Servicegebühr wird vor dem Einfrieren der Poolverteilung abgezogen.
+Stripe-Kosten bleiben davon getrennt; es wird keine Application Fee für SCT
+erzeugt. V10 und alle älteren Transaktionen behalten ihre eingefrorenen Werte.
+
 == Historische Bestandsaufnahme vom 21.10.2026
 
 Bereits vorhanden und unverändert: `TipPricing.poolQuote` mit Pricing V7,

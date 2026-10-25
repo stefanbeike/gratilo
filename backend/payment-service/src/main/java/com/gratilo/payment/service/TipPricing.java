@@ -8,6 +8,7 @@ public final class TipPricing {
     public static final String DEFAULT_PERCENT = "3.15";
     public static final BigDecimal DEFAULT_PLATFORM_PERCENT = new BigDecimal("5.00");
     public static final long DEFAULT_PLATFORM_FIXED_MINOR = 45;
+    public static final BigDecimal DEFAULT_PLATFORM_VAT_PERCENT = new BigDecimal("19.00");
     /** Pricing arithmetic supports historical EUR 1 quotes; public checkout limits are validated separately. */
     public static final long MIN_RECIPIENT_MINOR = 1;
     public static class NoDistributableTipException extends IllegalArgumentException {
@@ -48,6 +49,15 @@ public final class TipPricing {
     public static TipQuote quote(long tipMinor,boolean covered,BigDecimal percent,long fixed){return quote(tipMinor,covered,percent,fixed,DEFAULT_PLATFORM_PERCENT);}
     public static TipQuote legacyQuote(long tipMinor,boolean covered,BigDecimal percent,long fixed){return calculate(tipMinor,covered,percent,fixed,BigDecimal.ZERO,0,2);}
     public static TipQuote quote(long tipMinor,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent){return calculate(tipMinor,covered,percent,fixed,platformPercent,DEFAULT_PLATFORM_FIXED_MINOR,9);}
+    /** New Direct Charges with application-collected Stripe costs and VAT on Gratilo's net fee. */
+    public static TipQuote directApplicationVatQuote(long tip,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent){return directApplicationVatQuote(tip,covered,percent,fixed,platformPercent,DEFAULT_PLATFORM_VAT_PERCENT);}
+    public static TipQuote directApplicationVatQuote(long tip,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent,BigDecimal vatPercent){return calculateVat(tip,covered,percent,fixed,platformPercent,vatPercent,12,"application",false);}
+    /** New Separate Charges and Transfers pool pricing; the fee plus VAT is retained once per payment. */
+    public static TipQuote poolVatQuote(long tip,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent){return poolVatQuote(tip,covered,percent,fixed,platformPercent,DEFAULT_PLATFORM_VAT_PERCENT);}
+    public static TipQuote poolVatQuote(long tip,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent,BigDecimal vatPercent){return calculateVat(tip,covered,percent,fixed,platformPercent,vatPercent,13,"application",false);}
+    /** New Direct Charges where Stripe collects card-processing costs from the connected account. */
+    public static TipQuote directStripeVatQuote(long tip,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent){return directStripeVatQuote(tip,covered,percent,fixed,platformPercent,DEFAULT_PLATFORM_VAT_PERCENT);}
+    public static TipQuote directStripeVatQuote(long tip,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent,BigDecimal vatPercent){return calculateVat(tip,covered,percent,fixed,platformPercent,vatPercent,14,"stripe",true);}
     /** The same fixed-plus-percent commission is charged once before pool allocation. */
     public static TipQuote poolQuote(long tip, boolean covered, BigDecimal percent, long fixed, BigDecimal platformPercent) {
         return calculate(tip, covered, percent, fixed, platformPercent, DEFAULT_PLATFORM_FIXED_MINOR, 10);
@@ -64,6 +74,26 @@ public final class TipPricing {
     public static long platformFee(long tipMinor,BigDecimal percent){
         if(tipMinor<100||tipMinor>1_000_000||percent==null||percent.signum()<0||percent.compareTo(BigDecimal.valueOf(100))>=0)throw new IllegalArgumentException("Invalid platform fee configuration");
         return BigDecimal.valueOf(tipMinor).multiply(percent).movePointLeft(2).setScale(0,RoundingMode.HALF_UP).longValueExact();
+    }
+    public static long platformFeeVat(long netFeeMinor,BigDecimal vatPercent){
+        if(netFeeMinor<0||vatPercent==null||vatPercent.signum()<0||vatPercent.compareTo(BigDecimal.valueOf(100))>=0)throw new IllegalArgumentException("Invalid platform VAT configuration");
+        return BigDecimal.valueOf(netFeeMinor).multiply(vatPercent).movePointLeft(2).setScale(0,RoundingMode.HALF_UP).longValueExact();
+    }
+    private static TipQuote calculateVat(long tipMinor,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent,BigDecimal vatPercent,int version,String collector,boolean recipientFeeEstimated){
+        if(tipMinor<100||tipMinor>1_000_000)throw new IllegalArgumentException("Invalid tip amount");
+        long surcharge=covered?voluntaryIncreaseMinor(tipMinor,percent,fixed):0;
+        long total=safeTotal(tipMinor,surcharge);
+        long estimated=serviceFeeMinor(total,percent,fixed);
+        long platformNet=Math.addExact(platformFee(tipMinor,platformPercent),DEFAULT_PLATFORM_FIXED_MINOR);
+        long platformTax=platformFeeVat(platformNet,vatPercent);
+        long platformGross=Math.addExact(platformNet,platformTax);
+        long recipient=collector.equals("stripe")
+                ? Math.subtractExact(Math.subtractExact(total,platformGross),estimated)
+                : Math.subtractExact(Math.subtractExact(tipMinor,platformGross),covered?0:estimated);
+        if(recipient<MIN_RECIPIENT_MINOR)throw new NoDistributableTipException();
+        String basis=(percent.compareTo(new BigDecimal(DEFAULT_PERCENT))==0&&fixed==25?"Stripe-DE-Referenz für internationale Karten (20.10.2026); ":"Konfigurierte Tarifschätzung; ")
+                +"Karte und Zahlungsmethode stehen erst bei Stripe fest. Die Umsatzsteuer wird separat auf die Gratilo-Servicegebühr berechnet.";
+        return new TipQuote(tipMinor,surcharge,total,"EUR",percent,fixed,recipient,true,estimated,basis,version,platformPercent,platformGross,collector,recipientFeeEstimated,platformNet,platformTax,vatPercent);
     }
     private static TipQuote calculate(long tipMinor,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent,long platformFixed,int version) {
         if (tipMinor < 100 || tipMinor > 1_000_000) throw new IllegalArgumentException("Invalid tip amount");

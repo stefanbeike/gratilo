@@ -5,9 +5,22 @@ und Sandbox-Nachweisen: link:pool-platform-retention.adoc[Pool-Plattformprovisio
 
 == Aktuelle Ergänzung: 0,45 EUR plus 5 Prozent (23.10.2026)
 
-Neue Preisversionen V9/V10/V11 verwenden einmal pro Zahlung
-`45 + HALF_UP(tipAmountMinor * 0.05)`. Stripe-Kosten sind weiterhin separat.
-Historische Versionen bleiben unverändert. Die bestehende Pricing-Freigabe wird
+=== Umsatzsteuer auf die Gratilo-Servicegebühr (neue Preisversionen V12–V14)
+
+Für neue VAT-Preisversionen wird die Umsatzsteuer von 19 % auf die Netto-Gratilo-Servicegebühr berechnet und centgenau mit kaufmännischer Rundung (HALF_UP) festgeschrieben:
+
+`Gratilo-Bruttogebühr = (0,45 EUR + HALF_UP(5 % des ursprünglichen Trinkgelds)) + HALF_UP(19 % der Netto-Gratilo-Gebühr)`.
+
+Die 19 % beziehen sich weder auf den Stripe-Gebührenaufschlag noch auf die Stripe-Zahlungsgebühren. Der Checkout weist Bruttogebühr, Netto-Servicegebühr und enthaltene Umsatzsteuer getrennt aus. Die Bruttogebühr wird in den neuen Preisversionen einmal je Zahlung angesetzt. Bei Poolzahlungen wird sie vor der Verteilung genau einmal abgezogen; bei Direct Charges ist sie Bestandteil der Application Fee. Die Empfängerprognose beziehungsweise Poolverteilung berücksichtigt daher den Bruttobetrag.
+
+Die unveränderlichen Snapshots V12 (Direct Charge, `fees_collector=application`), V13 (Pool, Separate Charges and Transfers) und V14 (Direct Charge, `fees_collector=stripe`) speichern Netto-Servicegebühr, Umsatzsteuer, Steuersatz und Bruttogebühr separat. Frühere Preisversionen und bereits erstellte Checkout-Sessions behalten ihre ursprüngliche Gebührenregel. Der Rollout-Schalter `gratilo.new-pricing-enabled` bleibt maßgeblich dafür, ob neue Preisversionen für Checkouts verwendet werden.
+
+Die technische Vorgabe von 19 % folgt der Standard-Umsatzsteuerregel in Deutschland; die konkrete steuerliche Einordnung der Gratilo-Leistung und Rechnungsstellung ist vor produktivem Einsatz steuerlich zu bestätigen.
+
+Die VAT-Preisversionen V12/V13/V14 verwenden einmal pro Zahlung
+45 + HALF_UP(tipAmountMinor * 0.05) als Netto-Servicegebühr und addieren darauf
+19 % Umsatzsteuer. Stripe-Kosten sind weiterhin separat. V9/V10/V11 bleiben als
+historische Preisversionen unverändert. Die bestehende Pricing-Freigabe wird
 nicht automatisch aktiviert. Konfiguration, Direct-Charge-Collector-Unterschiede,
 SCT, Prozentgewichte und Sicherheitsprüfung sind dokumentiert in
 link:pricing-percentage-security-update.adoc[Preis-, Prozent- und Sicherheitsänderung].
@@ -61,8 +74,9 @@ den Schutz unveränderlicher Metadaten auf V6/V7. Kein Backfill, keine Neuberech
 keine Änderung alter Liquibase-Checksummen. Status und Stripe-Referenzen können
 weiterhin fortgeschrieben werden.
 
-Checkout zeigt für neue Versionen »Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags«.
-Historische Sessions zeigen ihre gespeicherte Vereinbarung mit neutraler Beschriftung.
+Checkout zeigt für VAT-Versionen die Brutto-Servicegebühr sowie deren Netto- und
+Umsatzsteueranteil. Historische Sessions zeigen ihre gespeicherte Vereinbarung
+mit neutraler Beschriftung.
 Dashboard-Details lesen auch V6/V7 und zeigen die tatsächlich eingefrorene Provision.
 
 Der vorhandene Schalter `GRATILO_NEW_PRICING_ENABLED` bleibt unverändert. Kein
