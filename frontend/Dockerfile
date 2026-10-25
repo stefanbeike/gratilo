@@ -17,11 +17,13 @@ RUN case "$VITE_PAYMENTS_ENABLED" in true|false) npm run build ;; *) echo "VITE_
 
 FROM nginx:1.30.6-alpine3.24 AS runtime
 
-# CVE-2026-77214 (libexpat) and CVE-2026-88806 (libx11): require fixed stable packages.
+# CVE-2026-77214 (libexpat), CVE-2026-88806 (libx11), and CVE-2026-111497 (brotli):
+# require fixed stable packages in the runtime image.
 # Fail the build if the security fix is not available; allow later patched versions.
 RUN apk add --no-cache --upgrade \
     'libexpat>=2.9.0-r0' \
-    'libx11>=1.8.14-r0'
+    'libx11>=1.8.14-r0' \
+    'brotli-libs>=1.2.1-r0'
 
 ENV USER_SERVICE_HOST=user-service \
     PAYMENT_SERVICE_HOST=payment-service
