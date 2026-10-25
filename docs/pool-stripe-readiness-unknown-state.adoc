@@ -1,0 +1,72 @@
+= Pool Stripe Readiness: Unknown State and Stable Refreshes
+
+== Findings
+
+The member status endpoint refreshed Accounts-v2 state on each 30-second poll.
+When a status request failed, the backend returned `UNAVAILABLE` with false
+transfer and payout booleans. The dashboard then displayed both a technical
+failure and the factual statement that transfer reception was not approved.
+The dashboard also discarded every member status when the whole endpoint
+failed. A separate authorization or network error could therefore replace a
+recent successful status with an apparent member block.
+
+The payment service had a second failure-classification issue: a user-service
+lookup that was unavailable was caught as `RecipientNotReadyException`. This
+could turn a transient user-service error into a definitive `canReceiveTips=false`
+and HTTP 409 for a new pool checkout. A 404 or a valid profile explicitly
+disabling pool participation is a confirmed block; a 401/403/429/5xx, timeout,
+malformed response, or mismatched user ID is not.
+
+The previous public eligibility security rule already allowed anonymous GET
+requests for a UUID pool reference. That rule is retained. A past 403 cannot be
+attributed to the current production request without the corresponding response
+headers/logs; in this checkout, the source rule does not require pool membership
+for this read-only endpoint. A controller or upstream failure remains distinct
+from eligibility and is returned as a temporary service error.
+
+== Changes
+
+* `StripeStatusSync` now returns null capability values and the last successful
+  check timestamp when Stripe cannot be read. An incomplete or wrong-mode
+  Accounts-v2 response is treated as unknown and does not overwrite the last
+  persisted confirmed status.
+* Accounts-v2 GETs retry at most twice after the initial request for HTTP 429,
+  HTTP 5xx, or network I/O failures. Backoff grows from 150 ms and honors a
+  numeric `Retry-After` up to two seconds. HTTP 401/403 are not retried. The
+  dashboard refreshes at most every 30 seconds, skips overlapping requests, and
+  does not issue immediate retry loops after an error.
+* The user-service eligibility client distinguishes a confirmed missing or
+  disabled recipient from an unavailable or malformed response.
+* Pool Checkout maps confirmed ineligibility to a conflict and lookup failures
+  to HTTP 503 `POOL_ELIGIBILITY_UNKNOWN`. Public GET eligibility already uses
+  HTTP 503 for lookup failure and remains fail-closed for checkout.
+* The member panel now distinguishes `READY`, confirmed `NOT_READY`, and
+  `UNKNOWN`. Unknown never says “Transferempfang: Nicht freigegeben” and never
+  claims that an individual is the confirmed reason for blocking payment.
+* Member status polling is keyed to immutable pool ID, avoids concurrent
+  requests, ignores stale responses, and keeps a recent successful result for
+  at most two minutes while marking it as a prior check. After that, the state
+  becomes unknown. A confirmed capability loss replaces the prior ready state
+  immediately.
+* The pool-level dashboard result follows the same two-minute freshness limit.
+  A stale or failed result is informationally unknown; the backend still checks
+  current status immediately before creating Checkout and fails closed if that
+  check cannot be completed.
+
+== Transfer requirements
+
+Pool transfers require an active Accounts-v2 recipient `stripe_transfers`
+capability and the existing Gratilo pool-participation setting for every active
+member with a positive effective share. Payout schedule, payout capability,
+available balance, and manual payout configuration are not substitutes for and
+do not determine transfer reception. Invitations and inactive zero-share
+members are not included in the checkout recipient set.
+
+== Verification limits
+
+Local tests can prove classification, state retention, checkout failure modes,
+and frontend presentation. They cannot establish whether the two connected
+accounts of pool `2e7994e9-8862-4ab5-9ff3-da38cea72ea7` currently have active
+transfer capabilities in the deployed Stripe mode. That requires a read-only
+Accounts-v2 request for each mapped account, or current deployment logs. No
+Stripe request or production account state was changed by this implementation.

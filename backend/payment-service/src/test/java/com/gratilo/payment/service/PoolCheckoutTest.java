@@ -174,10 +174,25 @@ class PoolCheckoutTest {
         var txRepo=proxy(TransactionRepository.class,(p,m,a)->{if(m.getName().equals("findByAccountUserIdAndIdempotencyKey"))return Optional.empty();throw new AssertionError("No writes before eligibility");});
         var transferRepo=proxy(PoolTransferRepository.class,(p,m,a)->{throw new AssertionError("No allocations before eligibility");});
         var service=new StripeCheckoutService(txRepo,accountRepository(Map.of(owner,"acct_first",other,"acct_second")),connect,"sk_test_fixture","http://localhost/pay/success","http://localhost/pay/cancelled",new java.math.BigDecimal("1.5"),25,recipients,pool,transferRepo);
-        assertFalse(service.canReceivePoolTips(owner));
+        assertFalse(service.checkPoolEligibility(owner));
         assertThrows(StripeCheckoutService.PoolNotReadyException.class,()->service.createPool(owner,new TipPaymentRequest(1000L,"Danke","pool-blocked",true)));
         ready.set(true);
-        assertTrue(service.canReceivePoolTips(owner));
+        assertTrue(service.checkPoolEligibility(owner));
+    }
+
+    @Test void transientRecipientProfileFailureReturnsUnknownInsteadOfConfirmedPoolBlock()throws Exception{
+        UUID owner=UUID.randomUUID(),poolId=UUID.randomUUID();
+        var pool=new PoolDistributionClient("http://localhost","fixture",true){@Override public Optional<Distribution> find(UUID id){return Optional.of(new Distribution(poolId,"Team",List.of(new Member(owner,"A",100,true)),owner));}};
+        var accounts=accountRepository(Map.of(owner,"acct_owner"));
+        var stripe=new StripeConnectService("sk_test_fixture","http://localhost"){@Override public String retrieveAccount(String id){return StripeAccountFixtures.readyJson().replace("acct_fixture",id);}};
+        var recipient=new RecipientAvailability("http://localhost"){@Override public void requirePoolMemberEnabled(UUID id){throw new IllegalStateException("user service HTTP 503");}};
+        var transactions=proxy(TransactionRepository.class,(p,m,a)->switch(m.getName()){
+            case "findByAccountUserIdAndIdempotencyKey","findById"->Optional.empty();default->defaultValue(m.getReturnType());});
+        var allocations=proxy(PoolTransferRepository.class,(p,m,a)->{throw new AssertionError("Unknown eligibility must not create allocations");});
+        var service=new StripeCheckoutService(transactions,accounts,stripe,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("1.5"),25,recipient,pool,allocations);
+        assertThrows(StripeCheckoutService.PoolEligibilityUnavailableException.class,()->service.createPool(poolId,new TipPaymentRequest(1000L,"Danke","unknown-status",false,null,null,poolId)));
+        var response=new com.gratilo.payment.controller.TipController(service,new java.math.BigDecimal("1.5"),25).poolCheckout(poolId,"false",new TipPaymentRequest(1000L,"Danke","unknown-status-http",false,null,null,poolId));
+        assertEquals(io.micronaut.http.HttpStatus.SERVICE_UNAVAILABLE,response.getStatus());assertEquals("POOL_ELIGIBILITY_UNKNOWN",((Map<?,?>)response.body()).get("code"));
     }
 
     private static ConnectedAccountRepository accountRepository(Map<UUID, String> ids) {

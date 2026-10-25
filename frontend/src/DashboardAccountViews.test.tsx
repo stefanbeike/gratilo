@@ -4,8 +4,8 @@ vi.mock('./stripe',()=>({paymentsEnabled:true}))
 vi.mock('./features',()=>({useTipPoolsEnabled:()=>true}))
 import { Dashboard } from './Dashboard'
 afterEach(()=>{cleanup();vi.unstubAllGlobals();history.replaceState({},'','/account')})
-function mount({multiple=false,admin=false,balanceError=false,eligibilityFailsAfterFirst=false}:{multiple?:boolean;admin?:boolean;balanceError?:boolean;eligibilityFailsAfterFirst?:boolean}={}){
- let eligibilityCalls=0
+function mount({multiple=false,admin=false,balanceError=false,eligibilityFailsAfterFirst=false,memberStatusFailsAfterFirst=false}:{multiple?:boolean;admin?:boolean;balanceError?:boolean;eligibilityFailsAfterFirst?:boolean;memberStatusFailsAfterFirst?:boolean}={}){
+ let eligibilityCalls=0,memberStatusCalls=0
  const member={id:'m',userId:'member',active:true,status:'ACTIVE',sharePercent:50,effectiveSharePercent:50}
  const a={id:'team-a',name:'Team A',ownerId:admin?'member':'owner-a',members:[member]}
  const b={id:'team-b',name:'Team B',ownerId:'owner-b',members:[{...member,id:'mb'}]}
@@ -18,7 +18,7 @@ function mount({multiple=false,admin=false,balanceError=false,eligibilityFailsAf
   else if(url==='/payment-service/pool-transfers')data=[{id:'a',poolId:'team-a',poolName:'Team A',amountMinor:4750,reversedAmountMinor:0,status:'TRANSFERRED',historicalSharePercent:50,poolDistributionAmountMinor:9500,selectedTipAmountMinor:10000,createdAt:new Date().toISOString()},...(multiple?[{id:'b',poolId:'team-b',poolName:'Team B',amountMinor:1333,reversedAmountMinor:0,status:'PENDING',createdAt:new Date().toISOString()}]:[])]
   else if(url==='/user-service/pools/all')data=multiple?[a,b]:admin?[a]:[a]
   else if(url.endsWith('/eligibility')){eligibilityCalls++;data={canReceiveTips:true};if(eligibilityFailsAfterFirst&&eligibilityCalls>1)ok=false}
-  else if(url.endsWith('/members'))data=[{userId:'member',status:'READY',transfersEnabled:true,payoutsEnabled:true,checkedAt:new Date().toISOString()}]
+  else if(url.endsWith('/members')){memberStatusCalls++;data=[{userId:'member',status:'READY',transfersEnabled:true,payoutsEnabled:true,checkedAt:new Date().toISOString()}];if(memberStatusFailsAfterFirst&&memberStatusCalls>1)ok=false}
   return {ok,status:ok?200:502,json:async()=>data}
 });vi.stubGlobal('fetch',calls);Object.defineProperty(calls,'eligibilityCalls',{get:()=>eligibilityCalls})
  render(<Dashboard session={{userId:'member',email:'member@example.test',accessToken:'private-test-token'}} profile={{email:'member@example.test',firstName:'Alex'}} onProfile={vi.fn()} onLogout={vi.fn()}/>);return calls
@@ -41,6 +41,12 @@ it('keeps a confirmed READY pool when the member-status refresh changes or eligi
  expect((calls as typeof calls & {eligibilityCalls:number}).eligibilityCalls).toBeGreaterThanOrEqual(2)
  expect(screen.getAllByText(/Letzte Prüfung: zahlungsbereit/)).not.toHaveLength(0)
  expect(screen.getByTitle('Team-Trinkgeld QR-Code')).toBeInTheDocument()
+})
+it('keeps the recent confirmed member READY when a later member-status request fails',async()=>{
+ const calls=mount({admin:true,memberStatusFailsAfterFirst:true});fireEvent.click(await screen.findByRole('button',{name:'Meine Pools'}));
+ expect(await screen.findByText('Stripe-bereit')).toBeInTheDocument();window.dispatchEvent(new Event('focus'));
+ await waitFor(()=>expect(calls.mock.calls.filter(([url])=>String(url).endsWith('/members')).length).toBeGreaterThan(1));
+ expect(await screen.findByText('Stripe-bereit · letzte Prüfung')).toBeInTheDocument();expect(screen.getByText(/aktuelle Aktualisierung ist vorübergehend fehlgeschlagen/)).toBeInTheDocument();expect(screen.queryByText(/Transferempfang: Nicht freigegeben/)).not.toBeInTheDocument()
 })
 it('shows a balance API failure without substituting personal or pool income',async()=>{
  mount({balanceError:true});const region=screen.getByRole('region',{name:'Persönliches Stripe-Guthaben'});await waitFor(()=>expect(within(region).getByRole('alert')).toHaveTextContent('nicht geladen'))

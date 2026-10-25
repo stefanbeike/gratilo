@@ -28,8 +28,16 @@ class StripeStatusSyncTest {
         String confirmedStatus=row.getStripeStatus();var confirmedCheckedAt=row.getStatusCheckedAt();
         body.set(null);assertFalse(sync.refreshAccount("acct_fixture"));assertFalse(row.isTransfersEnabled());
         assertEquals(confirmedStatus,row.getStripeStatus());assertEquals(confirmedCheckedAt,row.getStatusCheckedAt());
-        assertEquals("UNAVAILABLE",sync.refresh(row.getUserId()).status());
+        var unavailable=sync.refresh(row.getUserId());assertEquals("UNAVAILABLE",unavailable.status());assertNull(unavailable.transfersEnabled());assertNull(unavailable.payoutsEnabled());assertEquals(confirmedCheckedAt,unavailable.checkedAt());
         assertEquals(confirmedStatus,row.getStripeStatus());assertEquals(confirmedCheckedAt,row.getStatusCheckedAt());
+    }
+    @Test void incompleteOrWrongModeV2ResponseDoesNotOverwriteLastConfirmedReadiness() {
+        var row=new ConnectedAccountEntity();row.setUserId(UUID.randomUUID());row.setStripeAccountId("acct_fixture");row.setTransfersEnabled(true);row.setStripeStatus("READY");var checked=java.time.OffsetDateTime.now().minusSeconds(10);row.setStatusCheckedAt(checked);
+        int[] updates={0};var repo=(ConnectedAccountRepository)Proxy.newProxyInstance(getClass().getClassLoader(),new Class[]{ConnectedAccountRepository.class},(p,m,a)->switch(m.getName()){
+            case "findByUserId"->Optional.of(row);case "update"->{updates[0]++;yield a[0];}default->throw new AssertionError(m.getName());});
+        var stripe=new StripeConnectService("sk_test_fixture","http://localhost"){@Override public String retrieveAccount(String id){return StripeAccountFixtures.readyJson().replace("\"livemode\":false","\"livemode\":true");}};
+        var status=new StripeStatusSync(repo,stripe).refresh(row.getUserId());
+        assertEquals("UNAVAILABLE",status.status());assertNull(status.transfersEnabled());assertEquals(checked,status.checkedAt());assertEquals(0,updates[0]);assertTrue(row.isTransfersEnabled());assertEquals("READY",row.getStripeStatus());
     }
     @Test void ownerCannotInspectAnotherOwnersMembers() {
         UUID poolId=UUID.randomUUID();

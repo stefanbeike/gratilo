@@ -194,7 +194,10 @@ public class StripeCheckoutService {
         validateRequest(request);
         if (poolClient == null || poolTransfers == null) throw new PoolNotReadyException();
         if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
-        var pool = poolClient.find(owner).orElseThrow(PoolNotReadyException::new);
+        PoolDistributionClient.Distribution pool;
+        try { pool = poolClient.find(owner).orElseThrow(PoolNotReadyException::new); }
+        catch (PoolNotReadyException confirmed) { throw confirmed; }
+        catch (Exception unavailable) { throw new PoolEligibilityUnavailableException(unavailable); }
         UUID poolOwner = pool.ownerId() == null ? owner : pool.ownerId();
         var resumed=resumeExisting(poolOwner,request,true);if(resumed.isPresent())return resumed;
         // Resume existing immutable sessions first; only a genuinely new payment gets new limits.
@@ -209,8 +212,10 @@ public class StripeCheckoutService {
             try {
                 var account = eligibleAccount(member.userId(), true);
                 eligible.add(new PoolEligible(member.userId(), account.getStripeAccountId(), BigDecimal.valueOf(member.sharePercent())));
-            } catch (Exception unavailable) {
+            } catch (RecipientNotReadyException confirmed) {
                 throw new PoolNotReadyException();
+            } catch (Exception unavailable) {
+                throw new PoolEligibilityUnavailableException(unavailable);
             }
         }
         if (eligible.isEmpty()) throw new PoolNotReadyException();
@@ -356,16 +361,14 @@ public class StripeCheckoutService {
     }
     public static class QuoteChangedException extends IllegalStateException { public QuoteChangedException() { super("Die Gebührenschätzung hat sich geändert. Bitte prüfe den neuen Gesamtbetrag."); } }
     public static class PoolNotReadyException extends IllegalStateException { public PoolNotReadyException() { super("Pool requires all participating members to be transfer-ready"); } }
+    public static class PoolEligibilityUnavailableException extends IllegalStateException {
+        public PoolEligibilityUnavailableException(Throwable cause) { super("Pool transfer eligibility could not be verified", cause); }
+    }
     private static String jsonEscape(String value) { return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\""); }
 
     public boolean canReceiveTips(UUID recipient) {
         try { return "application".equals(verifiedAccount(recipient,false).feesCollector()); }
         catch (Exception unavailable) { return false; }
-    }
-
-    public boolean canReceivePoolTips(UUID owner) {
-        try { return checkPoolEligibility(owner); }
-        catch (Exception ignored) { return false; }
     }
 
     /**
@@ -400,7 +403,7 @@ public class StripeCheckoutService {
         if (secret.isBlank()) throw new IllegalStateException("Stripe is not configured");
         try {
             if (poolMember) recipients.requirePoolMemberEnabled(recipient); else recipients.requireEnabled(recipient);
-        } catch (Exception unavailable) { throw new RecipientNotReadyException(); }
+        } catch (RecipientAvailability.NotEnabledException notEnabled) { throw new RecipientNotReadyException(); }
         var account = accounts.findByUserId(recipient).orElseThrow(() -> new RecipientNotReadyException());
         String id = account.getStripeAccountId();
         if (id == null || !id.matches("acct_[A-Za-z0-9]+") || id.startsWith("acct_demo_"))
@@ -415,6 +418,11 @@ public class StripeCheckoutService {
             // Preserve the last confirmed status and fail the current check closed.
             throw unavailable;
         }
+        // Missing/invalid v2 fields are an unknown result, not evidence that
+        // Stripe explicitly denied transfer reception. Never persist their
+        // fail-closed placeholder booleans over the last confirmed account state.
+        if ("UNAVAILABLE".equals(status.displayStatus()))
+            throw new IllegalStateException("Stripe Accounts-v2 status could not be verified");
         status.applyTo(account);
         accounts.update(account);
         if (!(poolMember ? status.canReceiveTransfers() : StripeAccountStatus.directReady(id,accountJson))) throw new RecipientNotReadyException();

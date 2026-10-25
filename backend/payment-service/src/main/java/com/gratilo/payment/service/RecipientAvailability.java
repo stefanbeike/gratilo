@@ -22,9 +22,18 @@ public class RecipientAvailability {
         var response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(
                 URI.create(base + "/user-service/users/public/" + recipient)).timeout(Duration.ofSeconds(10)).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() != 200) throw new IllegalStateException("Recipient unavailable");
+        if (response.statusCode() == 404) throw new NotEnabledException();
+        // A transient user-service failure is not proof that the recipient has
+        // disabled payments. Preserve UNKNOWN so callers can fail closed without
+        // presenting a false Stripe restriction.
+        if (response.statusCode() != 200) throw new IllegalStateException("Recipient status could not be verified");
         var profile = JsonMapper.createDefault().readValue(response.body(), Map.class);
-        if (!recipient.toString().equals(profile.get("userId")) || !Boolean.TRUE.equals(profile.get(flag)))
-            throw new IllegalStateException("Recipient has paused payments");
+        if (!recipient.toString().equals(profile.get("userId")))
+            throw new IllegalStateException("Recipient status response did not match the requested user");
+        if (!Boolean.TRUE.equals(profile.get(flag))) throw new NotEnabledException();
+    }
+
+    public static final class NotEnabledException extends IllegalStateException {
+        public NotEnabledException() { super("Recipient has paused payments"); }
     }
 }

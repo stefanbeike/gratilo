@@ -4,6 +4,7 @@ import jakarta.inject.Singleton;
 import java.net.URI;
 import java.net.http.*;
 import java.net.URLEncoder;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
 @Singleton
@@ -91,7 +92,28 @@ public class StripeConnectService {
         jsonCall("https://api.stripe.com/v2/core/accounts/" + enc(accountId), json);
     }
     public String retrieveEvent(String id) throws Exception { return get("https://api.stripe.com/v2/core/events/" + enc(id)); }
-    public String retrieveAccount(String accountId) throws Exception { return get("https://api.stripe.com" + accountRetrievalPath(accountId)); }
+    public String retrieveAccount(String accountId) throws Exception {
+        String url="https://api.stripe.com" + accountRetrievalPath(accountId);
+        for(int attempt=0;;attempt++){
+            try{return get(url);}
+            catch(StripeApiException failure){
+                if(attempt>=2||!(failure.statusCode()==429||failure.statusCode()>=500))throw failure;
+                waitBeforeAccountRetry(attempt,failure.retryAfterMillis());
+            }catch(IOException networkFailure){
+                if(attempt>=2)throw networkFailure;
+                waitBeforeAccountRetry(attempt,0);
+            }
+        }
+    }
+    private static void waitBeforeAccountRetry(int attempt,long retryAfterMillis)throws InterruptedException{
+        long exponential=Math.min(800L,150L*(1L<<attempt));
+        Thread.sleep(Math.min(2000L,Math.max(exponential,retryAfterMillis)));
+    }
+    public static final class StripeApiException extends IOException {
+        private final int statusCode;private final long retryAfterMillis;private final String requestId;
+        public StripeApiException(int statusCode,long retryAfterMillis,String requestId){super("Stripe API returned HTTP "+statusCode);this.statusCode=statusCode;this.retryAfterMillis=retryAfterMillis;this.requestId=requestId;}
+        public int statusCode(){return statusCode;}public long retryAfterMillis(){return retryAfterMillis;}public String requestId(){return requestId;}
+    }
     /** Shared by checkout/status checks and settlement: Accounts v2 requires indexed query arrays. */
     static String accountRetrievalPath(String accountId) {
         return "/v2/core/accounts/" + enc(accountId)
@@ -115,7 +137,10 @@ public class StripeConnectService {
     /** Test seam: all tests replace this transport, never contact Stripe. */
     protected String request(HttpRequest request) throws Exception {
         var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() >= 300) throw new IllegalStateException("Stripe API returned HTTP " + response.statusCode());
+        if (response.statusCode() >= 300) {
+            long retryAfter=response.headers().firstValue("Retry-After").flatMap(value->{try{return java.util.Optional.of(Math.max(0,Long.parseLong(value))*1000L);}catch(NumberFormatException ignored){return java.util.Optional.empty();}}).orElse(0L);
+            throw new StripeApiException(response.statusCode(),retryAfter,response.headers().firstValue("Request-Id").orElse(""));
+        }
         return response.body();
     }
     public static String field(String json, String name) { var m=Pattern.compile("\\\""+name+"\\\"\\s*:\\s*\\\"([^\\\"]+)").matcher(json == null ? "" : json); return m.find()?m.group(1):null; }

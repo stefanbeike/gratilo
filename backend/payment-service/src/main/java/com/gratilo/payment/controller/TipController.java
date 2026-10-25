@@ -100,6 +100,8 @@ public class TipController {
             return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code","QUOTE_CHANGED","message",changed.getMessage()));
         } catch (com.gratilo.payment.service.PoolPaymentLimits.InvalidPoolAmount invalid) {
             return poolAmountInvalid(invalid);
+        } catch (StripeCheckoutService.PoolEligibilityUnavailableException unavailable) {
+            return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("code", "POOL_ELIGIBILITY_UNKNOWN", "message", "Der Stripe-Status der Pool-Empfänger ist vorübergehend nicht überprüfbar. Bitte versuche es erneut."));
         } catch (StripeCheckoutService.PoolNotReadyException unavailable) {
             return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code", "POOL_NOT_READY", "message", "Dieser Pool ist noch nicht zahlungsbereit. Alle aktiven Mitglieder mit Trinkgeldanteil müssen Stripe freigeschaltet haben."));
         } catch (Exception exception) {

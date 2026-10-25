@@ -26,7 +26,7 @@ it('keeps the personal QR active for owners while an unready team stays blocked'
   await waitFor(()=>expect(requestUrls.some(url=>url.includes('/connect-account/pools/pool/members'))).toBe(true))
   expect(requestUrls.some(url=>url.includes('/connect-account/pools/owner/members'))).toBe(false)
   fireEvent.click(await screen.findByText('Pool-Einstellungen und Mitglieder verwalten'))
-  expect(await screen.findByText('1 von 2 aktiven Mitgliedern mit Anteil sind für Transfers bereit.')).toBeInTheDocument()
+  expect(await screen.findByText('1 von 2 aktiven Mitgliedern mit Anteil sind bestätigt transferbereit.')).toBeInTheDocument()
   expect(screen.getByText('Onboarding ausstehend')).toBeInTheDocument()
   expect(screen.getByRole('button',{name:'Team-Link kopieren'})).toBeEnabled()
   fireEvent.click(screen.getByRole('button',{name:'Pool löschen'}))

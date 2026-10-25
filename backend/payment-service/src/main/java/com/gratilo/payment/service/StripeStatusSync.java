@@ -12,8 +12,8 @@ public class StripeStatusSync {
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(StripeStatusSync.class);
     @jakarta.inject.Inject @io.micronaut.core.annotation.Nullable StripePayoutService payouts;
     @Serdeable
-    public record Status(UUID userId, String status, String onboardingStatus, boolean transfersEnabled,
-                         boolean payoutsEnabled, OffsetDateTime checkedAt) {}
+    public record Status(UUID userId, String status, String onboardingStatus, Boolean transfersEnabled,
+                         Boolean payoutsEnabled, OffsetDateTime checkedAt) {}
     private final ConnectedAccountRepository accounts;
     private final StripeConnectService stripe;
     public StripeStatusSync(ConnectedAccountRepository accounts, StripeConnectService stripe) {
@@ -28,9 +28,16 @@ public class StripeStatusSync {
         catch (Exception unavailable) {
             // Do not turn a transient lookup problem into a Stripe restriction or
             // reveal account IDs, response bodies, or personal data in logs.
-            LOG.warn("Stripe connected-account status lookup failed: {}", unavailable.getClass().getSimpleName());
-            return new Status(user, "UNAVAILABLE", account.getOnboardingStatus(), false, false, OffsetDateTime.now());
+            if(unavailable instanceof StripeConnectService.StripeApiException stripeFailure)
+                LOG.warn("Stripe connected-account status lookup failed: HTTP {} requestId={}",stripeFailure.statusCode(),safeRequestId(stripeFailure.requestId()));
+            else LOG.warn("Stripe connected-account status lookup failed: {}", unavailable.getClass().getSimpleName());
+            return new Status(user, "UNAVAILABLE", account.getOnboardingStatus(), null, null, account.getStatusCheckedAt());
         }
+        // A successful HTTP response can still be incomplete (wrong mode,
+        // unexpected object, or omitted Accounts-v2 includes). Do not persist
+        // its fail-closed placeholder booleans over the last confirmed status.
+        if ("UNAVAILABLE".equals(status.displayStatus()))
+            return new Status(user, "UNAVAILABLE", account.getOnboardingStatus(), null, null, account.getStatusCheckedAt());
         status.applyTo(account); accounts.update(account);
         return new Status(user, status.displayStatus(), status.onboardingStatus(), status.canReceiveTransfers(), status.canPayout(), account.getStatusCheckedAt());
     }
@@ -38,7 +45,8 @@ public class StripeStatusSync {
         var account = accounts.findByStripeAccountId(accountId).orElse(null);
         if(account==null)return true;
         var status=refresh(account.getUserId());
-        if(payouts!=null&&payouts.automaticPreparationEnabled())payouts.prepareAccount(account.getUserId());
+        if(!"UNAVAILABLE".equals(status.status())&&payouts!=null&&payouts.automaticPreparationEnabled())payouts.prepareAccount(account.getUserId());
         return !"UNAVAILABLE".equals(status.status());
     }
+    private static String safeRequestId(String id){return id!=null&&id.matches("[A-Za-z0-9_]{1,80}")?id:"unavailable";}
 }
