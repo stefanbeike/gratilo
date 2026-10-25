@@ -52,7 +52,11 @@ class EcsDeploymentTest(unittest.TestCase):
         for container in expected["containerDefinitions"]:
             container["image"] = self.images[container["name"]]
             if container["name"]=="payment-service":
-                container["environment"].extend([{"name":"STRIPE_MANUAL_PAYOUTS_API_APPROVED","value":"false"},{"name":"STRIPE_MANUAL_PAYOUT_SETUP_ENABLED","value":"false"},{"name":"STRIPE_MANUAL_PAYOUT_APPROVED_ACCOUNTS","value":""}])
+                container["environment"].extend([{"name":"STRIPE_MANUAL_PAYOUTS_API_APPROVED","value":"false"},{"name":"STRIPE_MANUAL_PAYOUT_SETUP_ENABLED","value":"false"},{"name":"STRIPE_MANUAL_PAYOUT_APPROVED_ACCOUNTS","value":""},{"name":"STRIPE_CONNECT_STRIPE_PRICING_ENABLED","value":"false"},{"name":"STRIPE_CONNECT_PLATFORM_FEES_ENABLED","value":"false"}])
+        # ECS treats environment variables as a map; renderer insertion order is not part of the task contract.
+        for task in (expected, actual):
+            for container in task["containerDefinitions"]:
+                container["environment"].sort(key=lambda entry: entry["name"])
         expected["tags"] = original["tags"]
         self.assertEqual(expected, actual)
         self.assertEqual(original, self.response)
