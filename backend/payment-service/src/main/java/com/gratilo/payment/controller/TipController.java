@@ -23,9 +23,18 @@ public class TipController {
         return HttpResponse.ok(java.util.Map.of("canReceiveTips", checkoutService.canReceiveTips(recipientUserId)))
                 .header("Cache-Control", "no-store");
     }
+    @io.micronaut.security.annotation.Secured(io.micronaut.security.rules.SecurityRule.IS_ANONYMOUS)
     @Get("/pools/{ownerUserId}/eligibility") public HttpResponse<?> poolEligibility(UUID ownerUserId) {
-        return HttpResponse.ok(java.util.Map.of("canReceiveTips", checkoutService.canReceivePoolTips(ownerUserId)))
-                .header("Cache-Control", "no-store");
+        try {
+            return HttpResponse.ok(java.util.Map.of("canReceiveTips", checkoutService.checkPoolEligibility(ownerUserId)))
+                    .header("Cache-Control", "no-store");
+        } catch (Exception unavailable) {
+            LOG.warn("Pool eligibility check unavailable: {}", unavailable.getClass().getSimpleName());
+            return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(java.util.Map.of("canReceiveTips", false, "status", "CHECK_FAILED",
+                            "message", "Der Zahlungsstatus wird derzeit geprüft. Bitte versuche es erneut."))
+                    .header("Cache-Control", "no-store");
+        }
     }
     @Get("/{recipientUserId}/quote") public TipQuote quote(UUID recipientUserId, @QueryValue @jakarta.validation.constraints.Min(100) @jakarta.validation.constraints.Max(1000000) long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) throws Exception {
         return checkoutService==null?TipPricing.quote(amountMinor,feeCovered,feePercent,fixedFeeMinor):checkoutService.quote(recipientUserId,amountMinor,feeCovered);

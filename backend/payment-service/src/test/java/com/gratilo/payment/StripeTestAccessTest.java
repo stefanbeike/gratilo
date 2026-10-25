@@ -15,13 +15,22 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StripeTestAccessTest {
-    @Test void onlyExactPoolLimitsGetBypassesTestEnrollment() {
-        var rule=new StripeTestAccessRule(null,null);
+    @Test void onlyPublicPoolReadsBypassTestEnrollment() {
+        var rule=new StripeTestAccessRule(access("",code),null);
         var path="/payment-service/tips/pool-limits";
         assertEquals(SecurityRuleResult.UNKNOWN,rule.evaluate(HttpRequest.GET(path),null));
         assertEquals(SecurityRuleResult.UNKNOWN,rule.evaluate(HttpRequest.GET(path),Authentication.build(UUID.randomUUID().toString())));
         for(var request:List.of(HttpRequest.POST(path,"{}"),HttpRequest.PUT(path,"{}"),HttpRequest.GET(path+"/private"),HttpRequest.GET(path+"-admin")))
             assertEquals(SecurityRuleResult.REJECTED,rule.evaluate(request,null));
+        var poolId=UUID.randomUUID();
+        var publicEligibility="/payment-service/tips/pools/"+poolId+"/eligibility";
+        assertEquals(SecurityRuleResult.UNKNOWN,rule.evaluate(HttpRequest.GET(publicEligibility),null));
+        assertEquals(SecurityRuleResult.UNKNOWN,rule.evaluate(HttpRequest.GET(publicEligibility),Authentication.build(UUID.randomUUID().toString())));
+        for(var request:List.of(HttpRequest.POST(publicEligibility,"{}"),HttpRequest.GET(publicEligibility+"/private"),HttpRequest.GET("/payment-service/tips/pools/not-a-uuid/eligibility")))
+            assertEquals(SecurityRuleResult.REJECTED,rule.evaluate(request,null));
+        // Public readiness is safe to query, but payment creation remains subject
+        // to the existing sandbox-recipient enrollment rule.
+        assertEquals(SecurityRuleResult.REJECTED,rule.evaluate(HttpRequest.POST("/payment-service/tips/pools/"+poolId+"/checkout","{}"),null));
     }
     private final UUID tester = UUID.randomUUID(), other = UUID.randomUUID();
     private final String code = "private-test-fixture-" + "a".repeat(32);
@@ -73,6 +82,20 @@ class StripeTestAccessTest {
         assertEquals(SecurityRuleResult.REJECTED, rule.evaluate(HttpRequest.POST("/payment-service/tips/" + other + "/checkout", "{}"), Authentication.build(tester.toString())));
         access.revoke(tester);
         assertEquals(SecurityRuleResult.REJECTED, rule.evaluate(request, null));
+    }
+
+    @Test void poolCheckoutEnrollmentUsesResolvedOwnerRatherThanPoolId() {
+        var access=access("",code);access.activate(tester,code);
+        UUID poolId=UUID.randomUUID();
+        var pools=new com.gratilo.payment.service.PoolDistributionClient("http://localhost","fixture",true){
+            @Override public Optional<Distribution> find(UUID ref){return ref.equals(poolId)?Optional.of(new Distribution(poolId,"Pool",List.of(),tester)):Optional.empty();}
+        };
+        var rule=new StripeTestAccessRule(access,null,pools);
+        assertEquals(SecurityRuleResult.UNKNOWN,rule.evaluate(HttpRequest.POST("/payment-service/tips/pools/"+poolId+"/checkout","{}"),null));
+        access.revoke(tester);
+        assertEquals(SecurityRuleResult.REJECTED,rule.evaluate(HttpRequest.POST("/payment-service/tips/pools/"+poolId+"/checkout","{}"),null));
+        // The same pool remains publicly queryable, with only its readiness boolean.
+        assertEquals(SecurityRuleResult.UNKNOWN,rule.evaluate(HttpRequest.GET("/payment-service/tips/pools/"+poolId+"/eligibility"),null));
     }
 
     @Test void enrollmentRequiresLoginAndAccountActionsStillRequireActivatedOwner() {

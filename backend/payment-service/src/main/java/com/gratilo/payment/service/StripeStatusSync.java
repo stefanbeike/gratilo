@@ -29,7 +29,7 @@ public class StripeStatusSync {
             // Do not turn a transient lookup problem into a Stripe restriction or
             // reveal account IDs, response bodies, or personal data in logs.
             LOG.warn("Stripe connected-account status lookup failed: {}", unavailable.getClass().getSimpleName());
-            status = new StripeAccountStatus(false);
+            return new Status(user, "UNAVAILABLE", account.getOnboardingStatus(), false, false, OffsetDateTime.now());
         }
         status.applyTo(account); accounts.update(account);
         return new Status(user, status.displayStatus(), status.onboardingStatus(), status.canReceiveTransfers(), status.canPayout(), account.getStatusCheckedAt());

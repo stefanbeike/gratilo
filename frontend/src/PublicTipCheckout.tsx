@@ -52,6 +52,9 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   const [recipient, setRecipient] = useState<Recipient | null>(null)
   const [recipientId, setRecipientId] = useState('')
   const [eligibility, setEligibility] = useState<boolean | null>(null)
+  const [eligibilityCheckFailed, setEligibilityCheckFailed] = useState(false)
+  const [eligibilityCheckError, setEligibilityCheckError] = useState('')
+  const [eligibilityRevision, setEligibilityRevision] = useState(0)
   const [poolLimits, setPoolLimits] = useState<{minAmountMinor:number;maxAmountMinor:number}|null>(null)
   const [poolLimitsError,setPoolLimitsError] = useState('')
   const [quote, setQuote] = useState<Quote | null>(null)
@@ -103,12 +106,18 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   useEffect(() => {
     if (!recipientId || isResult) return
     let current = true
+    setEligibility(null); setEligibilityCheckFailed(false); setEligibilityCheckError('')
     fetch(`/payment-service/tips/${isPool ? `pools/${recipientId}` : recipientId}/eligibility`, { headers, cache: 'no-store' })
-      .then(response => response.ok ? response.json() : Promise.reject())
+      .then(async response => {
+        const value = await response.json().catch(() => ({}))
+        if (response.status === 503) throw new Error(value?.message || 'Der Zahlungsstatus wird derzeit geprüft. Bitte versuche es erneut.')
+        if (!response.ok) throw new Error(response.status === 403 ? 'Der Zugriff auf diese Zahlungsseite ist nicht erlaubt.' : 'Der Zahlungsstatus konnte nicht geprüft werden.')
+        return value
+      })
       .then(value => { if (current) setEligibility(value?.canReceiveTips === true) })
-      .catch(() => { if (current) setEligibility(false) })
+      .catch(failure => { if (current) { setEligibility(false); setEligibilityCheckFailed(true); setEligibilityCheckError(failure instanceof Error ? failure.message : 'Der Zahlungsstatus konnte nicht geprüft werden.') } })
     return () => { current = false }
-  }, [recipientId, headers, isResult, isPool])
+  }, [recipientId, headers, isResult, isPool, eligibilityRevision])
   useEffect(() => {
     if (!recipientId || isResult || !validInputAmount || (isPool && !poolLimits)) { setQuote(null); return }
     let current = true
@@ -205,7 +214,8 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
     {flow.step === 1 && <>
       <p className="tip-intro">{isPool ? `Der nach deiner Gebührenauswahl festgelegte Betrag wird nach der gespeicherten Verteilungsregel an alle vorgesehenen Mitglieder von ${name} verteilt.` : `Dein Trinkgeld geht direkt an ${name}${recipient.organisation && recipient.organisation !== name ? ` bei ${recipient.organisation}` : ''}.`} Ohne Gratilo- oder Stripe-Konto für dich als Gast.</p>
       {isPool && <p className="pool-public-members"><strong>Trinkgeld für das gesamte Team</strong><br/>Ein gemeinsames Danke für euren Service.</p>}
-      {eligibility !== true && <p role="status">{eligibility === null ? 'Zahlungsberechtigung wird geprüft …' : isPool ? 'Dieser Pool ist noch nicht zahlungsbereit. Alle vorgesehenen Mitglieder benötigen die Stripe-Transferfreigabe.' : 'Dieser Empfänger kann derzeit keine Trinkgelder empfangen oder der Stripe-Status konnte nicht geprüft werden.'}</p>}
+      {eligibility !== true && <p role={eligibilityCheckFailed ? 'alert' : 'status'}>{eligibility === null ? 'Zahlungsberechtigung wird geprüft …' : eligibilityCheckFailed ? eligibilityCheckError : isPool ? 'Dieser Pool ist noch nicht zahlungsbereit. Aktive Mitglieder mit Anteil müssen Stripe-Transfers empfangen können.' : 'Dieser Empfänger kann derzeit keine Trinkgelder empfangen.'}</p>}
+      {eligibilityCheckFailed && <button type="button" className="text-button" onClick={() => setEligibilityRevision(value => value + 1)}>Stripe-Status erneut prüfen</button>}
       {error && <div className="message error" role="alert">{error}</div>}
       {isPool&&<p className="tip-note">Team-Trinkgeld: {money(minimum)} bis {money(maximum)}</p>}
       {poolLimitsError&&<p role="alert">{poolLimitsError}</p>}

@@ -361,21 +361,33 @@ public class StripeCheckoutService {
     }
 
     public boolean canReceivePoolTips(UUID owner) {
+        try { return checkPoolEligibility(owner); }
+        catch (Exception ignored) { return false; }
+    }
+
+    /**
+     * Checks the exact transfer-readiness predicate used for pool checkout.
+     * A confirmed ineligible member returns false; transient Stripe or pool
+     * service failures propagate so the public endpoint can report 503 rather
+     * than presenting an outage as a missing Stripe setup.
+     */
+    public boolean checkPoolEligibility(UUID owner) throws Exception {
         if (poolClient == null || poolTransfers == null) return false;
-        try {
-            var pool = poolClient.find(owner).orElse(null);
-            if (pool == null || pool.poolId() == null) return false;
-            boolean hasMember = false;
-            for (var member : pool.members()) {
-                if (member.active() && member.sharePercent() > 0) {
-                    if (!Double.isFinite(member.sharePercent()) || member.sharePercent() > 100) return false;
+        var pool = poolClient.find(owner).orElse(null);
+        if (pool == null || pool.poolId() == null) return false;
+        boolean hasMember = false;
+        for (var member : pool.members()) {
+            if (member.active() && member.sharePercent() > 0) {
+                if (!Double.isFinite(member.sharePercent()) || member.sharePercent() > 100) return false;
+                hasMember = true;
+                try {
                     eligibleAccount(member.userId(), true);
-                    hasMember = true;
+                } catch (RecipientNotReadyException notReady) {
+                    return false;
                 }
             }
-            return hasMember;
-        } catch (Exception ignored) { }
-        return false;
+        }
+        return hasMember;
     }
 
     private ConnectedAccountEntity eligibleAccount(UUID recipient) throws Exception { return eligibleAccount(recipient, false); }
@@ -396,8 +408,8 @@ public class StripeCheckoutService {
             accountJson=connect.retrieveAccount(id);
             status = StripeAccountStatus.parse(id, accountJson);
         } catch (Exception unavailable) {
-            new StripeAccountStatus(false).applyTo(account);
-            accounts.update(account);
+            // A failed read is not evidence that Stripe revoked a capability.
+            // Preserve the last confirmed status and fail the current check closed.
             throw unavailable;
         }
         status.applyTo(account);

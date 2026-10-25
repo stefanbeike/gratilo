@@ -19,10 +19,18 @@ import java.util.*;
 public class StripeTestAccessRule implements SecurityRule<HttpRequest<?>> {
     private final com.gratilo.payment.service.StripeTestAccess access;
     private final java.util.concurrent.ExecutorService executor;
+    private final com.gratilo.payment.service.PoolDistributionClient pools;
 
     public StripeTestAccessRule(com.gratilo.payment.service.StripeTestAccess access,
             @jakarta.inject.Named(io.micronaut.scheduling.TaskExecutors.BLOCKING) java.util.concurrent.ExecutorService executor) {
-        this.access = access; this.executor = executor;
+        this(access, executor, null);
+    }
+
+    @jakarta.inject.Inject
+    public StripeTestAccessRule(com.gratilo.payment.service.StripeTestAccess access,
+            @jakarta.inject.Named(io.micronaut.scheduling.TaskExecutors.BLOCKING) java.util.concurrent.ExecutorService executor,
+            com.gratilo.payment.service.PoolDistributionClient pools) {
+        this.access = access; this.executor = executor; this.pools = pools;
     }
 
     @Override public int getOrder() { return Integer.MIN_VALUE + 100; }
@@ -53,12 +61,19 @@ public class StripeTestAccessRule implements SecurityRule<HttpRequest<?>> {
         // Public configuration only; no payment, account or recipient data.
         if (path.equals("/payment-service/tips/pool-limits") && request.getMethod() == HttpMethod.GET)
             return SecurityRuleResult.UNKNOWN;
+        // Public pool pages need a read-only readiness result. The path segment
+        // is a pool reference (often the pool UUID), not necessarily the owner's
+        // user UUID; checking it against the per-user sandbox enrollment list
+        // incorrectly rejected valid public pages with 403 before the controller.
+        // Keep quote and checkout behind the recipient test-access gate below.
+        if (request.getMethod() == HttpMethod.GET && isPublicPoolEligibilityPath(path))
+            return SecurityRuleResult.UNKNOWN;
         String prefix = "/payment-service/tips/";
         if (path.startsWith(prefix)) {
             String[] parts = path.substring(prefix.length()).split("/", -1);
             if (parts.length == 3 && "pools".equals(parts[0])
                     && Set.of("quote", "eligibility", "checkout").contains(parts[2])) {
-                try { return access.enabled(UUID.fromString(parts[1])) ? SecurityRuleResult.UNKNOWN : SecurityRuleResult.REJECTED; }
+                try { return poolPaymentAccessEnabled(UUID.fromString(parts[1])) ? SecurityRuleResult.UNKNOWN : SecurityRuleResult.REJECTED; }
                 catch (IllegalArgumentException invalid) { return SecurityRuleResult.REJECTED; }
             }
             if (parts.length != 2 || !Set.of("quote", "eligibility", "checkout").contains(parts[1])) return SecurityRuleResult.REJECTED;
@@ -67,5 +82,26 @@ public class StripeTestAccessRule implements SecurityRule<HttpRequest<?>> {
         }
         if (authentication == null) return SecurityRuleResult.REJECTED;
         return access.enabled(UUID.fromString(authentication.getName())) ? SecurityRuleResult.UNKNOWN : SecurityRuleResult.REJECTED;
+    }
+
+    private static boolean isPublicPoolEligibilityPath(String path) {
+        String prefix = "/payment-service/tips/pools/";
+        if (!path.startsWith(prefix) || !path.endsWith("/eligibility")) return false;
+        String poolReference = path.substring(prefix.length(), path.length() - "/eligibility".length());
+        try { UUID.fromString(poolReference); return true; }
+        catch (IllegalArgumentException invalid) { return false; }
+    }
+
+    private boolean poolPaymentAccessEnabled(UUID poolReference) {
+        // The public checkout URL uses the immutable pool ID, while sandbox
+        // enrollment is attached to the owning user. Resolve the relationship
+        // server-side; never compare a pool ID to a user-ID allowlist.
+        if (pools == null) return access.enabled(poolReference); // isolated rule unit tests
+        try {
+            var pool = pools.find(poolReference).orElse(null);
+            return pool != null && pool.ownerId() != null && access.enabled(pool.ownerId());
+        } catch (Exception unavailable) {
+            return false;
+        }
     }
 }

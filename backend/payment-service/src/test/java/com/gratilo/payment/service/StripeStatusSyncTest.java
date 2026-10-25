@@ -25,7 +25,11 @@ class StripeStatusSyncTest {
         assertEquals("READY",sync.refresh(row.getUserId()).status());assertTrue(row.isTransfersEnabled()); assertNotNull(row.getStatusCheckedAt());assertEquals(0,preparations[0]);
         body.set(StripeAccountFixtures.readyJson().replace("active","restricted"));
         assertTrue(sync.refreshAccount("acct_fixture"));assertEquals(1,preparations[0]);assertFalse(row.isTransfersEnabled()); assertEquals("ACTION_REQUIRED",row.getStripeStatus());
-        body.set(null);assertFalse(sync.refreshAccount("acct_fixture"));assertFalse(row.isTransfersEnabled());assertEquals("UNAVAILABLE",row.getStripeStatus());
+        String confirmedStatus=row.getStripeStatus();var confirmedCheckedAt=row.getStatusCheckedAt();
+        body.set(null);assertFalse(sync.refreshAccount("acct_fixture"));assertFalse(row.isTransfersEnabled());
+        assertEquals(confirmedStatus,row.getStripeStatus());assertEquals(confirmedCheckedAt,row.getStatusCheckedAt());
+        assertEquals("UNAVAILABLE",sync.refresh(row.getUserId()).status());
+        assertEquals(confirmedStatus,row.getStripeStatus());assertEquals(confirmedCheckedAt,row.getStatusCheckedAt());
     }
     @Test void ownerCannotInspectAnotherOwnersMembers() {
         UUID poolId=UUID.randomUUID();

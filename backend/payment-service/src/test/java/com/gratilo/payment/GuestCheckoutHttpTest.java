@@ -10,6 +10,16 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class GuestCheckoutHttpTest {
+    @Test void poolEligibilityReportsDependencyFailureAs503RatherThanNotReady() {
+        var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null){
+            @Override public boolean checkPoolEligibility(UUID poolRef){throw new IllegalStateException("upstream unavailable");}
+        };
+        var response=new com.gratilo.payment.controller.TipController(service,new java.math.BigDecimal("3.15"),25).poolEligibility(UUID.randomUUID());
+        assertEquals(io.micronaut.http.HttpStatus.SERVICE_UNAVAILABLE,response.getStatus());
+        assertTrue(response.getBody().orElseThrow().toString().contains("CHECK_FAILED"));
+        assertFalse(response.getBody().orElseThrow().toString().contains("upstream unavailable"));
+    }
+
     @Test void productionSandboxRuleAllowsOnlyPublicLimitsWithoutLogin()throws Exception {
         var props=new HashMap<String,Object>();
         props.put("payments.enabled",true);props.put("payments.test-user-ids",UUID.randomUUID().toString());
@@ -20,7 +30,9 @@ class GuestCheckoutHttpTest {
         // This security fixture has no database; do not start persistent mail workers.
         props.put("notifications.tip-payments-enabled",false);
         props.put("liquibase.enabled",false);props.put("liquibase.datasources.default.enabled",false);
-        var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null);
+        var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null){
+            @Override public boolean checkPoolEligibility(UUID poolRef){return true;}
+        };
         try(var context=ApplicationContext.builder().properties(props).environments("test","prd").build()){
             context.registerSingleton(StripeCheckoutService.class,service);context.start();
             assertTrue(context.containsBean(com.gratilo.payment.config.StripeTestAccessRule.class));
@@ -29,6 +41,17 @@ class GuestCheckoutHttpTest {
             var response=client.send(HttpRequest.newBuilder(limits).GET().build(),HttpResponse.BodyHandlers.ofString());
             assertEquals(200,response.statusCode());
             assertEquals(Map.of("minAmountMinor",200,"maxAmountMinor",50000,"currency","EUR"),io.micronaut.json.JsonMapper.createDefault().readValue(response.body(),Map.class));
+            UUID poolId=UUID.randomUUID();
+            var publicEligibility=client.send(HttpRequest.newBuilder(server.getURI().resolve("/payment-service/tips/pools/"+poolId+"/eligibility")).GET().build(),HttpResponse.BodyHandlers.ofString());
+            assertEquals(200,publicEligibility.statusCode(),publicEligibility.body());
+            assertEquals(Map.of("canReceiveTips",true),io.micronaut.json.JsonMapper.createDefault().readValue(publicEligibility.body(),Map.class));
+            assertEquals("no-store",publicEligibility.headers().firstValue("Cache-Control").orElseThrow());
+            var authenticatedEligibility=client.send(HttpRequest.newBuilder(server.getURI().resolve("/payment-service/tips/pools/"+poolId+"/eligibility")).header("Authorization","Bearer "+jwt("private-jwt-test-key-at-least-thirty-two-characters",System.currentTimeMillis()/1000+600)).GET().build(),HttpResponse.BodyHandlers.ofString());
+            assertEquals(200,authenticatedEligibility.statusCode(),authenticatedEligibility.body());
+            // Eligibility is public, but the existing enrollment gate still protects
+            // quote/checkout calls for recipients not enabled in the sandbox.
+            int blockedCheckout=client.send(HttpRequest.newBuilder(server.getURI().resolve("/payment-service/tips/pools/"+poolId+"/checkout")).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString("{}" )).build(),HttpResponse.BodyHandlers.discarding()).statusCode();
+            assertTrue(blockedCheckout==401||blockedCheckout==403);
             for(String path:List.of("/payment-service/transactions","/payment-service/payouts","/payment-service/connect-account","/payment-service/connect-account/balance","/payment-service/tips/pool-limits/private")){
                 int status=client.send(HttpRequest.newBuilder(server.getURI().resolve(path)).GET().build(),HttpResponse.BodyHandlers.discarding()).statusCode();
                 assertTrue(status==401||status==403,"Protected route "+path+": "+status);

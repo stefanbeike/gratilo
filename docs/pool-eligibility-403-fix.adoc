@@ -1,0 +1,78 @@
+= Pool-Eligibility: 403-Fehler und Korrektur
+:toc:
+
+Stand: 25.10.2026. Lokale Diagnose und Regressionstest.
+
+== Diagnose
+
+Die lokale produktionsaktive `StripeTestAccessRule` wertete bisher
+`GET /payment-service/tips/pools/{reference}/eligibility` wie einen privaten
+Zahlungszugriff aus. Sie prüfte `access.enabled(UUID.fromString(parts[1]))`.
+Öffentliche Pool-URLs übermitteln an dieser Stelle die Pool-ID; die
+Sandbox-Freigabe ist dagegen am Besitzer-Benutzerkonto gespeichert. Für eine
+Pool-ID ohne zufällig passende User-ID lieferte die Regel `REJECTED`, bevor der
+`TipController` erreicht wurde. Das ist die konkrete lokale Ursache für den
+403-Pfad. Der Endpunkt in `TipController` gibt nur `canReceiveTips` zurück und
+verlangt keine Pool-Mitgliedschaft.
+
+Die ursprüngliche Fehlerbeobachtung nennt HTTP 403. Eine aktuelle, lesende
+GET-Prüfung am 25.10.2026 gegen dieselbe öffentliche URL lieferte HTTP 401 mit
+dem Micronaut-Fehlerbody `Unauthorized`; `GET /payment-service/tips/pool-limits`
+lieferte HTTP 200 und ausschließlich die öffentlichen Limits. Damit ist die
+aktuell deployed Codeversion für den beobachteten 403 nicht bewiesen. AWS/ECS-
+Logs und deployed Image-Version wurden in dieser lokalen Änderung nicht
+abgerufen. Der lokale `StripeTestAccessRule`-Ablehnungspfad erklärt den 403
+reproduzierbar; die abweichende aktuelle 401-Antwort kann von einem anderen
+Deploymentstand oder einer anderen Authentifizierungsschicht stammen.
+
+Die Stripe-Readiness prüft bei Poolmitgliedern separat die Accounts-v2
+`recipient`-Capability `stripe_balance.stripe_transfers.status=active`. Der
+Payout-Status und der Auszahlungsplan sind dafür nicht Voraussetzung. Im
+lokalen Repository gibt es keine sichere Verbindung zu den Mitgliedsdatensätzen
+des konkret genannten Pools; deshalb werden weder dessen Mitglieder noch das
+Konto `acct_1UTKTHJnhD0xjF0b` als tatsächlich zugeordnet oder bereit behauptet.
+
+== Änderungen
+
+* `GET /payment-service/tips/pools/{uuid}/eligibility` überspringt ausschließlich
+die Sandbox-Enrollment-Regel und bleibt durch die `IS_ANONYMOUS`-Handlerregel
+  lesbar. Die Antwort enthält weiterhin nur die Readiness-Boolean.
+* Quote und Checkout bleiben hinter der Sandbox-Freigabe. Für diese Routen wird
+die Pool-ID über den bestehenden `PoolDistributionClient` zum Pool-Besitzer
+  aufgelöst und dessen Benutzerfreigabe geprüft. Pool-ID und User-ID werden
+  nicht mehr gleichgesetzt.
+* Die serverseitige Stripe-Transferprüfung für jede aktive Mitgliedschaft mit
+  positivem Anteil bleibt maßgeblich. Die Eligibility-API liefert bei bestätigter
+  Nichtbereitschaft `200` mit `canReceiveTips=false`; bei technischen Fehlern
+  `503` mit neutralem `CHECK_FAILED`-Status.
+* Vorübergehende Stripe-Status-Lesefehler überschreiben nicht länger den
+  zuletzt bestätigten Status in der Datenbank. Die aktuelle Abfrage bleibt
+  fail-closed.
+* Öffentliche Checkout-Seite und Dashboard unterscheiden einen fehlgeschlagenen
+  Statuscheck von einer bestätigten fehlenden Transferfreigabe und erlauben eine
+  erneute Prüfung.
+
+== Verifikation
+
+* Unit- und HTTP-Tests decken anonymen und authentifizierten Eligibility-GET,
+  die exakte UUID-Route, sichere Antwortdaten, den weiterhin blockierten
+  Checkout ohne Enrollment, Pool-ID-zu-Besitzer-Auflösung sowie `503` bei
+  Readiness-Ausfall ab.
+* `StripeStatusSyncTest` bestätigt, dass ein Stripe-Lesefehler den zuletzt
+  bestätigten Datenbankstatus nicht verändert.
+* Frontend-Regression prüft Fehleranzeige und erneute öffentliche Prüfung.
+* Lokale Stripe-Daten wurden nicht angefragt, keine Zahlungen oder Transfers
+  erstellt und keine Kontoeinstellungen geändert.
+
+== Bereitstellung und offener Nachweis
+
+Die lokale Korrektur muss mit abgestimmtem Payment-Service-Image bereitgestellt
+werden, damit sie die öffentliche Domain beeinflusst. Danach sind der anonyme
+Eligibility-GET (erwartet `200` und nur `canReceiveTips`) sowie der Checkout
+mit fehlender Sandbox-Freigabe (weiterhin abgelehnt) erneut zu prüfen.
+
+Der konkrete Pool wird erst dann als zahlungsbereit bestätigt, wenn eine
+authentifizierte Readiness-Abfrage für genau seine beiden Mitglieder jeweils
+einen aktuellen Accounts-v2-Transferstatus `active` meldet und die
+Checkout-Prüfung denselben Pool akzeptiert. Ein Stripe-Onboarding-Erfolg oder
+ein aktiver Payout-Status allein ist dafür kein Nachweis.

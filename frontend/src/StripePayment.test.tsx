@@ -58,6 +58,30 @@ it('uses the team QR route and creates a guest payment against the pool endpoint
   expect(checkout?.[1]?.headers && (checkout[1]?.headers as Record<string, string>).Authorization).toBeUndefined()
 })
 
+it('distinguishes a failed pool-readiness check and lets the guest retry', async () => {
+  const poolId='22222222-2222-2222-2222-222222222222'
+  let eligibilityChecks=0
+  const fetch=vi.fn(async(url:string)=>{
+    if(url.includes('/pools/public/'))return response({ownerId:user,poolId,name:'Service-Team',memberNames:[]})
+    if(url.includes('/eligibility')){
+      eligibilityChecks++
+      return eligibilityChecks===1
+        ? {ok:false,status:503,json:async()=>({status:'CHECK_FAILED',message:'Der Zahlungsstatus wird derzeit geprüft. Bitte versuche es erneut.'})}
+        : response({canReceiveTips:true})
+    }
+    if(url.includes('/quote'))return response({tipAmountMinor:500,serviceFeeMinor:0,totalAmountMinor:500,recipientAmountMinor:500})
+    return response({})
+  })
+  stubCheckoutFetch(fetch)
+  history.replaceState({}, '', `/pay/team/${user}`)
+  render(<DemoPayment />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('Der Zahlungsstatus wird derzeit geprüft')
+  expect(screen.getByRole('button',{name:'Stripe-Status erneut prüfen'})).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button',{name:'Stripe-Status erneut prüfen'}))
+  await waitFor(()=>expect(eligibilityChecks).toBe(2))
+  await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled())
+})
+
 it('supports fee coverage, summary and back navigation while preserving the message', async () => {
   installGuest()
   history.replaceState({}, '', `/pay/${user}`)
