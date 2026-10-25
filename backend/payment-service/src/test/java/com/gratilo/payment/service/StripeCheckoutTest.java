@@ -26,26 +26,14 @@ class StripeCheckoutTest {
         }
     }
 
-    @Test void stripeCollectorDirectChargeUsesOnlyFivePercentWithBothCoverageChoices() throws Exception {
+    @Test void stripeCollectorDirectChargeIsBlockedRatherThanUndercreditingTheRecipient() throws Exception {
         for(long tip:new long[]{1000,2500,10000})for(boolean covered:new boolean[]{false,true}) {
             var f = new StripeCheckoutTest();
             f.stripeResponse = StripeAccountFixtures.changed("defaults.responsibilities",Map.of("fees_collector","stripe","losses_collector","stripe"),false);
             var service=f.service(new java.math.BigDecimal("3.15"));
-            var quoted=service.quote(f.recipient,tip,covered);
-            service.create(f.recipient,new TipPaymentRequest(tip,"Danke","stripe-model",covered));
-            assertEquals(14,f.savedQuote.pricingVersion());assertEquals(quoted,f.savedQuote);
-            assertEquals(quoted.platformFeeNetMinor()+quoted.platformFeeTaxMinor(),quoted.platformFeeMinor());
-            assertEquals("acct_fixture",f.requestAccount);
-            assertTrue(f.form.contains("payment_intent_data[application_fee_amount]="+quoted.platformFeeMinor()+"&"));
-            assertFalse(f.form.contains("transfer_data"));
-            var snapshot=TipPricingSnapshot.from(f.stored);
-            assertEquals(quoted.platformFeeMinor(),snapshot.applicationFeeMinor());
-            assertEquals("stripe",quoted.feesCollector());assertTrue(quoted.recipientAmountEstimated());
-            assertEquals(quoted.totalAmountMinor()-quoted.platformFeeMinor()-quoted.estimatedStripeFeeMinor(),quoted.recipientAmountMinor());
-            assertEquals("acct_fixture",StripePaymentContext.account(f.stored));
-            var frozen=f.stored.getMetadata();
-            service.create(f.recipient,new TipPaymentRequest(tip,"Danke","stripe-model",covered));
-            assertEquals(1,f.creates);assertEquals(frozen,f.stored.getMetadata());
+            assertThrows(StripeCheckoutService.UnsupportedRecipientFeeModelException.class,()->service.quote(f.recipient,tip,covered));
+            assertThrows(StripeCheckoutService.UnsupportedRecipientFeeModelException.class,()->service.create(f.recipient,new TipPaymentRequest(tip,"Danke","stripe-model",covered)));
+            assertNull(f.stored);assertEquals(0,f.creates);
         }
     }
 
@@ -57,8 +45,8 @@ class StripeCheckoutTest {
         int accountReads = reads;
         stripeResponse = StripeAccountFixtures.changed("defaults.responsibilities.fees_collector", "stripe", false);
         var resumed = service.create(recipient, request).orElseThrow();
-        assertEquals(113, resumed.quote().platformFeeMinor());
-        assertEquals(830, resumed.quote().recipientAmountMinor());
+        assertEquals(95, resumed.quote().platformFeeMinor());
+        assertEquals(905, resumed.quote().recipientAmountMinor());
         assertEquals("acct_fixture", requestAccount);
         assertEquals(frozen, stored.getMetadata());
         assertEquals(accountReads, reads);
@@ -82,23 +70,31 @@ class StripeCheckoutTest {
         for(long tip:new long[]{1000,2500})for(String rate:List.of("1.5","2.8","3.15"))for(boolean covered:new boolean[]{true,false}) {
             var f=new StripeCheckoutTest();var decimal=new java.math.BigDecimal(rate);
             f.service(decimal).create(f.recipient,new TipPaymentRequest(tip,"Danke","unique",covered));
-            var expected=TipPricing.directApplicationVatQuote(tip,covered,decimal,25,TipPricing.DEFAULT_PLATFORM_PERCENT);
+            var expected=TipPricing.directRecipientExtraVatQuote(tip,covered,decimal,25,TipPricing.DEFAULT_PLATFORM_PERCENT,TipPricing.DEFAULT_PLATFORM_VAT_PERCENT);
             assertEquals(expected,f.savedQuote);
             assertFalse(f.form.contains("transfer_data"));
             assertEquals("acct_fixture",f.requestAccount);
             assertTrue(f.form.contains("unit_amount]="+expected.totalAmountMinor()+"&"));
-            assertTrue(f.form.contains("application_fee_amount]="+(expected.totalAmountMinor()-expected.recipientAmountMinor())+"&"));
+            assertTrue(f.form.contains("application_fee_amount]="+expected.platformFeeMinor()+"&"));
             assertEquals(tip,f.stored.getAmountMinor());assertEquals("Danke",f.stored.getDescription());
         }
+    }
+
+    @Test void fiveEuroDirectChargeBooksSeventyCentPlatformFeeAndCreditsFourThirty(){
+        var f=new StripeCheckoutTest();
+        assertDoesNotThrow(()->f.service(new java.math.BigDecimal("3.15")).create(f.recipient,new TipPaymentRequest(500L,null,"five-euro",false)));
+        assertEquals(15,f.savedQuote.pricingVersion());assertEquals(70,f.savedQuote.platformFeeMinor());assertEquals(430,f.savedQuote.recipientAmountMinor());
+        assertTrue(f.form.contains("unit_amount]=500&"));assertTrue(f.form.contains("application_fee_amount]=70&"));
+        assertFalse(f.form.contains("transfer_data"));
     }
 
     @Test void directRequestsTransmitCommissionPlusStripeContributionInTheConnectedAccountScope() throws Exception {
         for(long tip:new long[]{1000,2500,10000})for(boolean covered:new boolean[]{false,true}) {
             var fixture=new StripeCheckoutTest();
-            var expected=TipPricing.directApplicationVatQuote(tip,covered,new java.math.BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT);
+            var expected=TipPricing.directRecipientExtraVatQuote(tip,covered,new java.math.BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT,TipPricing.DEFAULT_PLATFORM_VAT_PERCENT);
             fixture.service(new java.math.BigDecimal("3.15")).create(fixture.recipient,new TipPaymentRequest(tip,"Danke","fee-proof",covered));
             assertEquals("acct_fixture",fixture.requestAccount);
-            assertTrue(fixture.form.contains("payment_intent_data[application_fee_amount]="+(expected.totalAmountMinor()-expected.recipientAmountMinor())+"&"));
+            assertTrue(fixture.form.contains("payment_intent_data[application_fee_amount]="+expected.platformFeeMinor()+"&"));
             assertFalse(fixture.form.contains("transfer_data"));
             assertEquals(1,fixture.creates);
         }
@@ -211,7 +207,7 @@ class StripeCheckoutTest {
         assertNull(stored);assertEquals(0,creates);
         service(rate,true).create(recipient,new TipPaymentRequest(2500L,null,"flag",true));
         var resumed=service(new java.math.BigDecimal("6.8"),false).create(recipient,new TipPaymentRequest(2500L,null,"flag",true)).orElseThrow();
-        assertEquals(2607,resumed.quote().totalAmountMinor());assertEquals(2298,resumed.quote().recipientAmountMinor());
+        assertEquals(2607,resumed.quote().totalAmountMinor());assertEquals(2437,resumed.quote().recipientAmountMinor());
         assertEquals(new java.math.BigDecimal("3.15"),resumed.quote().serviceFeePercent());assertEquals(1,creates);
     }
     @Test void preexistingDirectSessionRetainsFixedPlusPercentCommissionOnIdempotentResume()throws Exception {
@@ -243,8 +239,8 @@ class StripeCheckoutTest {
         assertEquals(533,savedQuote.totalAmountMinor());assertEquals(33,savedQuote.serviceFeeMinor());
         assertTrue(form.contains("unit_amount]=533&"));
         assertFalse(form.contains("transfer_data"));
-        assertTrue(form.contains("application_fee_amount]=116&"));
-        assertEquals(417,savedQuote.recipientAmountMinor());
+        assertTrue(form.contains("application_fee_amount]=70&"));
+        assertEquals(463,savedQuote.recipientAmountMinor());
         assertTrue(form.contains("metadata][fee_covered]=true&"));
         assertTrue(form.contains("metadata][fee_surcharge_minor]=33&"));
         assertTrue(form.contains("metadata][amount_charged_minor]=533&"));

@@ -53,6 +53,7 @@ stripe:
   test-only: true
   demo-enabled: false
   connect-stripe-pricing-enabled: ${STRIPE_CONNECT_STRIPE_PRICING_ENABLED:false}
+  connect-platform-fees-enabled: ${STRIPE_CONNECT_PLATFORM_FEES_ENABLED:false}
   manual-payout-approved-accounts: ${STRIPE_MANUAL_PAYOUT_APPROVED_ACCOUNTS:}
   manual-payouts-api-approved: ${STRIPE_MANUAL_PAYOUTS_API_APPROVED:false}
   manual-payout-setup-enabled: ${STRIPE_MANUAL_PAYOUT_SETUP_ENABLED:false}

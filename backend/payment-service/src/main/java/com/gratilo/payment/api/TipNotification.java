@@ -11,7 +11,7 @@ public record TipNotification(String notificationKey, UUID transactionId, UUID r
         long recipientTotalMinor, long personalAmountMinor, boolean pool) {
     public void validate(){
         if(transactionId==null||recipientUserId==null||!key(transactionId,recipientUserId).equals(notificationKey)
-                ||pool!=(allocationId!=null)||pricingVersion<1||pricingVersion>14
+                ||pool!=(allocationId!=null)||pricingVersion<1||pricingVersion>16
                 ||personalAmountMinor<=0||personalAmountMinor>99_999_999)
             throw new IllegalArgumentException("Invalid tip notification identity or allocation");
         if(templateVersion==2) {
@@ -19,8 +19,9 @@ public record TipNotification(String notificationKey, UUID transactionId, UUID r
                 throw new IllegalArgumentException("Recipient-only notification must not contain payment totals");
             return;
         }
+        long maxRecipient=tipAmountMinor+((pricingVersion==8||pricingVersion==11||pricingVersion==14)?estimatedStripeFeeMinor:(pricingVersion==15||pricingVersion==16)?estimatedStripeFeeMinor+1:0);
         if(templateVersion!=1||tipAmountMinor<=0||tipAmountMinor>1_000_000||platformFeeMinor<0||estimatedStripeFeeMinor<0
-            ||recipientTotalMinor<=0||recipientTotalMinor>tipAmountMinor+((pricingVersion==8||pricingVersion==11||pricingVersion==14)?estimatedStripeFeeMinor:0)
+            ||recipientTotalMinor<=0||recipientTotalMinor>maxRecipient
             ||personalAmountMinor>recipientTotalMinor||(!pool&&personalAmountMinor!=recipientTotalMinor))
             throw new IllegalArgumentException("Invalid legacy notification snapshot");
     }

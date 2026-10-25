@@ -1,0 +1,41 @@
+= Pool Readiness Status Stability
+
+== Root cause
+
+The dashboard's pool eligibility effect depended on `memberStripe`. A separate
+member-status refresh replaces that object during initial loading, every
+30-second refresh, and focus refreshes. Each replacement re-ran the eligibility
+effect. Before requesting the authoritative pool eligibility, the effect reset
+the visible result to `false`; a failed request also wrote `false`. This made a
+temporary status lookup failure look like a confirmed Stripe transfer block.
+
+The backend already distinguishes confirmed ineligibility from a failed Stripe
+lookup: a confirmed missing transfer capability returns `canReceiveTips=false`,
+while an upstream lookup failure propagates to the controller and returns
+`503 CHECK_FAILED`. The checkout path rechecks the current Stripe status and
+fails closed before creating a Checkout Session.
+
+== Correction
+
+The dashboard eligibility lifecycle no longer depends on member-status render
+state. It keeps the last result per pool, treats a failed refresh as unknown,
+and ignores stale responses from overlapping requests. Eligibility is refreshed
+independently on pool change, explicit refresh, window focus, and a 30-second
+timer. A previously confirmed ready pool keeps its QR code while a refresh is
+temporarily unavailable, with an explicit warning and last successful check
+time. A confirmed negative result still blocks the QR action.
+
+This retained dashboard result is informational only. Public eligibility and
+the server-side Checkout creation continue to verify transfer readiness; the
+dashboard cache does not authorize a payment.
+
+== Verification
+
+`DashboardAccountViews.test.tsx` covers a successful READY result followed by a
+failed eligibility refresh alongside member-status refresh, and verifies that
+the ready QR remains visible with an availability warning. The API behavior for
+transient failure remains covered by `GuestCheckoutHttpTest`.
+
+The specific live readiness of pool `2e7994e9-8862-4ab5-9ff3-da38cea72ea7`
+cannot be asserted from this local test run; it requires a current read-only
+Stripe status check for both connected accounts in the matching Stripe mode.

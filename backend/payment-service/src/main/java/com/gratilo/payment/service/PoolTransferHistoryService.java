@@ -44,7 +44,11 @@ public class PoolTransferHistoryService {
             var frozen = transfers.findByTransactionId(item.getTransactionId());
             var historicalShare = historicalShare(item, frozen, distribution);
             Long gross = null, fee = null;
-            if (historicalShare != null && selected != null) {
+            if(historicalShare!=null&&transaction!=null)try{
+                var pricing=TipPricingSnapshot.from(transaction);
+                if(TipPricingSnapshot.isRecipientExtraVersion(pricing.version())){gross=item.getAmountMinor();fee=0L;}
+            }catch(IllegalStateException ignored){}
+            if (gross==null&&historicalShare != null && selected != null) {
                 try {
                     var weights = frozen.stream().map(row -> new PoolAllocation.Weight(row.getRecipientUserId(),row.getSharePercent())).toList();
                     var original = PoolAllocation.split(selected,weights).stream().filter(row -> row.userId().equals(userId)).findFirst().orElseThrow().amountMinor();

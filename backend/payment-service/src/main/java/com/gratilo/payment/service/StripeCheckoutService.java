@@ -63,13 +63,15 @@ public class StripeCheckoutService {
         return directQuote(amount,covered,verifiedAccount(recipient,false).feesCollector());
     }
     private TipQuote directQuote(long amount,boolean covered,String collector) {
-        return "stripe".equals(collector)?TipPricing.directStripeVatQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent,platformVatPercent):TipPricing.directApplicationVatQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent,platformVatPercent);
+        if("stripe".equals(collector))throw new UnsupportedRecipientFeeModelException();
+        if(!"application".equals(collector))throw new RecipientNotReadyException();
+        return TipPricing.directRecipientExtraVatQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent,platformVatPercent);
     }
     private static long applicationFee(com.gratilo.payment.api.TipQuote quote) {
-        return TipPricingSnapshot.isStripeCollectorVersion(quote.pricingVersion()) ? quote.platformFeeMinor() : quote.totalAmountMinor()-quote.recipientAmountMinor();
+        return TipPricingSnapshot.isStripeCollectorVersion(quote.pricingVersion()) || quote.pricingVersion()==15 ? quote.platformFeeMinor() : quote.totalAmountMinor()-quote.recipientAmountMinor();
     }
     public PoolPaymentLimits.Limits poolLimits(){return poolLimits.current();}
-    public TipQuote poolQuote(long amount,boolean covered){poolLimits.validate(amount);return TipPricing.poolVatQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent,platformVatPercent);}
+    public TipQuote poolQuote(long amount,boolean covered){poolLimits.validate(amount);return TipPricing.poolRecipientExtraVatQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent,platformVatPercent);}
     public boolean isConfigured() { return !secret.isBlank(); }
     public boolean isSandbox() { return true; }
 
@@ -146,7 +148,8 @@ public class StripeCheckoutService {
             tx.setType(TransactionType.TIP); tx.setStatus(TransactionStatus.PENDING); tx.setDescription(request.message());
             tx.setIdempotencyKey(key); tx.setProvider("STRIPE");
             var context=TipPricingSnapshot.metadata(quote,request.feeCovered());
-            context.put("applicationFeeMinor",applicationFee(quote));context.put("stripeCostContributionMinor",TipPricingSnapshot.isStripeCollectorVersion(quote.pricingVersion())?0:request.feeCovered()?quote.serviceFeeMinor():quote.estimatedStripeFeeMinor());
+            context.put("applicationFeeMinor",applicationFee(quote));context.put("stripeCostContributionMinor",TipPricingSnapshot.isStripeCollectorVersion(quote.pricingVersion())||TipPricingSnapshot.isRecipientExtraVersion(quote.pricingVersion())?0:request.feeCovered()?quote.serviceFeeMinor():quote.estimatedStripeFeeMinor());
+            context.put("recipientExtraMinor",TipPricingSnapshot.isRecipientExtraVersion(quote.pricingVersion())?quote.serviceFeeMinor():0);
             context.put("chargeModel","DIRECT");context.put("stripeAccountId",accountId);context.put("feesCollector",verified.feesCollector());
             tx.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(context));
             tx = transactions.save(tx);
@@ -356,7 +359,7 @@ public class StripeCheckoutService {
     private static String jsonEscape(String value) { return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\""); }
 
     public boolean canReceiveTips(UUID recipient) {
-        try { eligibleAccount(recipient); return true; }
+        try { return "application".equals(verifiedAccount(recipient,false).feesCollector()); }
         catch (Exception unavailable) { return false; }
     }
 
@@ -420,6 +423,9 @@ public class StripeCheckoutService {
 
     public static class RecipientNotReadyException extends IllegalStateException {
         public RecipientNotReadyException() { super("Recipient is not enabled for tips"); }
+    }
+    public static class UnsupportedRecipientFeeModelException extends IllegalStateException {
+        public UnsupportedRecipientFeeModelException() { super("Dieses Stripe-Konto belastet Stripe-Zahlungsgebühren direkt beim Empfänger. Für die aktuelle Gratilo-Gebührenvereinbarung ist ein manuelles erneutes Stripe-Onboarding mit Plattform-Gebührenverantwortung erforderlich."); }
     }
 
     protected String stripeRequest(String path,String form,String idempotency,String account) throws Exception {

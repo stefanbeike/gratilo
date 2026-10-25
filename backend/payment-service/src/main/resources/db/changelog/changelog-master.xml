@@ -20,4 +20,5 @@
     <include file="payment_mgmt/015_manual_payout_safety.sql" relativeToChangelogFile="true"/>
     <include file="payment_mgmt/016_fixed_percent_pricing.sql" relativeToChangelogFile="true"/>
     <include file="payment_mgmt/017_platform_fee_vat_pricing.sql" relativeToChangelogFile="true"/>
+    <include file="payment_mgmt/018_recipient_extra_pricing_history.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>

@@ -41,7 +41,7 @@ public class TipController {
     }
     @Get("/pools/{ownerUserId}/quote") public TipQuote poolQuote(UUID ownerUserId, @QueryValue @jakarta.validation.constraints.Min(100) @jakarta.validation.constraints.Max(1000000) long amountMinor, @QueryValue(value = "feeCovered", defaultValue = "false") boolean feeCovered) {
         if(checkoutService==null)new com.gratilo.payment.service.PoolPaymentLimits(200,50000).validate(amountMinor);
-        return checkoutService==null?TipPricing.poolQuote(amountMinor,feeCovered,feePercent,fixedFeeMinor,TipPricing.DEFAULT_PLATFORM_PERCENT):checkoutService.poolQuote(amountMinor,feeCovered);
+        return checkoutService==null?TipPricing.poolRecipientExtraVatQuote(amountMinor,feeCovered,feePercent,fixedFeeMinor,TipPricing.DEFAULT_PLATFORM_PERCENT,TipPricing.DEFAULT_PLATFORM_VAT_PERCENT):checkoutService.poolQuote(amountMinor,feeCovered);
     }
     @io.micronaut.security.annotation.Secured(io.micronaut.security.rules.SecurityRule.IS_ANONYMOUS)
     @Get("/pool-limits") public HttpResponse<?> poolLimits(){

@@ -96,6 +96,22 @@ class DirectFeeAuditTest {
         }
     }
 
+    @Test void includedVatAndActualStripeCostAreTakenFromTheGrossFeeForNewApplicationCollectorPayments()throws Exception{
+        var tx=new TransactionEntity();tx.setId(UUID.randomUUID());tx.setProvider("STRIPE");tx.setAmountMinor(500);tx.setStatus(TransactionStatus.BOOKED);
+        var q=TipPricing.directRecipientExtraVatQuote(500,false,new BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT,TipPricing.DEFAULT_PLATFORM_VAT_PERCENT);
+        var metadata=TipPricingSnapshot.metadata(q,false);metadata.put("chargeModel","DIRECT");metadata.put("stripeAccountId","acct_fixture");metadata.put("feesCollector","application");
+        tx.setMetadata(JsonMapper.createDefault().writeValueAsString(metadata));
+        var audit=new PaymentFeeAuditEntity();audit.setTransactionId(tx.getId());audit.setApplicationFeeMinor(70L);audit.setStripeChargeId("ch_fixture");audit.setEstimatedFeeMinor(41L);audit.setRefundedMinor(0L);
+        var audits=StripeFeeAuditTest.proxy(PaymentFeeAuditRepository.class,(p,m,a)->m.getName().equals("findById")?Optional.of(audit):m.getName().equals("update")?a[0]:null);
+        var txs=StripeFeeAuditTest.proxy(TransactionRepository.class,(p,m,a)->Optional.of(tx));
+        var service=new StripeFeeAuditService(audits,txs,"sk_test_fixture");
+        service.recordPlatformFeeEvidence(tx.getId(),"acct_fixture","ch_fixture",41,"stripe_report_gross_fixture");
+        assertEquals(70L,audit.getApplicationFeeMinor());assertEquals(41L,audit.getActualFeeMinor());
+        assertEquals(18L,audit.getPlatformNetRevenueMinor());assertEquals(41L,audit.getUncoveredMinor());
+        assertEquals(59L,TipPricingSnapshot.from(tx).platformFeeNetMinor());assertEquals(11L,TipPricingSnapshot.from(tx).platformFeeTaxMinor());
+        assertEquals(430L,TipPricingSnapshot.from(tx).recipientMinor());
+    }
+
     static class Fixture {
         final TransactionEntity tx=new TransactionEntity();PaymentFeeAuditEntity audit;long refunded;boolean wrongAccount;long actual=107;boolean noBalance,emptyDetails;
         final List<String> scopes=new ArrayList<>();final StripeFeeAuditService service;

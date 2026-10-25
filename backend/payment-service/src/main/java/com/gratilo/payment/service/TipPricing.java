@@ -58,6 +58,10 @@ public final class TipPricing {
     /** New Direct Charges where Stripe collects card-processing costs from the connected account. */
     public static TipQuote directStripeVatQuote(long tip,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent){return directStripeVatQuote(tip,covered,percent,fixed,platformPercent,DEFAULT_PLATFORM_VAT_PERCENT);}
     public static TipQuote directStripeVatQuote(long tip,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent,BigDecimal vatPercent){return calculateVat(tip,covered,percent,fixed,platformPercent,vatPercent,14,"stripe",true);}
+    /** New direct-charge agreement: Gratilo bears Stripe processing costs; optional extra is fully credited to the recipient. */
+    public static TipQuote directRecipientExtraVatQuote(long tip,boolean extraSelected,BigDecimal percent,long fixed,BigDecimal platformPercent,BigDecimal vatPercent){return calculateRecipientExtraVat(tip,extraSelected,percent,fixed,platformPercent,vatPercent,15);}
+    /** New SCT agreement: the single gross platform fee is retained once and the optional extra is distributed to members. */
+    public static TipQuote poolRecipientExtraVatQuote(long tip,boolean extraSelected,BigDecimal percent,long fixed,BigDecimal platformPercent,BigDecimal vatPercent){return calculateRecipientExtraVat(tip,extraSelected,percent,fixed,platformPercent,vatPercent,16);}
     /** The same fixed-plus-percent commission is charged once before pool allocation. */
     public static TipQuote poolQuote(long tip, boolean covered, BigDecimal percent, long fixed, BigDecimal platformPercent) {
         return calculate(tip, covered, percent, fixed, platformPercent, DEFAULT_PLATFORM_FIXED_MINOR, 10);
@@ -94,6 +98,21 @@ public final class TipPricing {
         String basis=(percent.compareTo(new BigDecimal(DEFAULT_PERCENT))==0&&fixed==25?"Stripe-DE-Referenz für internationale Karten (20.10.2026); ":"Konfigurierte Tarifschätzung; ")
                 +"Karte und Zahlungsmethode stehen erst bei Stripe fest. Die Umsatzsteuer wird separat auf die Gratilo-Servicegebühr berechnet.";
         return new TipQuote(tipMinor,surcharge,total,"EUR",percent,fixed,recipient,true,estimated,basis,version,platformPercent,platformGross,collector,recipientFeeEstimated,platformNet,platformTax,vatPercent);
+    }
+    private static TipQuote calculateRecipientExtraVat(long tip,boolean extraSelected,BigDecimal percent,long fixed,BigDecimal platformPercent,BigDecimal vatPercent,int version){
+        if(tip<100||tip>1_000_000)throw new IllegalArgumentException("Invalid tip amount");
+        long extra=extraSelected?voluntaryIncreaseMinor(tip,percent,fixed):0;
+        long total=safeTotal(tip,extra),estimated=serviceFeeMinor(total,percent,fixed);
+        long gross=Math.addExact(platformFee(tip,platformPercent),DEFAULT_PLATFORM_FIXED_MINOR);
+        // The contractual platform fee is VAT-inclusive: extract VAT from the gross amount.
+        long tax=BigDecimal.valueOf(gross).multiply(vatPercent)
+                .divide(BigDecimal.valueOf(100).add(vatPercent),0,RoundingMode.HALF_UP).longValueExact();
+        long net=Math.subtractExact(gross,tax);
+        long recipient=Math.subtractExact(total,gross);
+        if(recipient<MIN_RECIPIENT_MINOR)throw new NoDistributableTipException();
+        String basis=(percent.compareTo(new BigDecimal(DEFAULT_PERCENT))==0&&fixed==25?"Stripe-DE-Referenz für internationale Karten (20.10.2026); ":"Konfigurierte Tarifschätzung; ")
+                +"Der optionale Zusatzbetrag wird vollständig dem Empfänger gutgeschrieben. Stripe-Kosten trägt Gratilo.";
+        return new TipQuote(tip,extra,total,"EUR",percent,fixed,recipient,true,estimated,basis,version,platformPercent,gross,"application",false,net,tax,vatPercent);
     }
     private static TipQuote calculate(long tipMinor,boolean covered,BigDecimal percent,long fixed,BigDecimal platformPercent,long platformFixed,int version) {
         if (tipMinor < 100 || tipMinor > 1_000_000) throw new IllegalArgumentException("Invalid tip amount");

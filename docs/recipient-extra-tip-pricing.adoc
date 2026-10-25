@@ -1,0 +1,128 @@
+= Gebührenmodell für persönliche und Pool-Trinkgelder (V15/V16)
+:toc:
+
+== Geltende neue Betragsaufteilung
+
+Für neue Checkouts gilt eine einmalige, VAT-inclusive Gratilo-Bruttogebühr:
+
+----
+platformGrossMinor = 45 + HALF_UP(originalTipMinor * 5 / 100)
+platformTaxMinor   = HALF_UP(platformGrossMinor * 19 / 119)
+platformNetMinor   = platformGrossMinor - platformTaxMinor
+recipientMinor     = checkoutTotalMinor - platformGrossMinor
+----
+
+Der 19-%-Umsatzsteueranteil wird aus der vereinbarten Bruttogebühr entnommen.
+Er wird nicht zusätzlich dem Gast oder Empfänger berechnet. Zum Beispiel ergeben
+5,00 EUR eine Bruttogebühr von 0,70 EUR, darin 0,11 EUR Umsatzsteuer und
+0,59 EUR Netto-Servicegebühr.
+
+Stripe-Kosten werden nicht vom Empfängerbetrag abgezogen. Bei
+`fees_collector=application` belastet Stripe die Zahlungsbearbeitung dem
+Plattformkonto. Der tatsächliche Betrag bleibt bis zu Stripe-Abrechnungsdaten
+unbekannt und wird nicht durch die Schätzung als Istkosten verbucht.
+
+== Freiwilliger Zusatzbetrag
+
+Die bisherige Checkbox wurde für V15/V16 fachlich auf einen optionalen,
+zusätzlichen Trinkgeldbetrag umgestellt. Der Betrag wird vollständig dem
+Empfänger beziehungsweise anhand der eingefrorenen Pool-Gewichte den Mitgliedern
+zugeordnet. Die Plattformgebühr wird nur auf das ursprüngliche Trinkgeld
+berechnet. Die Oberfläche bezeichnet diesen Betrag nicht als Stripe-Gebühr und
+behauptet nicht, dass er Stripe-Kosten kompensiert.
+
+Der Vorschlagsbetrag bleibt anhand des konfigurierten Stripe-Kostentarifs
+berechnet; das ist eine Anzeigehilfe und keine Gebühr. Checkout, Zahlungssnapshot
+und Transfer verwenden denselben gespeicherten Betrag. Bei 5,00 EUR sind der
+Empfängerbetrag ohne Zusatz 4,30 EUR; mit einem beispielhaften Zusatz von
+0,41 EUR sind es 4,71 EUR.
+
+Die freiwillige, ausdrücklich abgewählte Standardoption orientiert sich an
+§ 312a Abs. 3 BGB (keine voreingestellte Zusatzvereinbarung). § 312a Abs. 4 BGB
+und § 270a BGB beschränken Entgelte, die Verbraucher für die Nutzung eines
+bestimmten Zahlungsmittels zahlen sollen. Die Oberfläche rahmt den Zusatz daher
+als freiwilliges Extra-Trinkgeld und verspricht keine Gebührenübernahme; die
+mechanische Orientierung seines Vorschlags an einer Stripe-Kostenschätzung
+bleibt dennoch rechtlich prüfungsbedürftig. Das ist keine abschließende
+Rechtsprüfung. Gratilo muss die Einordnung mit Rechtsberatung und Stripe
+bestätigen.
+
+* [§ 312a BGB](https://www.gesetze-im-internet.de/bgb/__312a.html)
+* [§ 270a BGB](https://www.gesetze-im-internet.de/bgb/__270a.html)
+
+== Direct Charges
+
+Die Einzelzahlung bleibt eine Direct Charge im Stripe-Account-Header-Kontext.
+Die `application_fee_amount` entspricht bei V15 exakt der Gratilo-Bruttogebühr;
+ein zusätzlicher Stripe-Kostenbetrag wird nicht eingezogen. Bei 5,00 EUR werden
+also 0,70 EUR Application Fee und 4,30 EUR Empfängeranteil festgelegt.
+
+Für bestehende Konten mit `fees_collector=application` trägt die Plattform die
+Stripe-Zahlungskosten; diese Konten können die neue Preisversion verwenden.
+Konten mit `fees_collector=stripe` belasten Stripe-Kosten direkt beim
+Connected Account. Da deren Kontoverantwortung nach Erstellung nicht einfach
+umgestellt werden darf, sperrt Gratilo neue Checkouts für diese Konten mit einer
+konkreten Meldung. Eine Schätzgebühr wird nicht als tatsächliche Kompensation
+ausgegeben. Für diese Konten ist ein manuelles erneutes Onboarding mit
+`fees_collector=application` erforderlich, sofern Stripe/Gratilo dies für das
+Konto zulassen. Bereits angelegte und historische Checkouts bleiben nutzbar und
+unverändert.
+
+Neue Express-Konten werden standardmäßig mit den bisherigen
+`application/application`-Verantwortlichkeiten erstellt. Optional kann
+`STRIPE_CONNECT_PLATFORM_FEES_ENABLED=true` ausschließlich bei einer
+freigegebenen Stripe-Preview API die Konfiguration
+`fees_collector=application`, `losses_collector=stripe` anfordern. Die
+veraltete Einstellung `STRIPE_CONNECT_STRIPE_PRICING_ENABLED=true` wird vor
+jedem Stripe-Aufruf abgelehnt, weil sie Stripe-Gebühren dem Empfänger zuweisen
+würde. Bestehende Accounts werden nicht verändert.
+
+Stripe beschreibt die Gebührenverantwortung getrennt: `application` weist
+Zahlungsgebühren der Plattform zu, `stripe` dem Connected Account; v2
+Verantwortlichkeiten sind nach Account-Erstellung nicht beliebig änderbar.
+[Stripe Accounts-v2 configuration](https://docs.stripe.com/connect/accounts-v2/connected-account-configuration)
+
+== Separate Charges and Transfers für Poolzahlungen
+
+Pools bleiben SCT: Gratilo erstellt die Plattform-Charge und transferiert den
+eingefrorenen Gesamtbetrag `checkoutTotal - platformGross` an die Mitglieder.
+Es wird keine Application Fee erzeugt. Bei einem 5,00-EUR-Pooltrinkgeld ohne
+Zusatz gehen 4,30 EUR in die Aufteilung, bei zwei 50-%-Anteilen je 2,15 EUR.
+Ein Zusatz von 0,41 EUR ergibt 4,71 EUR und eine deterministische 50/50-Aufteilung
+von 2,36 EUR und 2,35 EUR.
+
+Pool-Stripe-Gebühren verbleiben Plattformkosten. Gebührenabweichungen ändern
+weder die eingefrorene Gratilo-Provision noch die Transfers. Reconciliation
+weist Plattformrest, Stripe-Istgebühr, offene Transferverbindlichkeiten und den
+Nettoerlös nach enthaltenem Umsatzsteueranteil getrennt aus.
+
+== Unveränderliche Versionen
+
+V15 ist Direct/Application Collector; V16 ist Pool/SCT. Neue Snapshots enthalten
+Brutto-Servicegebühr, Nettoanteil, enthaltene Umsatzsteuer, Stripe-Schätzung,
+optionalen Empfängerzusatz und den final vereinbarten Empfängerbetrag. Die
+Migration 018 erweitert nur die Schutzfunktion für unveränderliche JSON-Snapshots.
+Sie ändert keine vorhandene Zahlung.
+
+Die Checkout-Neupreisierung bleibt hinter `GRATILO_NEW_PRICING_ENABLED`.
+Das lokale Flag bleibt standardmäßig aus; eine spätere Sandbox-Aktivierung muss
+mit bestätigter Refund-Policy und erfolgreichem Abnahmetest separat erfolgen.
+
+== Audits und verbleibende Nachweise
+
+Die Application Fee, der erwartete Empfängerbetrag, die Provision und deren
+enthaltene Umsatzsteuer werden im Transaktionssnapshot und Gebühren-Audit
+festgehalten. Pooltransfer-IDs und Balance-Transactions bleiben Bestandteil
+des bestehenden SCT-Reconciliation-Prozesses.
+
+Bei Direct Charges mit Plattform-Gebührenverantwortung kann die Charge im
+Connected-Account-Kontext nicht ohne Weiteres als Beweis der Plattformkosten
+verwendet werden. `StripeFeeAuditService` markiert diese Istkosten weiterhin als
+`REPORT_REQUIRED`, bis ein bestätigter Stripe-Plattformgebührenbericht über den
+bestehenden vertrauenswürdigen Erfassungspfad vorliegt. Eine Kostenschätzung wird
+nicht als gebuchte Istgebühr behandelt.
+
+`GRATILO_NEW_PRICING_ENABLED=false` verhindert neue Transaktionen mit V15/V16.
+Für eine Aktivierung ist außerdem die manuelle Prüfung der Refund-/Chargeback-
+Behandlung erforderlich. In diesem Auftrag wurden keine Stripe-Schreibaufrufe,
+Zahlungen, Datenbankänderungen, Deployments oder Pushes ausgeführt.

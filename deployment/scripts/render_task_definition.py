@@ -56,6 +56,9 @@ def render(response, images, config):
     pricing_mode=config.get("GRATILO_NEW_PRICING_ENABLED","false")
     require(pricing_mode in ("true","false"),"GRATILO_NEW_PRICING_ENABLED must be explicitly true or false")
     require(pricing_mode!="true" or stripe_test_mode,"New pricing can only be enabled in Stripe test mode")
+    platform_fee_collector_mode=config.get("STRIPE_CONNECT_PLATFORM_FEES_ENABLED","false")
+    require(platform_fee_collector_mode in ("true","false"),"STRIPE_CONNECT_PLATFORM_FEES_ENABLED must be explicitly true or false")
+    require(platform_fee_collector_mode!="true" or stripe_test_mode,"Platform fee collector preview can only be enabled in Stripe test mode")
     pools_enabled = "true" if stripe_test_mode else "false"
     require(all(sum(c.get("name") == name for c in definitions) == 1 for name in CONTAINERS), "Task must contain each application container exactly once")
     registry = f'{config["AWS_ACCOUNT_ID"]}.dkr.ecr.{config["AWS_REGION"]}.amazonaws.com'
@@ -74,7 +77,9 @@ def render(response, images, config):
                 # deployment's flags. Disabled releases must work after test runs.
                 values.update(PAYMENTS_ENABLED=pools_enabled,
                               STRIPE_SANDBOX_PAYOUTS="false" if external_payouts else pools_enabled,
-                              STRIPE_TEST_ONLY="true", STRIPE_DEMO_ENABLED="false")
+                              STRIPE_TEST_ONLY="true", STRIPE_DEMO_ENABLED="false",
+                              STRIPE_CONNECT_STRIPE_PRICING_ENABLED="false",
+                              STRIPE_CONNECT_PLATFORM_FEES_ENABLED=platform_fee_collector_mode)
                 values.update(STRIPE_MANUAL_PAYOUTS_API_APPROVED=payout_mode,
                               STRIPE_MANUAL_PAYOUT_SETUP_ENABLED=payout_mode,
                               STRIPE_MANUAL_PAYOUT_APPROVED_ACCOUNTS=payout_accounts if external_payouts else "")

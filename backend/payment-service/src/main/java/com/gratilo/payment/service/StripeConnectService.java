@@ -11,14 +11,18 @@ public class StripeConnectService {
     public static final String STABLE_VERSION = "2026-09-30.endive";
     public static final String STRIPE_PRICING_VERSION = "2026-06-24.preview";
     private final boolean stripePricingEnabled;
+    private final boolean platformFeesEnabled;
     private final String secret, frontendBaseUrl;
-    public StripeConnectService(String secret, String frontendBaseUrl) { this(secret, frontendBaseUrl, false); }
+    public StripeConnectService(String secret, String frontendBaseUrl) { this(secret, frontendBaseUrl, false, false); }
     @jakarta.inject.Inject
     public StripeConnectService(@Value("${stripe.secret-key:}") String secret,
             @Value("${frontend.base-url:http://localhost:3000}") String frontendBaseUrl,
-            @Value("${stripe.connect-stripe-pricing-enabled:false}") boolean stripePricingEnabled) {
-        requireTestKey(secret); this.secret = secret; this.frontendBaseUrl = frontendBaseUrl; this.stripePricingEnabled = stripePricingEnabled;
+            @Value("${stripe.connect-stripe-pricing-enabled:false}") boolean stripePricingEnabled,
+            @Value("${stripe.connect-platform-fees-enabled:false}") boolean platformFeesEnabled) {
+        requireTestKey(secret); this.secret = secret; this.frontendBaseUrl = frontendBaseUrl; this.stripePricingEnabled = stripePricingEnabled;this.platformFeesEnabled=platformFeesEnabled;
     }
+    /** Backward-compatible constructor for callers/tests of the old stripe-owned fee flag. */
+    public StripeConnectService(String secret,String frontendBaseUrl,boolean stripePricingEnabled){this(secret,frontendBaseUrl,stripePricingEnabled,false);}
     public static void requireTestKey(String key) {
         if (!key.isBlank() && (!key.startsWith("sk_test_") || key.length() <= 8))
             throw new IllegalStateException("Only Stripe test keys are permitted");
@@ -28,10 +32,11 @@ public class StripeConnectService {
         String safeEmail = email == null ? "" : email.replace("\\", "\\\\").replace("\"", "\\\"");
         String profile = businessUrlJson(paymentUrl);
         String json = "{\"contact_email\":\"" + safeEmail + "\",\"display_name\":\"Gratilo-Kellner\",\"dashboard\":\"express\",\"identity\":{\"country\":\"DE\"},\"configuration\":{\"merchant\":{\"capabilities\":{\"card_payments\":{\"requested\":true}}},\"recipient\":{\"capabilities\":{\"stripe_balance\":{\"stripe_transfers\":{\"requested\":true}}}}},\"defaults\":{\"currency\":\"eur\"," + (profile.isEmpty() ? "" : "\"profile\":{" + profile + "},") + "\"responsibilities\":{\"fees_collector\":\"application\",\"losses_collector\":\"application\"}},\"include\":[\"configuration.merchant\",\"configuration.recipient\",\"defaults\",\"identity\",\"requirements\"]}";
-        if (!stripePricingEnabled) return jsonCall("https://api.stripe.com/v2/core/accounts", json);
-        // Preview is deliberately isolated to creating NEW accounts; never retry using different responsibilities.
+        if(stripePricingEnabled)throw new IllegalStateException("STRIPE_CONNECT_STRIPE_PRICING_ENABLED würde Stripe-Gebühren dem Empfänger zuordnen und ist mit der aktiven Gratilo-Gebührenregel unvereinbar. Verwende STRIPE_CONNECT_PLATFORM_FEES_ENABLED.");
+        if (!platformFeesEnabled) return jsonCall("https://api.stripe.com/v2/core/accounts", json);
+        // Accounts v2 responsibility fields are immutable. Preview is isolated to newly created accounts only.
         json = json.replace("\"fees_collector\":\"application\",\"losses_collector\":\"application\"",
-                "\"fees_collector\":\"stripe\",\"losses_collector\":\"stripe\"");
+                "\"fees_collector\":\"application\",\"losses_collector\":\"stripe\"");
         try {
             String response=jsonCall("https://api.stripe.com/v2/core/accounts", json, STRIPE_PRICING_VERSION);
             var account=io.micronaut.json.JsonMapper.createDefault().readValue(response,java.util.Map.class);
@@ -39,11 +44,11 @@ public class StripeConnectService {
             var responsibilities=defaults.get("responsibilities") instanceof java.util.Map<?,?> m?m:java.util.Map.of();
             if(!"express".equals(account.get("dashboard"))||!"v2.core.account".equals(account.get("object"))
                     ||!Boolean.FALSE.equals(account.get("livemode"))||!(account.get("id") instanceof String id)||!id.matches("acct_[A-Za-z0-9]+")
-                    ||!"stripe".equals(responsibilities.get("fees_collector"))||!"stripe".equals(responsibilities.get("losses_collector")))
+                    ||!"application".equals(responsibilities.get("fees_collector"))||!"stripe".equals(responsibilities.get("losses_collector")))
                 throw new IllegalStateException("Unexpected Connect pricing response");
             return response;
         }
-        catch (Exception rejected) { throw new IllegalStateException("Stripe-Express-Onboarding mit Stripe-Gebührenmodell konnte nicht bestätigt werden. Preview-Berechtigung und Konfiguration prüfen; es wird kein anderes Gebührenmodell angelegt."); }
+        catch (Exception rejected) { throw new IllegalStateException("Stripe-Express-Onboarding mit Plattform-Gebührenverantwortung konnte nicht bestätigt werden. Preview-Berechtigung und Konfiguration prüfen; es wird kein anderes Gebührenmodell angelegt."); }
     }
     public String paymentUrl(String userId) { return frontendBaseUrl.replaceAll("/$", "") + "/pay/" + userId; }
     public void ensureBusinessWebsite(String accountId, String paymentUrl) throws Exception {

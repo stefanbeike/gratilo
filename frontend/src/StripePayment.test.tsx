@@ -226,6 +226,27 @@ for(const pool of [false,true])for(const status of ['PAID','PENDING'])it(`resolv
  if(status==='PENDING')expect(screen.queryByRole('button',{name:/Jetzt sicher bezahlen|Erneut versuchen/})).not.toBeInTheDocument()
 })
 
+it.each([false,true])('shows the voluntary extra as recipient money for new %s pricing',async pool=>{
+ history.replaceState({},'',`/pay/${pool?'team/':''}${user}`)
+ const fetch=vi.fn(async(url:string,options?:RequestInit)=>{
+  if(url.includes('/pools/public/'))return response({ownerId:user,name:'Team'})
+  if(url.includes('/users/public/'))return response({userId:user,firstName:'Alex',paymentEnabled:true})
+  if(url.includes('/eligibility'))return response({canReceiveTips:true})
+  if(url.includes('/quote')){const covered=new URLSearchParams(url.split('?')[1]).get('feeCovered')==='true';return response({tipAmountMinor:500,serviceFeeMinor:covered?41:0,totalAmountMinor:covered?541:500,recipientAmountMinor:covered?471:430,estimatedStripeFeeMinor:41,platformFeeMinor:70,platformFeeNetMinor:59,platformFeeTaxMinor:11,platformFeeVatPercent:19,pricingVersion:pool?16:15,feesCollector:'application',recipientAmountEstimated:false})}
+  return response({transactionId:'extra-test'})
+ })
+ stubCheckoutFetch(fetch);render(<DemoPayment/>);await screen.findByRole('heading',{name:`Trinkgeld für ${pool?'Team':'Alex'}.`})
+ fireEvent.change(screen.getByLabelText(/Anderer Betrag/),{target:{value:'5,00'}})
+ const next=screen.getByRole('button',{name:/Weiter/});await waitFor(()=>expect(next).toBeEnabled());fireEvent.click(next)
+ expect(await screen.findByText(/Gratilo trägt die tatsächlichen Stripe-Zahlungskosten/)).toBeInTheDocument()
+ fireEvent.click(screen.getByRole('checkbox',{name:pool?'Zusätzliches Trinkgeld für das Team geben':'Zusätzliches Trinkgeld für den Mitarbeiter geben'}))
+ expect(await screen.findByText('Zusätzliches Trinkgeld für den Empfänger')).toBeInTheDocument()
+ expect(await screen.findByText(/\+ 0,41\s*€/)).toBeInTheDocument()
+ expect(screen.getByText(pool?'Für den Pool festgelegt':'Beim Mitarbeiter')).toBeInTheDocument()
+ expect(screen.getByText(/4,71\s*€/)).toBeInTheDocument()
+ expect(screen.queryByText('Stripe-Gebühren als Abzug')).not.toBeInTheDocument()
+})
+
 for(const pool of [true,false])it(`keeps the ${pool?'pool':'individual'} attempt separate from legacy state of the other payment type`,async()=>{
  sessionStorage.setItem('gratilo:last-pool',String(!pool));sessionStorage.setItem(`gratilo:checkout:${user}`,JSON.stringify({amount:1000,message:'Other payment',step:3,attemptKey:'other-attempt'}))
  history.replaceState({},'',`/pay/${pool?'team/':''}${user}`)

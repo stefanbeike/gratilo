@@ -11,10 +11,10 @@ import java.util.concurrent.Flow;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StripePricingOnboardingTest {
-    @Test void previewIsIsolatedToNewAccountCreationAndLegacyDefaultsRemainStable() throws Exception {
+    @Test void previewIsIsolatedToNewAccountCreationAndUsesPlatformFeesWithStripeLosses() throws Exception {
         for(boolean enabled:new boolean[]{false,true}) {
             var requests=new ArrayList<HttpRequest>();
-            var service=new StripeConnectService("sk_test_fixture","http://localhost:3000",enabled) {
+            var service=new StripeConnectService("sk_test_fixture","http://localhost:3000",false,enabled) {
                 @Override protected String request(HttpRequest request) throws Exception {
                     requests.add(request);
                     if(request.uri().getPath().equals("/v2/core/accounts")) {
@@ -35,7 +35,7 @@ class StripePricingOnboardingTest {
             var defaults=(Map<?,?>)payload.get("defaults");
             var responsibility=(Map<?,?>)defaults.get("responsibilities");
             assertEquals("express",payload.get("dashboard"));
-            assertEquals(enabled?"stripe":"application",responsibility.get("fees_collector"));
+            assertEquals("application",responsibility.get("fees_collector"));
             assertEquals(enabled?"stripe":"application",responsibility.get("losses_collector"));
             for(var request:requests.subList(1,requests.size())) {
                 assertNotEquals(StripeConnectService.STRIPE_PRICING_VERSION,request.headers().firstValue("Stripe-Version").orElse(""));
@@ -48,7 +48,7 @@ class StripePricingOnboardingTest {
     @Test void previewRejectionOrUnexpectedCollectorNeverFallsBackToAnotherAccountModel() {
         for(boolean reject:new boolean[]{false,true}) {
             var calls=new java.util.concurrent.atomic.AtomicInteger();
-            var service=new StripeConnectService("sk_test_fixture","http://localhost:3000",true) {
+            var service=new StripeConnectService("sk_test_fixture","http://localhost:3000",false,true) {
                 @Override protected String request(HttpRequest request) {
                     calls.incrementAndGet();
                     if(reject)throw new IllegalStateException("Stripe HTTP 400: untrusted provider text");
@@ -56,9 +56,15 @@ class StripePricingOnboardingTest {
                 }
             };
             var error=assertThrows(IllegalStateException.class,()->service.createAccount("test@example.test","http://localhost"));
-            assertTrue(error.getMessage().contains("kein anderes Gebührenmodell"));
+            assertTrue(error.getMessage().contains("Plattform-Gebührenverantwortung"));
             assertFalse(error.getMessage().contains("untrusted"));assertEquals(1,calls.get());
         }
+    }
+
+    @Test void oldStripeOwnedFeeCollectorFlagFailsBeforeCreatingAnIncompatibleAccount(){
+        var service=new StripeConnectService("sk_test_fixture","http://localhost:3000",true);
+        var error=assertThrows(IllegalStateException.class,()->service.createAccount("test@example.test","http://localhost"));
+        assertTrue(error.getMessage().contains("STRIPE_CONNECT_PLATFORM_FEES_ENABLED"));
     }
 
     private static String body(HttpRequest request) throws Exception {
