@@ -12,7 +12,7 @@ it('keeps the personal QR active for owners while an unready team stays blocked'
   vi.stubGlobal('fetch',vi.fn(async(url:string,options?:RequestInit)=>{requestUrls.push(url);return {ok:true,json:async()=>{
     if(url.endsWith('/test-access'))return {enabled:true,restricted:false}
     if(url.includes('/connect-account/pools/'))return [{userId:'owner',status:'READY',transfersEnabled:true,payoutsEnabled:true,checkedAt:new Date().toISOString()},{userId:'other',status:'NOT_STARTED',transfersEnabled:false,payoutsEnabled:false,checkedAt:new Date().toISOString()}]
-    if(url.includes('/connect-account'))return {stripeAccountId:'acct_fixture',chargesEnabled:true,payoutsEnabled:true,transfersEnabled:true,stripeStatus:'READY',onboardingStatus:'COMPLETE',statusCheckedAt:new Date().toISOString()}
+    if(url.includes('/connect-account'))return {stripeAccountId:'acct_fixture',chargesEnabled:true,payoutsEnabled:true,transfersEnabled:true,stripeStatus:'READY',onboardingStatus:'COMPLETE',detailsSubmitted:true,statusCheckedAt:new Date().toISOString()}
     if(url==='/user-service/pools/all')return [pool]
     if(url.endsWith('/memberships')||url.endsWith('/transactions')||url.endsWith('/pool-transfers'))return []
     return {}

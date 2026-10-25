@@ -76,7 +76,7 @@ class PoolCheckoutTest {
         assertPoolCharge(covered,tip,rate,distribution,"application");
     }
     private void assertPoolCharge(boolean covered,long tip,java.math.BigDecimal rate,List<Double> distribution,String feeCollector) throws Exception {
-        var expected=TipPricing.poolQuote(tip,covered,rate,25,TipPricing.DEFAULT_PLATFORM_PERCENT);
+        var expected=TipPricing.poolVatQuote(tip,covered,rate,25,TipPricing.DEFAULT_PLATFORM_PERCENT);
         UUID owner = UUID.randomUUID(), first = new UUID(0,1), second = new UUID(0,2), third = new UUID(0,3);
         var members=new ArrayList<PoolDistributionClient.Member>();
         members.add(new PoolDistributionClient.Member(first,"A",distribution.get(0),true));
@@ -151,7 +151,7 @@ class PoolCheckoutTest {
         assertEquals(expected.recipientAmountMinor(),TipPricingSnapshot.from(stored.get()).recipientMinor());
         if(tip==2500&&rate.toString().equals("3.15")) {
             var actual=snapshots.stream().sorted(java.util.Comparator.comparing(a->a.getRecipientUserId().toString())).map(PoolTransferEntity::getAmountMinor).toList();
-            assertEquals(distribution.size()==3?(covered?List.of(466L,699L,1165L):List.of(445L,668L,1113L)):(covered?List.of(1165L,1165L):List.of(1113L,1113L)),actual);
+            assertEquals(distribution.size()==3?(covered?List.of(460L,689L,1149L):List.of(439L,658L,1097L)):(covered?List.of(1149L,1149L):List.of(1097L,1097L)),actual);
         }
         assertEquals(1,auditRows.size());var audit=auditRows.get(stored.get().getId());
         assertEquals(expected.totalAmountMinor(),audit.getChargedMinor());assertEquals(expected.serviceFeeMinor(),audit.getSurchargeMinor());

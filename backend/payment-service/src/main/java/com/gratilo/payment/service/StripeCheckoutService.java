@@ -36,6 +36,13 @@ public class StripeCheckoutService {
     public StripeCheckoutService(TransactionRepository transactions,ConnectedAccountRepository accounts,StripeConnectService connect,String secret,String successUrl,String cancelUrl,BigDecimal feePercent,long fixedFeeMinor,RecipientAvailability recipients,PoolDistributionClient poolClient,PoolTransferRepository poolTransfers,StripeFeeAuditService feeAudit,BigDecimal platformPercent) {
         this(transactions,accounts,connect,secret,successUrl,cancelUrl,feePercent,fixedFeeMinor,recipients,poolClient,poolTransfers,feeAudit,platformPercent,45,true,TipPricing.DEFAULT_PLATFORM_VAT_PERCENT);
     }
+    /** Keeps existing unit-test and programmatic construction compatible with the pre-VAT constructor. */
+    public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect,
+            String secret, String successUrl, String cancelUrl, BigDecimal feePercent, long fixedFeeMinor,
+            RecipientAvailability recipients, PoolDistributionClient poolClient, PoolTransferRepository poolTransfers,
+            StripeFeeAuditService feeAudit, BigDecimal platformPercent, long platformFixedMinor, boolean pricingEnabled) {
+        this(transactions,accounts,connect,secret,successUrl,cancelUrl,feePercent,fixedFeeMinor,recipients,poolClient,poolTransfers,feeAudit,platformPercent,platformFixedMinor,pricingEnabled,TipPricing.DEFAULT_PLATFORM_VAT_PERCENT);
+    }
     @Inject
     public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect,
             @Value("${stripe.secret-key:}") String secret, @Value("${stripe.success-url}") String successUrl,
