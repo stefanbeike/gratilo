@@ -135,3 +135,25 @@ anschließende lokale Scan verwendete `--skip-db-update`, um exakt diese frisch
 geladene Datenbank zu nutzen; CI lädt weiterhin automatisch aktuelle Daten.
 Image-Tag für die lokale Prüfung: `gratilo-security/frontend:libx11-fix-local`.
 Kein Push, Release-Tag, AWS-Schreibzugriff oder Deployment wurde ausgeführt.
+
+## Ergänzung am 29.10.2026: CVE-2026-92392
+
+Der bereitgestellte Release-Scan meldet denselben HIGH-Befund für zwei Pakete:
+`curl` und `libcurl`, jeweils installiert als `8.22.0-r0`, korrigiert laut
+Scan ab `8.23.0-r0`. Der Runtime-Paketschritt verlangt deshalb zusätzlich
+`curl>=8.23.0-r0` und `libcurl>=8.23.0-r0` aus den bestehenden Alpine-Repositories.
+Die Mindestversionen erlauben spätere Sicherheitsupdates und lassen den Build
+fehlschlagen, wenn kein korrigiertes Paket verfügbar ist.
+
+Der vorhandene CI-Schritt `no-cache-filters: runtime` führt die aktualisierte
+Paketinstallation beim Neubau aus. Das betroffene alte Image muss neu gebaut
+werden; ein erneuter Scan seines unveränderten Tags aktualisiert keine Pakete.
+Trivy-Severities, Exit-Code, Secret-Scan und CVE-Ausnahmen bleiben unverändert.
+
+Lokale Validierung: Der identische `apk`-Paketschritt wurde im vorhandenen
+`nginx:1.30.6-alpine3.24`-Basisimage erfolgreich ausgeführt. Anschließend meldete
+`apk list --installed curl libcurl` beide Pakete als `8.23.0-r0`;
+`nginx -t` war erfolgreich. Auch die Runtime-Paketinstallation im neu gestarteten
+Docker-Build war erfolgreich. Der vollständige Build und Trivy-Nachscan wurden
+wegen langsamer Image-/Datenbankdownloads nicht abgeschlossen; ein sauberer
+Gesamtscan wird hier nicht behauptet. Den Release-Workflow erneut ausführen.

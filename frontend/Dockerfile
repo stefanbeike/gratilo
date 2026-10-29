@@ -27,11 +27,14 @@ FROM nginx:1.30.6-alpine3.24 AS runtime
 
 # CVE-2026-77214 (libexpat), CVE-2026-88806 (libx11), and CVE-2026-111497 (brotli):
 # require fixed stable packages in the runtime image.
+# CVE-2026-92392 affects both curl and libcurl; upgrade both to the fixed release.
 # Fail the build if the security fix is not available; allow later patched versions.
 RUN apk add --no-cache --upgrade \
     'libexpat>=2.9.0-r0' \
     'libx11>=1.8.14-r0' \
-    'brotli-libs>=1.2.1-r0'
+    'brotli-libs>=1.2.1-r0' \
+    'curl>=8.23.0-r0' \
+    'libcurl>=8.23.0-r0'
 
 ENV USER_SERVICE_HOST=user-service \
     PAYMENT_SERVICE_HOST=payment-service
