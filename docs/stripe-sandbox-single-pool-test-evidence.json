@@ -1,0 +1,1900 @@
+{
+  "run_id": "gratilo-sct-compare-20261029T084123Z",
+  "created_utc": "2026-10-29T08:41:23.520598+00:00",
+  "requests": [
+    {
+      "started_utc": "2026-10-29T08:41:24.535247+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_gPok5NopzwbOFF",
+      "response_date": "Thu, 29 Oct 2026 08:41:24 GMT",
+      "completed_utc": "2026-10-29T08:41:24.856468+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:41:24.856719+00:00",
+      "method": "GET",
+      "path": "/v1/account",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_r4tgKsw37T49Qk",
+      "response_date": "Thu, 29 Oct 2026 08:41:25 GMT",
+      "completed_utc": "2026-10-29T08:41:25.255381+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:41:25.255814+00:00",
+      "method": "GET",
+      "path": "/v2/core/accounts/acct_1UTKTHJnhD0xjF0b",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "include[0]": "configuration.recipient",
+        "include[1]": "defaults",
+        "include[2]": "configuration.merchant"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": "2026-09-30.endive",
+      "http": 200,
+      "request_id": "req_v2aOcWq4wTqsUF9HZ",
+      "response_date": "Thu, 29 Oct 2026 08:41:25 GMT",
+      "completed_utc": "2026-10-29T08:41:25.831266+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:41:25.831547+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_5agWaqyf10dvqr",
+      "response_date": "Thu, 29 Oct 2026 08:41:26 GMT",
+      "completed_utc": "2026-10-29T08:41:26.313836+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:41:26.314219+00:00",
+      "method": "GET",
+      "path": "/v1/balance_settings",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_nXFQ1pSZAn9jIv",
+      "response_date": "Thu, 29 Oct 2026 08:41:26 GMT",
+      "completed_utc": "2026-10-29T08:41:26.649183+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:41:26.649502+00:00",
+      "method": "GET",
+      "path": "/v2/core/accounts/acct_1UTK7rJnhDvqBsAp",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "include[0]": "configuration.recipient",
+        "include[1]": "defaults",
+        "include[2]": "configuration.merchant"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": "2026-09-30.endive",
+      "http": 200,
+      "request_id": "req_v2AAhF9fwTojxYhtt",
+      "response_date": "Thu, 29 Oct 2026 08:41:27 GMT",
+      "completed_utc": "2026-10-29T08:41:27.045812+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:41:27.046212+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UTK7rJnhDvqBsAp",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_zIhIZVy23PPITL",
+      "response_date": "Thu, 29 Oct 2026 08:41:27 GMT",
+      "completed_utc": "2026-10-29T08:41:27.413296+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:41:27.413639+00:00",
+      "method": "GET",
+      "path": "/v1/balance_settings",
+      "account_context": "acct_1UTK7rJnhDvqBsAp",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_ewOM2siMrw1jgv",
+      "response_date": "Thu, 29 Oct 2026 08:41:27 GMT",
+      "completed_utc": "2026-10-29T08:41:27.792972+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:44:11.280527+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_DLCCYyOPWl73tg",
+      "response_date": "Thu, 29 Oct 2026 08:44:11 GMT",
+      "completed_utc": "2026-10-29T08:44:11.594716+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:44:11.595291+00:00",
+      "method": "GET",
+      "path": "/v1/account",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_1TWwktsVDuwE7W",
+      "response_date": "Thu, 29 Oct 2026 08:44:12 GMT",
+      "completed_utc": "2026-10-29T08:44:11.984097+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:44:11.984555+00:00",
+      "method": "GET",
+      "path": "/v2/core/accounts/acct_1UTKTHJnhD0xjF0b",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "include[0]": "configuration.recipient",
+        "include[1]": "defaults",
+        "include[2]": "configuration.merchant"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": "2026-09-30.endive",
+      "http": 200,
+      "request_id": "req_v2rxtzx6KYv0yIp6f",
+      "response_date": "Thu, 29 Oct 2026 08:44:12 GMT",
+      "completed_utc": "2026-10-29T08:44:12.375620+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:44:12.376133+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_2TY2i8yRKP6iTi",
+      "response_date": "Thu, 29 Oct 2026 08:44:12 GMT",
+      "completed_utc": "2026-10-29T08:44:12.760377+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:44:12.760788+00:00",
+      "method": "GET",
+      "path": "/v1/balance_settings",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_pi7UgLpG2uQKEI",
+      "response_date": "Thu, 29 Oct 2026 08:44:13 GMT",
+      "completed_utc": "2026-10-29T08:44:13.123463+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:44:13.123992+00:00",
+      "method": "GET",
+      "path": "/v2/core/accounts/acct_1UTK7rJnhDvqBsAp",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "include[0]": "configuration.recipient",
+        "include[1]": "defaults",
+        "include[2]": "configuration.merchant"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": "2026-09-30.endive",
+      "http": 200,
+      "request_id": "req_v2Br4skXcPBp0GOfl",
+      "response_date": "Thu, 29 Oct 2026 08:44:13 GMT",
+      "completed_utc": "2026-10-29T08:44:13.601293+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:44:13.601747+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UTK7rJnhDvqBsAp",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_L4NJCCpd9pmXWl",
+      "response_date": "Thu, 29 Oct 2026 08:44:14 GMT",
+      "completed_utc": "2026-10-29T08:44:14.037534+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:44:14.038028+00:00",
+      "method": "GET",
+      "path": "/v1/balance_settings",
+      "account_context": "acct_1UTK7rJnhDvqBsAp",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_xolqHX0lIjcAQR",
+      "response_date": "Thu, 29 Oct 2026 08:44:14 GMT",
+      "completed_utc": "2026-10-29T08:44:14.363684+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:44:14.365141+00:00",
+      "method": "POST",
+      "path": "/v1/payment_intents",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "amount": 2563,
+        "currency": "eur",
+        "payment_method": "pm_card_visa",
+        "payment_method_types[]": "card",
+        "confirm": "true",
+        "capture_method": "automatic",
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-single",
+        "description": "Gratilo isolated sandbox SCT single",
+        "metadata[verification_run_id]": "gratilo-sct-compare-20261029T084123Z",
+        "metadata[verification_case]": "single",
+        "metadata[verification_only]": "true",
+        "metadata[net_target_minor]": 2500,
+        "metadata[platform_commission_minor]": 0
+      },
+      "idempotency_key": "gratilo-sct-compare-20261029T084123Z:single:payment",
+      "stripe_api_version": null,
+      "http": 400,
+      "error_type": "invalid_request_error",
+      "error_code": null,
+      "error_param": null,
+      "request_id": "req_iJzWT6QMlHmzNQ"
+    },
+    {
+      "started_utc": "2026-10-29T08:45:23.627749+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_AmEbswzd21M68R",
+      "response_date": "Thu, 29 Oct 2026 08:45:24 GMT",
+      "completed_utc": "2026-10-29T08:45:23.969313+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:45:23.969939+00:00",
+      "method": "GET",
+      "path": "/v1/account",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_GDawDfTlz4dGJQ",
+      "response_date": "Thu, 29 Oct 2026 08:45:24 GMT",
+      "completed_utc": "2026-10-29T08:45:24.368284+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:45:24.368967+00:00",
+      "method": "GET",
+      "path": "/v2/core/accounts/acct_1UTKTHJnhD0xjF0b",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "include[0]": "configuration.recipient",
+        "include[1]": "defaults",
+        "include[2]": "configuration.merchant"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": "2026-09-30.endive",
+      "http": 200,
+      "request_id": "req_v2NJY2vJgQNXB26YP",
+      "response_date": "Thu, 29 Oct 2026 08:45:24 GMT",
+      "completed_utc": "2026-10-29T08:45:24.768825+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:45:24.769332+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_RcpEV8cuwhZRtq",
+      "response_date": "Thu, 29 Oct 2026 08:45:25 GMT",
+      "completed_utc": "2026-10-29T08:45:25.251029+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:45:25.251662+00:00",
+      "method": "GET",
+      "path": "/v1/balance_settings",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_GngrwnUJpqTpEt",
+      "response_date": "Thu, 29 Oct 2026 08:45:25 GMT",
+      "completed_utc": "2026-10-29T08:45:25.637661+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:45:25.638176+00:00",
+      "method": "GET",
+      "path": "/v2/core/accounts/acct_1UTK7rJnhDvqBsAp",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "include[0]": "configuration.recipient",
+        "include[1]": "defaults",
+        "include[2]": "configuration.merchant"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": "2026-09-30.endive",
+      "http": 200,
+      "request_id": "req_v2zd4OUyTaseeqz3X",
+      "response_date": "Thu, 29 Oct 2026 08:45:26 GMT",
+      "completed_utc": "2026-10-29T08:45:26.041466+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:45:26.042000+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UTK7rJnhDvqBsAp",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_CWBQwsWbACNq1z",
+      "response_date": "Thu, 29 Oct 2026 08:45:26 GMT",
+      "completed_utc": "2026-10-29T08:45:26.444850+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:45:26.445451+00:00",
+      "method": "GET",
+      "path": "/v1/balance_settings",
+      "account_context": "acct_1UTK7rJnhDvqBsAp",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_LyboYaV4HY0wfk",
+      "response_date": "Thu, 29 Oct 2026 08:45:26 GMT",
+      "completed_utc": "2026-10-29T08:45:26.768976+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:45:26.770361+00:00",
+      "method": "POST",
+      "path": "/v1/payment_intents",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "amount": 2563,
+        "currency": "eur",
+        "payment_method": "pm_card_visa",
+        "payment_method_types[]": "card",
+        "confirm": "true",
+        "capture_method": "automatic",
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-single",
+        "description": "Gratilo isolated sandbox SCT single",
+        "metadata[verification_run_id]": "gratilo-sct-compare-20261029T084123Z",
+        "metadata[verification_case]": "single",
+        "metadata[verification_only]": "true",
+        "metadata[net_target_minor]": 2500,
+        "metadata[platform_commission_minor]": 0
+      },
+      "idempotency_key": "gratilo-sct-compare-20261029T084123Z:single:payment",
+      "stripe_api_version": null,
+      "http": 400,
+      "error_type": "invalid_request_error",
+      "error_code": null,
+      "error_param": null,
+      "safe_error_message": "The `payment_method_types` parameter is no longer supported. Payment methods are now managed from your Dashboard settings (https://dashboard.stripe.com/settings/payment_methods). For migration guidance, see https://docs.stripe.com/payments/payment-methods/dynamic-payment-methods.",
+      "request_id": "req_EbRgNZ3w631tje"
+    },
+    {
+      "started_utc": "2026-10-29T08:46:15.720692+00:00",
+      "method": "GET",
+      "path": "/v1/payment_intents",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "limit": 100
+      },
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_uwS0I5M7VDSSpO",
+      "response_date": "Thu, 29 Oct 2026 08:46:16 GMT",
+      "completed_utc": "2026-10-29T08:46:16.796779+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:46:45.439263+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_Nf49K5ctPUqZob",
+      "response_date": "Thu, 29 Oct 2026 08:46:45 GMT",
+      "completed_utc": "2026-10-29T08:46:45.776759+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:46:45.777386+00:00",
+      "method": "GET",
+      "path": "/v1/account",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_EMtllAMFX5P5PJ",
+      "response_date": "Thu, 29 Oct 2026 08:46:46 GMT",
+      "completed_utc": "2026-10-29T08:46:46.138972+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:46:46.139684+00:00",
+      "method": "GET",
+      "path": "/v2/core/accounts/acct_1UTKTHJnhD0xjF0b",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "include[0]": "configuration.recipient",
+        "include[1]": "defaults",
+        "include[2]": "configuration.merchant"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": "2026-09-30.endive",
+      "http": 200,
+      "request_id": "req_v2hDqYvQqBgSoE7eb",
+      "response_date": "Thu, 29 Oct 2026 08:46:46 GMT",
+      "completed_utc": "2026-10-29T08:46:46.517677+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:46:46.518380+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_uKqNgdwVOPD6mQ",
+      "response_date": "Thu, 29 Oct 2026 08:46:46 GMT",
+      "completed_utc": "2026-10-29T08:46:46.933499+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:46:46.934060+00:00",
+      "method": "GET",
+      "path": "/v1/balance_settings",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_m6Wcjnha99ArTe",
+      "response_date": "Thu, 29 Oct 2026 08:46:47 GMT",
+      "completed_utc": "2026-10-29T08:46:47.239772+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:46:47.240419+00:00",
+      "method": "GET",
+      "path": "/v2/core/accounts/acct_1UTK7rJnhDvqBsAp",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "include[0]": "configuration.recipient",
+        "include[1]": "defaults",
+        "include[2]": "configuration.merchant"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": "2026-09-30.endive",
+      "http": 200,
+      "request_id": "req_v2THla5cj56kjrGTM",
+      "response_date": "Thu, 29 Oct 2026 08:46:47 GMT",
+      "completed_utc": "2026-10-29T08:46:47.674622+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:46:47.675804+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UTK7rJnhDvqBsAp",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_4m8xMVN79BKjLa",
+      "response_date": "Thu, 29 Oct 2026 08:46:48 GMT",
+      "completed_utc": "2026-10-29T08:46:48.048326+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:46:48.048948+00:00",
+      "method": "GET",
+      "path": "/v1/balance_settings",
+      "account_context": "acct_1UTK7rJnhDvqBsAp",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_SzEQ5bsy4n0Pgh",
+      "response_date": "Thu, 29 Oct 2026 08:46:48 GMT",
+      "completed_utc": "2026-10-29T08:46:48.388779+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:46:48.390404+00:00",
+      "method": "POST",
+      "path": "/v1/payment_intents",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "amount": 2563,
+        "currency": "eur",
+        "payment_method": "pm_card_visa",
+        "allowed_payment_method_types[]": "card",
+        "confirm": "true",
+        "capture_method": "automatic",
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-single",
+        "description": "Gratilo isolated sandbox SCT single",
+        "metadata[verification_run_id]": "gratilo-sct-compare-20261029T084123Z",
+        "metadata[verification_case]": "single",
+        "metadata[verification_only]": "true",
+        "metadata[net_target_minor]": 2500,
+        "metadata[platform_commission_minor]": 0
+      },
+      "idempotency_key": "gratilo-sct-compare-20261029T084123Z:single:payment",
+      "stripe_api_version": null,
+      "http": 400,
+      "error_type": "idempotency_error",
+      "error_code": null,
+      "error_param": null,
+      "safe_error_message": "Keys for idempotent requests can only be used with the same parameters they were first used with. Try using a key other than 'gratilo-sct-compare-20261029T084123Z:single:payment' if you meant to execute a different request.",
+      "request_id": "req_eCAlySPcWkYMAP"
+    },
+    {
+      "started_utc": "2026-10-29T08:47:35.517681+00:00",
+      "method": "GET",
+      "path": "/v1/payment_intents",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "limit": 100
+      },
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_Nt5WMc4US6silY",
+      "response_date": "Thu, 29 Oct 2026 08:47:36 GMT",
+      "completed_utc": "2026-10-29T08:47:36.776167+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:08.483121+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_FTuck0Y99olfAW",
+      "response_date": "Thu, 29 Oct 2026 08:48:08 GMT",
+      "completed_utc": "2026-10-29T08:48:08.841953+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:08.843282+00:00",
+      "method": "GET",
+      "path": "/v1/account",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_TXkgWwVPGKMnbY",
+      "response_date": "Thu, 29 Oct 2026 08:48:09 GMT",
+      "completed_utc": "2026-10-29T08:48:09.240584+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:09.241393+00:00",
+      "method": "GET",
+      "path": "/v2/core/accounts/acct_1UTKTHJnhD0xjF0b",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "include[0]": "configuration.recipient",
+        "include[1]": "defaults",
+        "include[2]": "configuration.merchant"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": "2026-09-30.endive",
+      "http": 200,
+      "request_id": "req_v2SEoFnaSPwh8KFwk",
+      "response_date": "Thu, 29 Oct 2026 08:48:09 GMT",
+      "completed_utc": "2026-10-29T08:48:09.723307+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:09.723970+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_DYX8dWmztvesED",
+      "response_date": "Thu, 29 Oct 2026 08:48:10 GMT",
+      "completed_utc": "2026-10-29T08:48:10.116483+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:10.117365+00:00",
+      "method": "GET",
+      "path": "/v1/balance_settings",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_NnQNcGF8Wrd1WU",
+      "response_date": "Thu, 29 Oct 2026 08:48:10 GMT",
+      "completed_utc": "2026-10-29T08:48:10.468428+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:10.469192+00:00",
+      "method": "GET",
+      "path": "/v2/core/accounts/acct_1UTK7rJnhDvqBsAp",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "include[0]": "configuration.recipient",
+        "include[1]": "defaults",
+        "include[2]": "configuration.merchant"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": "2026-09-30.endive",
+      "http": 200,
+      "request_id": "req_v2O8CdQvmAmU7JnmC",
+      "response_date": "Thu, 29 Oct 2026 08:48:10 GMT",
+      "completed_utc": "2026-10-29T08:48:10.912279+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:10.913095+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UTK7rJnhDvqBsAp",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_bgcmxlJboC4iIT",
+      "response_date": "Thu, 29 Oct 2026 08:48:11 GMT",
+      "completed_utc": "2026-10-29T08:48:11.312542+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:11.313213+00:00",
+      "method": "GET",
+      "path": "/v1/balance_settings",
+      "account_context": "acct_1UTK7rJnhDvqBsAp",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_QR8r3HvZPPXH8M",
+      "response_date": "Thu, 29 Oct 2026 08:48:11 GMT",
+      "completed_utc": "2026-10-29T08:48:11.666578+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:11.668598+00:00",
+      "method": "POST",
+      "path": "/v1/payment_intents",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "amount": 2563,
+        "currency": "eur",
+        "payment_method": "pm_card_visa",
+        "allowed_payment_method_types[]": "card",
+        "confirm": "true",
+        "capture_method": "automatic",
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-single",
+        "description": "Gratilo isolated sandbox SCT single",
+        "metadata[verification_run_id]": "gratilo-sct-compare-20261029T084123Z",
+        "metadata[verification_case]": "single",
+        "metadata[verification_only]": "true",
+        "metadata[net_target_minor]": 2500,
+        "metadata[platform_commission_minor]": 0
+      },
+      "idempotency_key": "gratilo-sct-compare-20261029T084123Z:single:payment:params-v2",
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_XsbRHuUaJ0RIi3",
+      "response_date": "Thu, 29 Oct 2026 08:48:12 GMT",
+      "completed_utc": "2026-10-29T08:48:12.783242+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:12.784958+00:00",
+      "method": "GET",
+      "path": "/v1/payment_intents/pi_3UVp0JJnhDgmiMAM1jqIMm5A",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_1hIjRO2qNDvEdT",
+      "response_date": "Thu, 29 Oct 2026 08:48:13 GMT",
+      "completed_utc": "2026-10-29T08:48:13.107529+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:13.108317+00:00",
+      "method": "GET",
+      "path": "/v1/charges/ch_3UVp0JJnhDgmiMAM1IDZUMUL",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_9jXw9CW0pElyST",
+      "response_date": "Thu, 29 Oct 2026 08:48:13 GMT",
+      "completed_utc": "2026-10-29T08:48:13.421253+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:13.422077+00:00",
+      "method": "GET",
+      "path": "/v1/balance_transactions/txn_3UVp0JJnhDgmiMAM1kNioTjT",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_JLfgxBwg9lYQlk",
+      "response_date": "Thu, 29 Oct 2026 08:48:13 GMT",
+      "completed_utc": "2026-10-29T08:48:13.700311+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:13.702545+00:00",
+      "method": "POST",
+      "path": "/v1/transfers",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "amount": 2500,
+        "currency": "eur",
+        "destination": "acct_1UTKTHJnhD0xjF0b",
+        "source_transaction": "ch_3UVp0JJnhDgmiMAM1IDZUMUL",
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-single",
+        "description": "Gratilo isolated sandbox single recipient 1",
+        "metadata[verification_run_id]": "gratilo-sct-compare-20261029T084123Z",
+        "metadata[verification_case]": "single",
+        "metadata[verification_only]": "true",
+        "metadata[recipient_index]": 1
+      },
+      "idempotency_key": "gratilo-sct-compare-20261029T084123Z:single:transfer:1",
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_xgoZHjh0uWiRP7",
+      "response_date": "Thu, 29 Oct 2026 08:48:14 GMT",
+      "completed_utc": "2026-10-29T08:48:14.558005+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:14.559766+00:00",
+      "method": "GET",
+      "path": "/v1/transfers/tr_3UVp0JJnhDgmiMAM1KFb8sQO",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_biwWM8ceSrqAsa",
+      "response_date": "Thu, 29 Oct 2026 08:48:14 GMT",
+      "completed_utc": "2026-10-29T08:48:14.827967+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:14.828791+00:00",
+      "method": "GET",
+      "path": "/v1/balance_transactions/txn_3UVp0JJnhDgmiMAM1W8oLUIF",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_J0N64gtFQu61MT",
+      "response_date": "Thu, 29 Oct 2026 08:48:15 GMT",
+      "completed_utc": "2026-10-29T08:48:15.113385+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:15.114302+00:00",
+      "method": "GET",
+      "path": "/v1/charges/py_1UVp0MJnhD0xjF0b85viWYIp",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_2R70kaz0JHKrkK",
+      "response_date": "Thu, 29 Oct 2026 08:48:15 GMT",
+      "completed_utc": "2026-10-29T08:48:15.429464+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:15.430469+00:00",
+      "method": "GET",
+      "path": "/v1/balance_transactions/txn_1UVp0MJnhD0xjF0buWrBb5S7",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_BjpQrbWDouJDNf",
+      "response_date": "Thu, 29 Oct 2026 08:48:15 GMT",
+      "completed_utc": "2026-10-29T08:48:15.722292+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:15.723283+00:00",
+      "method": "GET",
+      "path": "/v1/transfers/tr_3UVp0JJnhDgmiMAM1KFb8sQO/reversals",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "limit": 100
+      },
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_nAlapqA6tfIzDg",
+      "response_date": "Thu, 29 Oct 2026 08:48:16 GMT",
+      "completed_utc": "2026-10-29T08:48:15.999594+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:16.001435+00:00",
+      "method": "GET",
+      "path": "/v1/transfers",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "limit": 100,
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-single"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_IZlAZuUC85KUES",
+      "response_date": "Thu, 29 Oct 2026 08:48:16 GMT",
+      "completed_utc": "2026-10-29T08:48:16.281507+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:16.282443+00:00",
+      "method": "GET",
+      "path": "/v1/balance_transactions",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "limit": 100,
+        "source": "ch_3UVp0JJnhDgmiMAM1IDZUMUL"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_QLNcdZfNHhvfT9",
+      "response_date": "Thu, 29 Oct 2026 08:48:16 GMT",
+      "completed_utc": "2026-10-29T08:48:16.603560+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:16.605190+00:00",
+      "method": "POST",
+      "path": "/v1/payment_intents",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "amount": 2563,
+        "currency": "eur",
+        "payment_method": "pm_card_visa",
+        "allowed_payment_method_types[]": "card",
+        "confirm": "true",
+        "capture_method": "automatic",
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-pool",
+        "description": "Gratilo isolated sandbox SCT pool",
+        "metadata[verification_run_id]": "gratilo-sct-compare-20261029T084123Z",
+        "metadata[verification_case]": "pool",
+        "metadata[verification_only]": "true",
+        "metadata[net_target_minor]": 2500,
+        "metadata[platform_commission_minor]": 0
+      },
+      "idempotency_key": "gratilo-sct-compare-20261029T084123Z:pool:payment:params-v2",
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_8sz4MrH1VOsEUK",
+      "response_date": "Thu, 29 Oct 2026 08:48:17 GMT",
+      "completed_utc": "2026-10-29T08:48:17.930146+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:17.931952+00:00",
+      "method": "GET",
+      "path": "/v1/payment_intents/pi_3UVp0OJnhDgmiMAM1HD1rpdp",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_1lqzzGLhFfPy2T",
+      "response_date": "Thu, 29 Oct 2026 08:48:18 GMT",
+      "completed_utc": "2026-10-29T08:48:18.243932+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:18.246235+00:00",
+      "method": "GET",
+      "path": "/v1/charges/ch_3UVp0OJnhDgmiMAM1zFeNZFK",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_vs4GAhpN66jwb3",
+      "response_date": "Thu, 29 Oct 2026 08:48:18 GMT",
+      "completed_utc": "2026-10-29T08:48:18.637634+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:18.638767+00:00",
+      "method": "GET",
+      "path": "/v1/balance_transactions/txn_3UVp0OJnhDgmiMAM1zMKF70t",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_LnNqwNSK1duUtR",
+      "response_date": "Thu, 29 Oct 2026 08:48:19 GMT",
+      "completed_utc": "2026-10-29T08:48:18.950954+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:18.953016+00:00",
+      "method": "POST",
+      "path": "/v1/transfers",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "amount": 1250,
+        "currency": "eur",
+        "destination": "acct_1UTKTHJnhD0xjF0b",
+        "source_transaction": "ch_3UVp0OJnhDgmiMAM1zFeNZFK",
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-pool",
+        "description": "Gratilo isolated sandbox pool recipient 1",
+        "metadata[verification_run_id]": "gratilo-sct-compare-20261029T084123Z",
+        "metadata[verification_case]": "pool",
+        "metadata[verification_only]": "true",
+        "metadata[recipient_index]": 1
+      },
+      "idempotency_key": "gratilo-sct-compare-20261029T084123Z:pool:transfer:1",
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_7HI4YQ73RlYAU6",
+      "response_date": "Thu, 29 Oct 2026 08:48:19 GMT",
+      "completed_utc": "2026-10-29T08:48:19.853627+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:19.856021+00:00",
+      "method": "GET",
+      "path": "/v1/transfers/tr_3UVp0OJnhDgmiMAM1PPJI308",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_BueAxFoMgf7CDS",
+      "response_date": "Thu, 29 Oct 2026 08:48:20 GMT",
+      "completed_utc": "2026-10-29T08:48:20.159562+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:20.160640+00:00",
+      "method": "GET",
+      "path": "/v1/balance_transactions/txn_3UVp0OJnhDgmiMAM1SqlQ7im",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_tFztBGyapdkiZW",
+      "response_date": "Thu, 29 Oct 2026 08:48:20 GMT",
+      "completed_utc": "2026-10-29T08:48:20.445662+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:20.446782+00:00",
+      "method": "GET",
+      "path": "/v1/charges/py_1UVp0RJnhD0xjF0bqzE5TT73",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_VxKieG229UYDcN",
+      "response_date": "Thu, 29 Oct 2026 08:48:20 GMT",
+      "completed_utc": "2026-10-29T08:48:20.777176+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:20.778304+00:00",
+      "method": "GET",
+      "path": "/v1/balance_transactions/txn_1UVp0RJnhD0xjF0bmidV0bX3",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_L0nwxxCdLuJj9C",
+      "response_date": "Thu, 29 Oct 2026 08:48:21 GMT",
+      "completed_utc": "2026-10-29T08:48:21.085938+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:21.087327+00:00",
+      "method": "GET",
+      "path": "/v1/transfers/tr_3UVp0OJnhDgmiMAM1PPJI308/reversals",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "limit": 100
+      },
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_YzdNwilPjCTwh6",
+      "response_date": "Thu, 29 Oct 2026 08:48:21 GMT",
+      "completed_utc": "2026-10-29T08:48:21.332786+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:21.335319+00:00",
+      "method": "POST",
+      "path": "/v1/transfers",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "amount": 1250,
+        "currency": "eur",
+        "destination": "acct_1UTK7rJnhDvqBsAp",
+        "source_transaction": "ch_3UVp0OJnhDgmiMAM1zFeNZFK",
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-pool",
+        "description": "Gratilo isolated sandbox pool recipient 2",
+        "metadata[verification_run_id]": "gratilo-sct-compare-20261029T084123Z",
+        "metadata[verification_case]": "pool",
+        "metadata[verification_only]": "true",
+        "metadata[recipient_index]": 2
+      },
+      "idempotency_key": "gratilo-sct-compare-20261029T084123Z:pool:transfer:2",
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_sFgrOZ7GKIiIn2",
+      "response_date": "Thu, 29 Oct 2026 08:48:27 GMT",
+      "completed_utc": "2026-10-29T08:48:27.418754+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:27.421260+00:00",
+      "method": "GET",
+      "path": "/v1/transfers/tr_3UVp0OJnhDgmiMAM1e9upw7h",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_MWDHmZqydJZqsG",
+      "response_date": "Thu, 29 Oct 2026 08:48:27 GMT",
+      "completed_utc": "2026-10-29T08:48:27.690921+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:27.692171+00:00",
+      "method": "GET",
+      "path": "/v1/balance_transactions/txn_3UVp0OJnhDgmiMAM1jfmZKJb",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_28Tj1znZiUgzB8",
+      "response_date": "Thu, 29 Oct 2026 08:48:28 GMT",
+      "completed_utc": "2026-10-29T08:48:27.942271+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:27.943705+00:00",
+      "method": "GET",
+      "path": "/v1/charges/py_1UVp0YJnhDvqBsApO2IqEPKM",
+      "account_context": "acct_1UTK7rJnhDvqBsAp",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_Ju9SUubQYxUkQD",
+      "response_date": "Thu, 29 Oct 2026 08:48:28 GMT",
+      "completed_utc": "2026-10-29T08:48:28.259663+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:28.260850+00:00",
+      "method": "GET",
+      "path": "/v1/balance_transactions/txn_1UVp0ZJnhDvqBsApXjdOtPKx",
+      "account_context": "acct_1UTK7rJnhDvqBsAp",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_VDp7NpOR1yHRx3",
+      "response_date": "Thu, 29 Oct 2026 08:48:28 GMT",
+      "completed_utc": "2026-10-29T08:48:28.582671+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:28.583985+00:00",
+      "method": "GET",
+      "path": "/v1/transfers/tr_3UVp0OJnhDgmiMAM1e9upw7h/reversals",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "limit": 100
+      },
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_zAcZaSCkcIcaMj",
+      "response_date": "Thu, 29 Oct 2026 08:48:28 GMT",
+      "completed_utc": "2026-10-29T08:48:28.871896+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:28.874369+00:00",
+      "method": "GET",
+      "path": "/v1/transfers",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "limit": 100,
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-pool"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_bPMI2rkBLUv2TM",
+      "response_date": "Thu, 29 Oct 2026 08:48:29 GMT",
+      "completed_utc": "2026-10-29T08:48:29.148833+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:29.150286+00:00",
+      "method": "GET",
+      "path": "/v1/balance_transactions",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "limit": 100,
+        "source": "ch_3UVp0OJnhDgmiMAM1zFeNZFK"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_8vVCLIME71IkmS",
+      "response_date": "Thu, 29 Oct 2026 08:48:29 GMT",
+      "completed_utc": "2026-10-29T08:48:29.429952+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:29.432431+00:00",
+      "method": "GET",
+      "path": "/v1/application_fees",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "limit": 100
+      },
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_8CdJmQ0RK7lGPH",
+      "response_date": "Thu, 29 Oct 2026 08:48:29 GMT",
+      "completed_utc": "2026-10-29T08:48:29.751655+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:29.752932+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_S8J8F0RDUUFSUh",
+      "response_date": "Thu, 29 Oct 2026 08:48:30 GMT",
+      "completed_utc": "2026-10-29T08:48:30.058401+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:30.059879+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UTKTHJnhD0xjF0b",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_lzZyLMdFTTMB8u",
+      "response_date": "Thu, 29 Oct 2026 08:48:30 GMT",
+      "completed_utc": "2026-10-29T08:48:30.474754+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:48:30.477185+00:00",
+      "method": "GET",
+      "path": "/v1/balance",
+      "account_context": "acct_1UTK7rJnhDvqBsAp",
+      "params": {},
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_pTchfUsnbvMRjq",
+      "response_date": "Thu, 29 Oct 2026 08:48:31 GMT",
+      "completed_utc": "2026-10-29T08:48:30.900944+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:49:11.540841+00:00",
+      "method": "GET",
+      "path": "/v1/payment_intents",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "limit": 100
+      },
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_8V82FIWYdvhwwn",
+      "response_date": "Thu, 29 Oct 2026 08:49:12 GMT",
+      "completed_utc": "2026-10-29T08:49:12.653744+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:49:12.656093+00:00",
+      "method": "GET",
+      "path": "/v1/charges",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "limit": 100,
+        "payment_intent": "pi_3UVp0JJnhDgmiMAM1jqIMm5A"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_A5d3d4noqr7odg",
+      "response_date": "Thu, 29 Oct 2026 08:49:13 GMT",
+      "completed_utc": "2026-10-29T08:49:13.245217+00:00"
+    },
+    {
+      "started_utc": "2026-10-29T08:49:13.246889+00:00",
+      "method": "GET",
+      "path": "/v1/charges",
+      "account_context": "acct_1UQNErJnhDgmiMAM",
+      "params": {
+        "limit": 100,
+        "payment_intent": "pi_3UVp0OJnhDgmiMAM1HD1rpdp"
+      },
+      "idempotency_key": null,
+      "stripe_api_version": null,
+      "http": 200,
+      "request_id": "req_xhGckh8PtaSkva",
+      "response_date": "Thu, 29 Oct 2026 08:49:13 GMT",
+      "completed_utc": "2026-10-29T08:49:13.607800+00:00"
+    }
+  ],
+  "cases": [
+    {
+      "kind": "single",
+      "group": "gratilo-sct-compare-20261029T084123Z-single",
+      "total_minor": 2563,
+      "net_target_minor": 2500,
+      "planned_transfers": [
+        {
+          "destination": "acct_1UTKTHJnhD0xjF0b",
+          "amount": 2500
+        }
+      ],
+      "transfers": [
+        {
+          "id": "tr_3UVp0JJnhDgmiMAM1KFb8sQO",
+          "amount": 2500,
+          "amount_reversed": 0,
+          "currency": "eur",
+          "created": 1793263694,
+          "livemode": false,
+          "reversed": false,
+          "source_transaction": "ch_3UVp0JJnhDgmiMAM1IDZUMUL",
+          "transfer_group": "gratilo-sct-compare-20261029T084123Z-single",
+          "destination": "acct_1UTKTHJnhD0xjF0b",
+          "destination_payment": "py_1UVp0MJnhD0xjF0b85viWYIp",
+          "balance_transaction": "txn_3UVp0JJnhDgmiMAM1W8oLUIF",
+          "metadata": {
+            "recipient_index": "1",
+            "verification_case": "single",
+            "verification_only": "true",
+            "verification_run_id": "gratilo-sct-compare-20261029T084123Z"
+          },
+          "platform_balance": {
+            "id": "txn_3UVp0JJnhDgmiMAM1W8oLUIF",
+            "amount": -2500,
+            "fee": 0,
+            "net": -2500,
+            "currency": "eur",
+            "type": "transfer",
+            "reporting_category": "transfer",
+            "source": "tr_3UVp0JJnhDgmiMAM1KFb8sQO",
+            "status": "pending",
+            "created": 1793263694,
+            "available_on": 1793836800,
+            "fee_details": [],
+            "exchange_rate": null,
+            "arithmetic_verified": true
+          },
+          "destination_payment_data": {
+            "id": "py_1UVp0MJnhD0xjF0b85viWYIp",
+            "amount": 2500,
+            "amount_captured": 2500,
+            "amount_refunded": 0,
+            "currency": "eur",
+            "status": "succeeded",
+            "created": 1793263694,
+            "livemode": false,
+            "paid": true,
+            "captured": true,
+            "refunded": false,
+            "payment_intent": null,
+            "balance_transaction": "txn_1UVp0MJnhD0xjF0buWrBb5S7",
+            "application_fee": null,
+            "application_fee_amount": null,
+            "transfer": null,
+            "transfer_data": null,
+            "transfer_group": null,
+            "metadata": {}
+          },
+          "recipient_balance": {
+            "id": "txn_1UVp0MJnhD0xjF0buWrBb5S7",
+            "amount": 2500,
+            "fee": 0,
+            "net": 2500,
+            "currency": "eur",
+            "type": "payment",
+            "reporting_category": "charge",
+            "source": "py_1UVp0MJnhD0xjF0b85viWYIp",
+            "status": "pending",
+            "created": 1793263694,
+            "available_on": 1793836800,
+            "fee_details": [],
+            "exchange_rate": null,
+            "arithmetic_verified": true
+          },
+          "reversals": []
+        }
+      ],
+      "payment_intent": {
+        "id": "pi_3UVp0JJnhDgmiMAM1jqIMm5A",
+        "amount": 2563,
+        "amount_received": 2563,
+        "currency": "eur",
+        "status": "succeeded",
+        "created": 1793263692,
+        "livemode": false,
+        "latest_charge": "ch_3UVp0JJnhDgmiMAM1IDZUMUL",
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-single",
+        "transfer_data": null,
+        "application_fee_amount": null,
+        "metadata": {
+          "net_target_minor": "2500",
+          "platform_commission_minor": "0",
+          "verification_case": "single",
+          "verification_only": "true",
+          "verification_run_id": "gratilo-sct-compare-20261029T084123Z"
+        }
+      },
+      "charge": {
+        "id": "ch_3UVp0JJnhDgmiMAM1IDZUMUL",
+        "amount": 2563,
+        "amount_captured": 2563,
+        "amount_refunded": 0,
+        "currency": "eur",
+        "status": "succeeded",
+        "created": 1793263692,
+        "livemode": false,
+        "paid": true,
+        "captured": true,
+        "refunded": false,
+        "payment_intent": "pi_3UVp0JJnhDgmiMAM1jqIMm5A",
+        "balance_transaction": "txn_3UVp0JJnhDgmiMAM1kNioTjT",
+        "application_fee": null,
+        "application_fee_amount": null,
+        "transfer": null,
+        "transfer_data": null,
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-single",
+        "metadata": {
+          "net_target_minor": "2500",
+          "platform_commission_minor": "0",
+          "verification_case": "single",
+          "verification_only": "true",
+          "verification_run_id": "gratilo-sct-compare-20261029T084123Z"
+        }
+      },
+      "payment_balance": {
+        "id": "txn_3UVp0JJnhDgmiMAM1kNioTjT",
+        "amount": 2563,
+        "fee": 106,
+        "net": 2457,
+        "currency": "eur",
+        "type": "charge",
+        "reporting_category": "charge",
+        "source": "ch_3UVp0JJnhDgmiMAM1IDZUMUL",
+        "status": "pending",
+        "created": 1793263692,
+        "available_on": 1793836800,
+        "fee_details": [
+          {
+            "amount": 106,
+            "application": null,
+            "currency": "eur",
+            "description": "Stripe processing fees",
+            "type": "stripe_fee"
+          }
+        ],
+        "exchange_rate": null,
+        "arithmetic_verified": true
+      },
+      "group_transfer_search": {
+        "complete": true,
+        "ids": [
+          "tr_3UVp0JJnhDgmiMAM1KFb8sQO"
+        ]
+      },
+      "source_balance_search": {
+        "complete": true,
+        "ids": [
+          "txn_3UVp0JJnhDgmiMAM1kNioTjT"
+        ]
+      },
+      "actual_recipient_net_minor": 2500,
+      "platform_residual_minor": -43,
+      "completed_utc": "2026-10-29T08:48:16.604456+00:00",
+      "result": "PASS: paid and complete SCT ledger chain verified",
+      "charge_inventory": {
+        "complete": true,
+        "ids": [
+          "ch_3UVp0JJnhDgmiMAM1IDZUMUL"
+        ]
+      }
+    },
+    {
+      "kind": "pool",
+      "group": "gratilo-sct-compare-20261029T084123Z-pool",
+      "total_minor": 2563,
+      "net_target_minor": 2500,
+      "planned_transfers": [
+        {
+          "destination": "acct_1UTKTHJnhD0xjF0b",
+          "amount": 1250
+        },
+        {
+          "destination": "acct_1UTK7rJnhDvqBsAp",
+          "amount": 1250
+        }
+      ],
+      "transfers": [
+        {
+          "id": "tr_3UVp0OJnhDgmiMAM1PPJI308",
+          "amount": 1250,
+          "amount_reversed": 0,
+          "currency": "eur",
+          "created": 1793263699,
+          "livemode": false,
+          "reversed": false,
+          "source_transaction": "ch_3UVp0OJnhDgmiMAM1zFeNZFK",
+          "transfer_group": "gratilo-sct-compare-20261029T084123Z-pool",
+          "destination": "acct_1UTKTHJnhD0xjF0b",
+          "destination_payment": "py_1UVp0RJnhD0xjF0bqzE5TT73",
+          "balance_transaction": "txn_3UVp0OJnhDgmiMAM1SqlQ7im",
+          "metadata": {
+            "recipient_index": "1",
+            "verification_case": "pool",
+            "verification_only": "true",
+            "verification_run_id": "gratilo-sct-compare-20261029T084123Z"
+          },
+          "platform_balance": {
+            "id": "txn_3UVp0OJnhDgmiMAM1SqlQ7im",
+            "amount": -1250,
+            "fee": 0,
+            "net": -1250,
+            "currency": "eur",
+            "type": "transfer",
+            "reporting_category": "transfer",
+            "source": "tr_3UVp0OJnhDgmiMAM1PPJI308",
+            "status": "pending",
+            "created": 1793263699,
+            "available_on": 1793836800,
+            "fee_details": [],
+            "exchange_rate": null,
+            "arithmetic_verified": true
+          },
+          "destination_payment_data": {
+            "id": "py_1UVp0RJnhD0xjF0bqzE5TT73",
+            "amount": 1250,
+            "amount_captured": 1250,
+            "amount_refunded": 0,
+            "currency": "eur",
+            "status": "succeeded",
+            "created": 1793263699,
+            "livemode": false,
+            "paid": true,
+            "captured": true,
+            "refunded": false,
+            "payment_intent": null,
+            "balance_transaction": "txn_1UVp0RJnhD0xjF0bmidV0bX3",
+            "application_fee": null,
+            "application_fee_amount": null,
+            "transfer": null,
+            "transfer_data": null,
+            "transfer_group": null,
+            "metadata": {}
+          },
+          "recipient_balance": {
+            "id": "txn_1UVp0RJnhD0xjF0bmidV0bX3",
+            "amount": 1250,
+            "fee": 0,
+            "net": 1250,
+            "currency": "eur",
+            "type": "payment",
+            "reporting_category": "charge",
+            "source": "py_1UVp0RJnhD0xjF0bqzE5TT73",
+            "status": "pending",
+            "created": 1793263699,
+            "available_on": 1793836800,
+            "fee_details": [],
+            "exchange_rate": null,
+            "arithmetic_verified": true
+          },
+          "reversals": []
+        },
+        {
+          "id": "tr_3UVp0OJnhDgmiMAM1e9upw7h",
+          "amount": 1250,
+          "amount_reversed": 0,
+          "currency": "eur",
+          "created": 1793263706,
+          "livemode": false,
+          "reversed": false,
+          "source_transaction": "ch_3UVp0OJnhDgmiMAM1zFeNZFK",
+          "transfer_group": "gratilo-sct-compare-20261029T084123Z-pool",
+          "destination": "acct_1UTK7rJnhDvqBsAp",
+          "destination_payment": "py_1UVp0YJnhDvqBsApO2IqEPKM",
+          "balance_transaction": "txn_3UVp0OJnhDgmiMAM1jfmZKJb",
+          "metadata": {
+            "recipient_index": "2",
+            "verification_case": "pool",
+            "verification_only": "true",
+            "verification_run_id": "gratilo-sct-compare-20261029T084123Z"
+          },
+          "platform_balance": {
+            "id": "txn_3UVp0OJnhDgmiMAM1jfmZKJb",
+            "amount": -1250,
+            "fee": 0,
+            "net": -1250,
+            "currency": "eur",
+            "type": "transfer",
+            "reporting_category": "transfer",
+            "source": "tr_3UVp0OJnhDgmiMAM1e9upw7h",
+            "status": "pending",
+            "created": 1793263706,
+            "available_on": 1793836800,
+            "fee_details": [],
+            "exchange_rate": null,
+            "arithmetic_verified": true
+          },
+          "destination_payment_data": {
+            "id": "py_1UVp0YJnhDvqBsApO2IqEPKM",
+            "amount": 1250,
+            "amount_captured": 1250,
+            "amount_refunded": 0,
+            "currency": "eur",
+            "status": "succeeded",
+            "created": 1793263707,
+            "livemode": false,
+            "paid": true,
+            "captured": true,
+            "refunded": false,
+            "payment_intent": null,
+            "balance_transaction": "txn_1UVp0ZJnhDvqBsApXjdOtPKx",
+            "application_fee": null,
+            "application_fee_amount": null,
+            "transfer": null,
+            "transfer_data": null,
+            "transfer_group": null,
+            "metadata": {}
+          },
+          "recipient_balance": {
+            "id": "txn_1UVp0ZJnhDvqBsApXjdOtPKx",
+            "amount": 1250,
+            "fee": 0,
+            "net": 1250,
+            "currency": "eur",
+            "type": "payment",
+            "reporting_category": "charge",
+            "source": "py_1UVp0YJnhDvqBsApO2IqEPKM",
+            "status": "pending",
+            "created": 1793263707,
+            "available_on": 1793836800,
+            "fee_details": [],
+            "exchange_rate": null,
+            "arithmetic_verified": true
+          },
+          "reversals": []
+        }
+      ],
+      "payment_intent": {
+        "id": "pi_3UVp0OJnhDgmiMAM1HD1rpdp",
+        "amount": 2563,
+        "amount_received": 2563,
+        "currency": "eur",
+        "status": "succeeded",
+        "created": 1793263697,
+        "livemode": false,
+        "latest_charge": "ch_3UVp0OJnhDgmiMAM1zFeNZFK",
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-pool",
+        "transfer_data": null,
+        "application_fee_amount": null,
+        "metadata": {
+          "net_target_minor": "2500",
+          "platform_commission_minor": "0",
+          "verification_case": "pool",
+          "verification_only": "true",
+          "verification_run_id": "gratilo-sct-compare-20261029T084123Z"
+        }
+      },
+      "charge": {
+        "id": "ch_3UVp0OJnhDgmiMAM1zFeNZFK",
+        "amount": 2563,
+        "amount_captured": 2563,
+        "amount_refunded": 0,
+        "currency": "eur",
+        "status": "succeeded",
+        "created": 1793263697,
+        "livemode": false,
+        "paid": true,
+        "captured": true,
+        "refunded": false,
+        "payment_intent": "pi_3UVp0OJnhDgmiMAM1HD1rpdp",
+        "balance_transaction": "txn_3UVp0OJnhDgmiMAM1zMKF70t",
+        "application_fee": null,
+        "application_fee_amount": null,
+        "transfer": null,
+        "transfer_data": null,
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-pool",
+        "metadata": {
+          "net_target_minor": "2500",
+          "platform_commission_minor": "0",
+          "verification_case": "pool",
+          "verification_only": "true",
+          "verification_run_id": "gratilo-sct-compare-20261029T084123Z"
+        }
+      },
+      "payment_balance": {
+        "id": "txn_3UVp0OJnhDgmiMAM1zMKF70t",
+        "amount": 2563,
+        "fee": 106,
+        "net": 2457,
+        "currency": "eur",
+        "type": "charge",
+        "reporting_category": "charge",
+        "source": "ch_3UVp0OJnhDgmiMAM1zFeNZFK",
+        "status": "pending",
+        "created": 1793263697,
+        "available_on": 1793836800,
+        "fee_details": [
+          {
+            "amount": 106,
+            "application": null,
+            "currency": "eur",
+            "description": "Stripe processing fees",
+            "type": "stripe_fee"
+          }
+        ],
+        "exchange_rate": null,
+        "arithmetic_verified": true
+      },
+      "group_transfer_search": {
+        "complete": true,
+        "ids": [
+          "tr_3UVp0OJnhDgmiMAM1e9upw7h",
+          "tr_3UVp0OJnhDgmiMAM1PPJI308"
+        ]
+      },
+      "source_balance_search": {
+        "complete": true,
+        "ids": [
+          "txn_3UVp0OJnhDgmiMAM1zMKF70t"
+        ]
+      },
+      "actual_recipient_net_minor": 2500,
+      "platform_residual_minor": -43,
+      "completed_utc": "2026-10-29T08:48:29.431356+00:00",
+      "result": "PASS: paid and complete SCT ledger chain verified",
+      "charge_inventory": {
+        "complete": true,
+        "ids": [
+          "ch_3UVp0OJnhDgmiMAM1zFeNZFK"
+        ]
+      }
+    }
+  ],
+  "execution_authorized_by_user": true,
+  "authorized_total_minor": 2563,
+  "mode": "SCT API comparison; not Gratilo UI end-to-end",
+  "platform": {
+    "id": "acct_1UQNErJnhDgmiMAM",
+    "livemode": false,
+    "business_label_matches_gratilo": true
+  },
+  "platform_balance_before": {
+    "available": [
+      {
+        "amount": 9856,
+        "currency": "eur",
+        "source_types": {
+          "card": 9856
+        }
+      }
+    ],
+    "pending": [
+      {
+        "amount": 995,
+        "currency": "eur",
+        "source_types": {
+          "card": 995
+        }
+      }
+    ],
+    "livemode": false
+  },
+  "recipients": [
+    {
+      "id": "acct_1UTKTHJnhD0xjF0b",
+      "livemode": false,
+      "closed": false,
+      "stripe_transfers_status": "active",
+      "payouts_status": "active",
+      "fees_collector": "application",
+      "balance_before": {
+        "available": [
+          {
+            "amount": 44840,
+            "currency": "eur",
+            "source_types": {
+              "card": 44840
+            }
+          }
+        ],
+        "pending": [
+          {
+            "amount": 2379,
+            "currency": "eur",
+            "source_types": {
+              "card": 2379
+            }
+          }
+        ],
+        "livemode": false
+      },
+      "payout_schedule": "manual",
+      "balance_after": {
+        "available": [
+          {
+            "amount": 44840,
+            "currency": "eur",
+            "source_types": {
+              "card": 44840
+            }
+          }
+        ],
+        "pending": [
+          {
+            "amount": 6129,
+            "currency": "eur",
+            "source_types": {
+              "card": 6129
+            }
+          }
+        ],
+        "livemode": false
+      }
+    },
+    {
+      "id": "acct_1UTK7rJnhDvqBsAp",
+      "livemode": false,
+      "closed": false,
+      "stripe_transfers_status": "active",
+      "payouts_status": "active",
+      "fees_collector": "application",
+      "balance_before": {
+        "available": [
+          {
+            "amount": 66405,
+            "currency": "eur",
+            "source_types": {
+              "card": 66405
+            }
+          }
+        ],
+        "pending": [
+          {
+            "amount": 4175,
+            "currency": "eur",
+            "source_types": {
+              "card": 4175
+            }
+          }
+        ],
+        "livemode": false
+      },
+      "payout_schedule": "manual",
+      "balance_after": {
+        "available": [
+          {
+            "amount": 66405,
+            "currency": "eur",
+            "source_types": {
+              "card": 66405
+            }
+          }
+        ],
+        "pending": [
+          {
+            "amount": 5425,
+            "currency": "eur",
+            "source_types": {
+              "card": 5425
+            }
+          }
+        ],
+        "livemode": false
+      }
+    }
+  ],
+  "preflight_finished_utc": "2026-10-29T08:48:11.667553+00:00",
+  "amount_selection": "Historical-comparison default after optional amount question; total 2563 EUR cents; fixed recipient target 2500 cents",
+  "recipient_target_minor": 2500,
+  "validation_error_reconciliation": {
+    "payment_intents_scanned": 32,
+    "pagination_complete": true,
+    "matching_payment_intents": [],
+    "checked_utc": "2026-10-29T08:47:36.776908+00:00"
+  },
+  "validation_parameter_correction": "Deprecated payment_method_types replaced with documented allowed_payment_method_types after full no-object reconciliation; same run; corrected parameter set has separate params-v2 payment idempotency key after no-object reconciliation",
+  "application_fee_verification": {
+    "list_complete": true,
+    "total_platform_objects": 13,
+    "matching_ids": []
+  },
+  "platform_balance_after": {
+    "available": [
+      {
+        "amount": 9856,
+        "currency": "eur",
+        "source_types": {
+          "card": 9856
+        }
+      }
+    ],
+    "pending": [
+      {
+        "amount": 909,
+        "currency": "eur",
+        "source_types": {
+          "card": 909
+        }
+      }
+    ],
+    "livemode": false
+  },
+  "completed_utc": "2026-10-29T08:48:30.902295+00:00",
+  "result": "PASS",
+  "final_payment_inventory": {
+    "pagination_complete": true,
+    "total_platform_intents": 34,
+    "matching_run_intents": [
+      {
+        "id": "pi_3UVp0OJnhDgmiMAM1HD1rpdp",
+        "amount": 2563,
+        "currency": "eur",
+        "status": "succeeded",
+        "livemode": false,
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-pool"
+      },
+      {
+        "id": "pi_3UVp0JJnhDgmiMAM1jqIMm5A",
+        "amount": 2563,
+        "currency": "eur",
+        "status": "succeeded",
+        "livemode": false,
+        "transfer_group": "gratilo-sct-compare-20261029T084123Z-single"
+      }
+    ]
+  },
+  "final_checks": {
+    "two_successful_payment_intents": true,
+    "three_transfers_exactly": true,
+    "total_charged_5126": true,
+    "total_fees_212": true,
+    "total_recipient_net_5000": true,
+    "platform_cost_86": true,
+    "all_source_links_exact": true,
+    "no_mutation_of_other_object_types": true,
+    "exact_successful_write_budget": true
+  },
+  "audit_completed_utc": "2026-10-29T08:49:13.609375+00:00"
+}

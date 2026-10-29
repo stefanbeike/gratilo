@@ -20,6 +20,7 @@ import java.util.*;
 @Singleton
 public class PoolTransferSettlementService {
     private static final Logger LOG = LoggerFactory.getLogger(PoolTransferSettlementService.class);
+    @Inject @io.micronaut.core.annotation.Nullable StripePaymentAuditor paymentAuditor;
     private final PoolTransferRepository transfers;
     private final TransactionRepository transactions;
     private final String secret;
@@ -228,6 +229,7 @@ public class PoolTransferSettlementService {
         allocation.setReversedAmountMinor(Math.max(allocation.getReversedAmountMinor(), accounted));
         allocation.setStatus(accounted >= allocation.getAmountMinor() ? "REVERSED" : "TRANSFERRED");
         record(allocation, null);
+        if(paymentAuditor!=null)paymentAuditor.transferObserved(allocation.getTransactionId(),allocation.getStripeTransferId());
         LOG.info("Pool transfer reconciled allocation={} transaction={} transfer={} amountMinor={}",
                 allocation.getId(), allocation.getTransactionId(), allocation.getStripeTransferId(), amount);
     }

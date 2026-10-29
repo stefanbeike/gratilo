@@ -11,6 +11,14 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StripeCheckoutTest {
+    @Test void enrollmentOccursOnlyForANewCheckoutAndNeverWhenResumingHistoricalTransactions() throws Exception {
+        var f=new StripeCheckoutTest();var service=f.service();var store=new StripePaymentAuditorTest.MemoryStore();
+        service.paymentAuditor=new StripePaymentAuditor(store,new StripePaymentAuditorTest.FakeClient(),null);
+        var request=new TipPaymentRequest(500L,null,"new-audit",false);service.create(f.recipient,request);
+        assertEquals(1,store.rows.size());var row=store.find(f.stored.getId()).orElseThrow();assertEquals("SINGLE",row.getPaymentType());assertEquals(f.session,row.getCheckoutSessionId());
+        store.rows.clear();service.create(f.recipient,request);assertTrue(store.rows.isEmpty());assertEquals(1,f.creates);
+    }
+
     @Test void approvedCompensationRetainsOnlyGrossPlatformFeeAndPreservesHistoricalAttempts() throws Exception {
         for(boolean covered:new boolean[]{false,true}) {
             var f=new StripeCheckoutTest();var service=f.service(new java.math.BigDecimal("3.15"));

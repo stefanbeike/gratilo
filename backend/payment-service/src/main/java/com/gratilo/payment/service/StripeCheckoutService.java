@@ -25,6 +25,7 @@ public class StripeCheckoutService {
     private final BigDecimal platformVatPercent;
 
     @Inject @Value("${gratilo.full-fee-compensation-enabled:false}") boolean fullFeeCompensationEnabled;
+    @Inject @io.micronaut.core.annotation.Nullable StripePaymentAuditor paymentAuditor;
     private final boolean pricingEnabled;
     private final PoolDistributionClient poolClient; private final PoolTransferRepository poolTransfers;
     public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect, @Value("${stripe.secret-key:}") String secret, @Value("${stripe.success-url}") String successUrl, @Value("${stripe.cancel-url}") String cancelUrl, @Value("${stripe.fee-percent:3.15}") BigDecimal feePercent, @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor, RecipientAvailability recipients) {
@@ -164,6 +165,7 @@ public class StripeCheckoutService {
             tx.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(context));
             tx = transactions.save(tx);
             if (feeAudit != null) feeAudit.snapshot(tx, quote);
+            if (paymentAuditor != null) paymentAuditor.enroll(tx,quote,"SINGLE",!isSandbox());
         }
         if(TipPricingSnapshot.isDirectVersion(quote.pricingVersion())&&!Objects.equals(accountId,StripePaymentContext.account(tx)))
             throw new CheckoutConflictException("CHECKOUT_ACCOUNT_CONTEXT_CHANGED",tx);
@@ -195,6 +197,7 @@ public class StripeCheckoutService {
         if (!Boolean.FALSE.equals(session.get("livemode")) || id == null || !id.startsWith("cs_test_") || url == null)
             throw new IllegalStateException("Invalid Stripe test Checkout response");
         tx.setProviderReference(id); tx.setPaymentMethod("card"); transactions.update(tx);
+        if(paymentAuditor!=null)paymentAuditor.sessionCreated(tx.getId(),id);
         return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false, quote));
     }
 
@@ -263,6 +266,7 @@ public class StripeCheckoutService {
             tx.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(pricing));
             tx = transactions.save(tx);
             if (feeAudit != null) feeAudit.snapshot(tx, quote);
+            if (paymentAuditor != null) paymentAuditor.enroll(tx,quote,"POOL",!isSandbox());
             var eligibleById = new HashMap<UUID, PoolEligible>(); eligible.forEach(e -> eligibleById.put(e.userId(), e));
             var now = OffsetDateTime.now();
             for (var share : shares) {
@@ -296,6 +300,7 @@ public class StripeCheckoutService {
         if (!Boolean.FALSE.equals(session.get("livemode")) || id == null || !id.startsWith("cs_test_") || url == null)
             throw new IllegalStateException("Invalid Stripe test Checkout response");
         tx.setProviderReference(id); tx.setPaymentMethod("card"); transactions.update(tx);
+        if(paymentAuditor!=null)paymentAuditor.sessionCreated(tx.getId(),id);
         return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false, quote));
     }
 

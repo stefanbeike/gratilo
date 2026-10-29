@@ -137,6 +137,8 @@ class PoolCheckoutTest {
                 return "{\"livemode\":false,\"id\":\"cs_test_pool\",\"url\":\"https://checkout.stripe.com/test\"}";
             }
         };
+        var fullAuditStore=new StripePaymentAuditorTest.MemoryStore();
+        service.paymentAuditor=new StripePaymentAuditor(fullAuditStore,new StripePaymentAuditorTest.FakeClient(),null);
         service.fullFeeCompensationEnabled=compensation;
         assertThrows(StripeCheckoutService.PoolNotReadyException.class,()->service.createPool(frozenPoolId,
                 new TipPaymentRequest(tip,"Team danke","wrong-target",covered,null,null,UUID.randomUUID())));
@@ -156,6 +158,7 @@ class PoolCheckoutTest {
         assertEquals(1,calls.stream().filter(c->c.contains("unit_amount")).count());
         assertEquals(distribution.size(), snapshots.size());
         assertEquals(expected,response.quote());
+        var fullAudit=fullAuditStore.find(stored.get().getId()).orElseThrow();assertEquals("POOL",fullAudit.getPaymentType());assertEquals("cs_test_pool",fullAudit.getCheckoutSessionId());assertEquals(1,fullAuditStore.rows.size());
         assertEquals(expected.recipientAmountMinor(),TipPricingSnapshot.from(stored.get()).recipientMinor());
         if(tip==2500&&rate.toString().equals("3.15")) {
             var actual=snapshots.stream().sorted(java.util.Comparator.comparing(a->a.getRecipientUserId().toString())).map(PoolTransferEntity::getAmountMinor).toList();

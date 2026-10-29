@@ -48,6 +48,8 @@ public class StripeTestAccessRule implements SecurityRule<HttpRequest<?>> {
         if (!path.startsWith("/payment-service/")) return SecurityRuleResult.UNKNOWN;
         // Stripe cannot supply a Gratilo JWT. This endpoint always verifies its raw-body signature.
         if ((path.equals("/payment-service/webhooks/stripe") || path.equals("/payment-service/webhooks/stripe-connect") || path.equals("/payment-service/webhooks/stripe-direct"))) return SecurityRuleResult.UNKNOWN;
+        if(path.startsWith("/payment-service/admin/stripe-payment-audits"))
+            return authentication!=null&&authentication.getRoles().contains("ROLE_ADMIN")?SecurityRuleResult.UNKNOWN:SecurityRuleResult.REJECTED;
         boolean storedRead = request.getMethod() == HttpMethod.GET &&
                 (path.equals("/payment-service/connect-account") || path.equals("/payment-service/transactions")
                         || path.startsWith("/payment-service/transactions/"));

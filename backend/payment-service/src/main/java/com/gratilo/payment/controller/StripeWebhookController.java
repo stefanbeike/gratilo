@@ -24,6 +24,8 @@ public class StripeWebhookController {
     com.gratilo.payment.service.PayoutStore payouts;
     @jakarta.inject.Inject @Nullable
     com.gratilo.payment.service.StripePayoutService payoutSetup;
+    @jakarta.inject.Inject @Nullable
+    com.gratilo.payment.service.StripePaymentAuditor paymentAuditor;
     private final TransactionRepository transactions;
     private final String secret;
     private final boolean testOnly;
@@ -48,6 +50,15 @@ public class StripeWebhookController {
             body = jsonMapper.readValue(payload, java.util.Map.class);
             if (testOnly && !Boolean.FALSE.equals(body.get("livemode"))) return HttpResponse.unauthorized();
         } catch (java.io.IOException exception) { return HttpResponse.badRequest(); }
+        try { return processPaymentEvent(body,directEndpoint); }
+        finally {
+            // Observe signed evidence even when the legacy business handler has nothing to change.
+            // Flush/lock ordering in the audit store keeps TX/allocation locks before AUDIT locks.
+            if(paymentAuditor!=null)paymentAuditor.webhook(body);
+        }
+    }
+
+    private HttpResponse<?> processPaymentEvent(java.util.Map<?,?> body,boolean directEndpoint) {
         String event = body.get("type") instanceof String value ? value : null;
         // A single signing secret serves v1 snapshot payment events. Accounts-v2
         // thin events require a separate event destination/secret and are not acknowledged.

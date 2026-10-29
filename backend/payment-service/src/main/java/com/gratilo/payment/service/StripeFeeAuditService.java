@@ -17,6 +17,7 @@ import java.util.*;
 /** Read-only Stripe reconciliation for fee snapshots created by new Gratilo checkouts. */
 @Singleton
 public class StripeFeeAuditService {
+    @jakarta.inject.Inject @io.micronaut.core.annotation.Nullable StripePaymentAuditor paymentAuditor;
     private final PaymentFeeAuditRepository audits;
     private final TransactionRepository transactions;
     private final String secret;
@@ -218,6 +219,7 @@ public class StripeFeeAuditService {
                 ?null:Math.subtractExact(grossLessTax,actualFeeMinor));
         audit.setStatus(actualFeeMinor==audit.getEstimatedFeeMinor()?"MATCHED":"DIFFERENCE");
         audit.setLastError(null);audit.setCheckedAt(OffsetDateTime.now());audits.update(audit);
+        if(paymentAuditor!=null)paymentAuditor.platformCostEvidence(transactionId,accountId,chargeId,actualFeeMinor,reportReference);
     }
 
     @Serdeable public record Report(UUID transactionId,String status,long chargedMinor,long surchargeMinor,long estimatedFeeMinor,
