@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { LandingIcon } from './LandingIcon'
 
@@ -18,22 +18,4 @@ export function LandingProducts() {
   </>
 }
 
-export function LandingContact() {
-  const [prepared, setPrepared] = useState(false)
-  const [emailUrl, setEmailUrl] = useState('')
-  const [topic, setTopic] = useState('Allgemeine Anfrage')
-  useEffect(() => {
-    const selectTopic = (event: Event) => { setTopic((event as CustomEvent<string>).detail); setPrepared(false) }
-    window.addEventListener('gratilo:contact-topic', selectTopic)
-    return () => window.removeEventListener('gratilo:contact-topic', selectTopic)
-  }, [])
-  // Product links can select an enquiry without transmitting or storing any data.
-  const prepare = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    const body = `Name: ${data.get('name')}\nAntwort an: ${data.get('email')}\nAnliegen: ${topic}\n\n${data.get('message')}`
-    setEmailUrl(`mailto:info@gratilo.eu?subject=${encodeURIComponent(`Gratilo: ${topic}`)}&body=${encodeURIComponent(body)}`)
-    setPrepared(true)
-  }
-  return <section className="lp-section lp-contact" id="kontakt"><div><p className="lp-eyebrow">LASS UNS SPRECHEN</p><h2>Ein Danke beginnt<br />mit einem Hallo.</h2><p>Fragen zu Gratilo, ein Pool für euren Betrieb oder Interesse an unseren Artikeln? Schreib uns.</p><a href="mailto:info@gratilo.eu">info@gratilo.eu ↗</a><p className="lp-note">Das Formular bereitet eine E-Mail vor. Du versendest sie anschließend in deinem E-Mail-Programm. Hier werden deine Angaben nicht gespeichert oder automatisch übermittelt.</p></div><form onSubmit={prepare} onChange={() => setPrepared(false)}><label htmlFor="contact-name">Dein Name</label><input id="contact-name" name="name" autoComplete="name" required maxLength={100} /><label htmlFor="contact-email">Deine E-Mail-Adresse</label><input id="contact-email" name="email" type="email" autoComplete="email" required maxLength={254} /><label htmlFor="contact-topic">Dein Anliegen</label><select id="contact-topic" value={topic} onChange={e => setTopic(e.target.value)}>{['Allgemeine Anfrage', 'Einzelkonto', 'Pool für unser Team', 'NFC-Karte mit QR-Code', 'Tischaufsteller', 'Button mit QR-Code', 'QR-Aufkleber'].map(value => <option key={value}>{value}</option>)}</select><label htmlFor="contact-message">Deine Nachricht</label><textarea id="contact-message" name="message" rows={5} required maxLength={2000} /><p className="lp-note">Bitte keine Zahlungsdaten oder Ausweisdokumente eintragen. Deine Angaben dienen der Bearbeitung deiner Anfrage.</p><button type="submit" className="lp-button">E-Mail vorbereiten ↗</button>{prepared && <div className="lp-contact-result" role="status"><p>Deine E-Mail ist vorbereitet, aber noch nicht versendet.</p><a className="lp-outline" href={emailUrl}>Im E-Mail-Programm öffnen ↗</a></div>}</form></section>
-}
+export { LandingContact } from './LandingContact'
