@@ -4,6 +4,7 @@ vi.mock('./stripe',()=>({paymentsEnabled:true}))
 import {DemoPayment} from './Dashboard'
 const owner='11111111-1111-1111-1111-111111111111'
 afterEach(()=>{cleanup();vi.unstubAllGlobals();history.replaceState({},'','/');sessionStorage.clear()})
+async function selectAmount(){fireEvent.change(await screen.findByLabelText(/Anderer Betrag/),{target:{value:'5,00'}})}
 function mount(limits:unknown={minAmountMinor:200,maxAmountMinor:50000,currency:'EUR'}){
  history.replaceState({},'',`/pay/team/${owner}`)
  const response=(data:unknown,ok=true)=>({ok,json:async()=>data})
@@ -22,32 +23,30 @@ function mount(limits:unknown={minAmountMinor:200,maxAmountMinor:50000,currency:
  });vi.stubGlobal('fetch',fetch);render(<DemoPayment/>);return fetch
 }
 it('uses server limits and hides the one-euro preset for team payments',async()=>{
- mount();await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled(),{timeout:5000})
- expect(screen.getByText(/Team-Trinkgeld:.*2,00.*500,00/)).toBeInTheDocument()
+ mount();await selectAmount();await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled(),{timeout:5000})
+ expect(screen.getByText(/Mindestens.*2,00.*500,00/)).toBeInTheDocument()
  expect(screen.queryByRole('button',{name:/^1,00/})).not.toBeInTheDocument()
  expect(screen.getByLabelText(/Anderer Betrag/)).toHaveAttribute('min','2')
  expect(screen.getByLabelText(/Anderer Betrag/)).toHaveAttribute('max','500')
 })
 for(const invalid of ['1,99','500,01','2,001','-2','keine Zahl'])it(`blocks an invalid pool amount ${invalid}`,async()=>{
- const fetch=mount();await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled(),{timeout:5000})
+ const fetch=mount();await selectAmount();await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled(),{timeout:5000})
  fireEvent.change(screen.getByLabelText(/Anderer Betrag/),{target:{value:invalid}})
  expect(screen.getByRole('button',{name:/Weiter/})).toBeDisabled()
  expect(screen.getByLabelText(/Anderer Betrag/)).toHaveAttribute('aria-invalid','true')
- expect(screen.getByRole('alert')).toHaveTextContent(/2,00.*500,00/)
+ expect(screen.getByRole('alert')).toHaveTextContent(/2 €.*500,00/)
  expect(fetch.mock.calls.some(([url])=>url.includes('/checkout'))).toBe(false)
 })
 it('accepts both endpoints and lets a Stripe surcharge exceed the pure tip maximum',async()=>{
- const fetch=mount();await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled(),{timeout:5000})
+ const fetch=mount();await selectAmount();await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled(),{timeout:5000})
  for(const input of ['2,00','500,00']){
   fireEvent.change(screen.getByLabelText(/Anderer Betrag/),{target:{value:input}})
   await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled(),{timeout:5000})
  }
  fireEvent.click(screen.getByRole('button',{name:/Weiter/}))
- fireEvent.click(screen.getByRole('checkbox',{name:'Zahlungsgebühren freiwillig übernehmen'}))
- await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter zur Zusammenfassung/})).toBeEnabled())
- fireEvent.click(screen.getByRole('button',{name:/Weiter zur Zusammenfassung/}))
+ fireEvent.click(screen.getByRole('checkbox',{name:/Zahlungsgebühren freiwillig übernehmen/}))
  expect(screen.getAllByText(/516,52/).length).toBeGreaterThan(0)
- fireEvent.click(screen.getByRole('button',{name:/Jetzt sicher bezahlen/}))
+ fireEvent.click(screen.getByRole('button',{name:/Weiter zur Zahlung/}))
  await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url.includes('/checkout'))).toBe(true))
  const sent=fetch.mock.calls.find(([url])=>url.includes('/checkout'))
  expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({tipAmountMinor:50000,feeCovered:true,expectedTotalAmountMinor:51652,expectedRecipientAmountMinor:47500})

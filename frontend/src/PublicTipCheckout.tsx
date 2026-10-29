@@ -5,24 +5,14 @@ import { TeamAvatar } from './TeamImageEditor'
 
 type Quote = { tipAmountMinor: number; serviceFeeMinor: number; totalAmountMinor: number; currency: string; serviceFeePercent: number; fixedFeeMinor: number; recipientAmountMinor: number; feeEstimated?: boolean; estimatedStripeFeeMinor?: number; feeEstimateBasis?: string; pricingVersion?: number; platformFeeMinor?: number; platformFeeNetMinor?: number; platformFeeTaxMinor?: number; platformFeeVatPercent?: number; platformFeePercent?: number; feesCollector?: string; recipientAmountEstimated?: boolean }
 type Recipient = { userId: string; firstName?: string; lastName?: string; organisation?: string; profileImage?: string | null; paymentEnabled?: boolean; personalLinkPaused?: boolean; poolId?: string; poolName?: string | null; memberNames?: string[] }
-type SavedFlow = { amount: number; message: string; feeCovered: boolean; step: 1 | 2 | 3; attemptKey?: string; pendingSessionId?: string }
-type CheckoutStatus = { status: 'PAID' | 'PENDING' | 'FAILED'; confirmed: boolean; transactionId?: string; tipAmountMinor?: number; amountPaidMinor?: number; recipientUserId?: string; recipientAmountMinor?: number; recipientAmountEstimated?: boolean; checkoutUrl?: string }
-const MIN_TIP = 100
+type SavedFlow = { amount: number; message: string; feeCovered: boolean; step: 1 | 2; attemptKey?: string; pendingSessionId?: string }
+type CheckoutStatus = { status: 'PAID' | 'PENDING' | 'FAILED'; confirmed: boolean; transactionId?: string; tipAmountMinor?: number; amountPaidMinor?: number; recipientUserId?: string; recipientAmountMinor?: number; recipientAmountEstimated?: boolean; checkoutUrl?: string; poolId?: string | null; poolName?: string | null }
+const MIN_TIP = 200
 const MAX_TIP = 1_000_000
 const money = (minor: number) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(minor / 100)
+const fullFeeCompensation = (quote: Quote) => [17, 18].includes(quote.pricingVersion || 0)
 const recipientExtraPricing = (quote: Quote) => [15, 16].includes(quote.pricingVersion || 0)
-const platformFeeLabel = (quote: Quote) => [15, 16].includes(quote.pricingVersion || 0)
-  ? 'Gratilo-Servicegebühr inkl. 19 % USt. (0,45 € + 5 %; Stripe-Kosten enthalten)'
-  : [12, 13, 14].includes(quote.pricingVersion || 0)
-  ? 'Gratilo-Servicegebühr inkl. 19 % USt. (0,45 € + 5 %)'
-  : [9, 10, 11].includes(quote.pricingVersion || 0)
-    ? 'Gratilo-Servicegebühr: 0,45 € + 5 % des Trinkgeldbetrags'
-    : [6, 7, 8].includes(quote.pricingVersion || 0)
-      ? 'Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags'
-      : 'Gratilo-Servicegebühr (bei Zahlungsbeginn vereinbart)'
-const platformVatBreakdown = (quote: Quote) => [12, 13, 14, 15, 16].includes(quote.pricingVersion || 0) && quote.platformFeeNetMinor != null && quote.platformFeeTaxMinor != null
-  ? `Enthalten: ${money(quote.platformFeeNetMinor)} Netto-Servicegebühr + ${money(quote.platformFeeTaxMinor)} Umsatzsteuer (${quote.platformFeeVatPercent ?? 19} %).`
-  : ''
+const moneyLabel = (minor: number) => `${minor / 100}`.replace('.', ',')
 const parseMoney = (raw: string, minimum = MIN_TIP, maximum = MAX_TIP): number | null => {
   const value = raw.trim().replace(',', '.')
   if (!/^\d+(?:\.\d{0,2})?$/.test(value)) return null
@@ -35,10 +25,10 @@ const savedFlow = (key: string, legacyKey: string, pool: boolean): SavedFlow => 
     const previousKind = sessionStorage.getItem('gratilo:last-pool')
     const compatibleLegacy = previousKind === null || previousKind === String(pool)
     const value = JSON.parse(sessionStorage.getItem(key) || (compatibleLegacy ? sessionStorage.getItem(legacyKey) : null) || 'null')
-    if (value && Number.isSafeInteger(value.amount) && value.amount >= MIN_TIP && value.amount <= MAX_TIP)
-      return { amount: value.amount, message: typeof value.message === 'string' ? value.message.slice(0, 500) : '', feeCovered: value.feeCovered === true, step: [1, 2, 3].includes(value.step) ? value.step : 1, attemptKey: value.attemptKey, pendingSessionId: value.pendingSessionId }
+    if (value && Number.isSafeInteger(value.amount) && (value.amount === 0 || value.amount >= MIN_TIP) && value.amount <= MAX_TIP)
+      return { amount: value.amount, message: typeof value.message === 'string' ? value.message.slice(0, 500) : '', feeCovered: value.feeCovered === true, step: value.step === 2 || value.step === 3 ? 2 : 1, attemptKey: value.attemptKey, pendingSessionId: value.pendingSessionId }
   } catch { /* Ignore damaged local checkout data. */ }
-  return { amount: 500, message: '', feeCovered: false, step: 1 }
+  return { amount: 0, message: '', feeCovered: false, step: 1 }
 }
 
 export function PublicTipCheckout({ session }: { session?: Session | null }) {
@@ -51,16 +41,17 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   const legacyFlowStorageKey = `gratilo:checkout:${recipientPath || 'current'}`
   const flowStorageKey = `gratilo:checkout:${isPool ? 'pool' : 'individual'}:${recipientPath || 'current'}`
   const [flow, setFlow] = useState<SavedFlow>(() => savedFlow(flowStorageKey, legacyFlowStorageKey, isPool))
-  const [amountInput, setAmountInput] = useState((flow.amount / 100).toFixed(2).replace('.', ','))
+  const [amountInput, setAmountInput] = useState(flow.amount ? (flow.amount / 100).toFixed(2).replace('.', ',') : '')
   const [recipient, setRecipient] = useState<Recipient | null>(null)
   const [recipientId, setRecipientId] = useState('')
   const [eligibility, setEligibility] = useState<boolean | null>(null)
   const [eligibilityCheckFailed, setEligibilityCheckFailed] = useState(false)
-  const [eligibilityCheckError, setEligibilityCheckError] = useState('')
   const [eligibilityRevision, setEligibilityRevision] = useState(0)
   const [poolLimits, setPoolLimits] = useState<{minAmountMinor:number;maxAmountMinor:number}|null>(null)
   const [poolLimitsError,setPoolLimitsError] = useState('')
-  const [quote, setQuote] = useState<Quote | null>(null)
+  const [quotes, setQuotes] = useState<{amount: number; base: Quote; covered: Quote} | null>(null)
+  const [messageOpen, setMessageOpen] = useState(!!flow.message)
+  const [amountTouched, setAmountTouched] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const checkoutInFlight = useRef(false)
@@ -74,6 +65,10 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   const minimum = isPool ? poolLimits?.minAmountMinor ?? 200 : MIN_TIP
   const maximum = isPool ? poolLimits?.maxAmountMinor ?? 50000 : MAX_TIP
   const validInputAmount = parseMoney(amountInput,minimum,maximum)
+  const quote = quotes?.amount === validInputAmount ? (flow.feeCovered ? quotes.covered : quotes.base) : null
+  const baseQuote = quotes?.amount === validInputAmount ? quotes.base : null
+  const coveredQuote = quotes?.amount === validInputAmount ? quotes.covered : null
+  const optionAmount = coveredQuote ? coveredQuote.totalAmountMinor - coveredQuote.tipAmountMinor : 0
   useEffect(()=>{
     if(!isPool||isResult)return
     let current=true
@@ -99,7 +94,10 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
         if (!current) return
         const team = routeIsPool || profile.paymentTarget === 'POOL'
         const recipientProfile: Recipient = team ? { userId: profile.poolId || profile.ownerId!, poolName: profile.name, poolId: profile.poolId, profileImage: profile.profileImage } : profile
-        if (team !== isPool) setFlow(savedFlow(`gratilo:checkout:${team ? 'pool' : 'individual'}:${recipientPath}`, legacyFlowStorageKey, team))
+        if (team !== isPool) {
+          const restored = savedFlow(`gratilo:checkout:${team ? 'pool' : 'individual'}:${recipientPath}`, legacyFlowStorageKey, team)
+          setFlow(restored); setAmountInput(restored.amount ? moneyLabel(restored.amount) : ''); setMessageOpen(!!restored.message)
+        }
         setIsPool(team); setRecipient(recipientProfile); setRecipientId(recipientProfile.userId)
         sessionStorage.setItem('gratilo:last-recipient', recipientPath); sessionStorage.setItem('gratilo:last-pool', String(team))
       })
@@ -109,7 +107,7 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   useEffect(() => {
     if (!recipientId || isResult) return
     let current = true
-    setEligibility(null); setEligibilityCheckFailed(false); setEligibilityCheckError('')
+    setEligibility(null); setEligibilityCheckFailed(false)
     fetch(`/payment-service/tips/${isPool ? `pools/${recipientId}` : recipientId}/eligibility`, { headers, cache: 'no-store' })
       .then(async response => {
         const value = await response.json().catch(() => ({}))
@@ -118,23 +116,25 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
         return value
       })
       .then(value => { if (current) setEligibility(value?.canReceiveTips === true) })
-      .catch(failure => { if (current) { setEligibility(false); setEligibilityCheckFailed(true); setEligibilityCheckError(failure instanceof Error ? failure.message : 'Der Zahlungsstatus konnte nicht geprüft werden.') } })
+      .catch(failure => { if (current) { setEligibility(false); setEligibilityCheckFailed(true) } })
     return () => { current = false }
   }, [recipientId, headers, isResult, isPool, eligibilityRevision])
   useEffect(() => {
-    if (!recipientId || isResult || !validInputAmount || (isPool && !poolLimits)) { setQuote(null); return }
+    if (!recipientId || isResult || !validInputAmount || (isPool && !poolLimits)) { setQuotes(null); return }
     let current = true
-    setQuote(null)
-    fetch(`/payment-service/tips/${isPool ? `pools/${recipientId}` : recipientId}/quote?amountMinor=${validInputAmount}&feeCovered=${flow.feeCovered}`, { headers, cache: 'no-store' })
-      .then(async response => {
-        const value = await response.json()
-        if (!response.ok) throw new Error(['TIP_TOO_SMALL_AFTER_FEES','POOL_TIP_OUT_OF_RANGE'].includes(value.code) ? value.message : 'Der Betrag konnte gerade nicht berechnet werden. Bitte versuche es erneut.')
-        return value
-      })
-      .then(value => { if (current) { setQuote(value); setError('') } })
-      .catch(failure => { if (current) { setQuote(null); setError(failure instanceof Error ? failure.message : 'Der Betrag konnte gerade nicht berechnet werden. Bitte versuche es erneut.') } })
+    setQuotes(null)
+    const loadQuote = async (covered: boolean): Promise<Quote> => {
+      const response = await fetch(`/payment-service/tips/${isPool ? `pools/${recipientId}` : recipientId}/quote?amountMinor=${validInputAmount}&feeCovered=${covered}`, { headers, cache: 'no-store' })
+      const value = await response.json()
+      if (!response.ok) throw new Error(['TIP_TOO_SMALL_AFTER_FEES','POOL_TIP_OUT_OF_RANGE'].includes(value.code) ? value.message : 'Der Betrag konnte gerade nicht berechnet werden. Bitte versuche es erneut.')
+      if (value.tipAmountMinor !== validInputAmount || !Number.isSafeInteger(value.totalAmountMinor) || !Number.isSafeInteger(value.recipientAmountMinor)) throw new Error('Die Berechnung konnte nicht bestätigt werden. Bitte versuche es erneut.')
+      return value
+    }
+    Promise.all([loadQuote(false), loadQuote(true)])
+      .then(([base, covered]) => { if (current) { setQuotes({amount: validInputAmount, base, covered}); setError('') } })
+      .catch(failure => { if (current) { setQuotes(null); setError(failure instanceof Error ? failure.message : 'Der Betrag konnte gerade nicht berechnet werden.') } })
     return () => { current = false }
-  }, [recipientId, validInputAmount, flow.feeCovered, headers, isResult, loadRevision, isPool, poolLimits])
+  }, [recipientId, validInputAmount, headers, isResult, loadRevision, isPool, poolLimits])
   const sessionId = new URLSearchParams(location.search).get('session_id') || flow.pendingSessionId
   useEffect(() => {
     if (!isResult || !sessionId) return
@@ -172,7 +172,7 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
           window.history.replaceState({},'',`/pay/success?session_id=${encodeURIComponent(result.sessionId)}`);
           setLoadRevision(value=>value+1);return;
         }
-        if(result.code==='QUOTE_CHANGED'){setLoadRevision(value=>value+1);update({step:2})} throw new Error(result.message || 'Stripe Checkout konnte nicht gestartet werden.') }
+        if(result.code==='QUOTE_CHANGED'){setLoadRevision(value=>value+1);update({step:2,attemptKey:undefined})} throw new Error(result.code === 'QUOTE_CHANGED' ? 'Die Beträge haben sich geändert. Bitte prüfe die aktualisierte Übersicht.' : 'Die Zahlung konnte nicht abgeschlossen werden. Bitte versuche es erneut oder wähle eine andere Zahlungsart.') }
       if (!result.checkoutUrl) throw new Error('Die sichere Stripe-Zahlungsseite wurde nicht zurückgegeben. Der Versuch bleibt für eine sichere Wiederholung gespeichert.')
       if (result.transactionId) sessionStorage.setItem('gratilo:last-transaction', result.transactionId)
       location.assign(result.checkoutUrl)
@@ -185,94 +185,101 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   }
   function returnToPayment() {
     if (!checkoutStatus || checkoutStatus.status === 'PENDING') return
-    const fresh: SavedFlow = { amount: 500, message: '', feeCovered: false, step: 1 }
+    const fresh: SavedFlow = { amount: 0, message: '', feeCovered: false, step: 1 }
     sessionStorage.setItem(flowStorageKey, JSON.stringify(fresh))
-    setFlow(fresh); setAmountInput('5,00'); setCheckoutStatus(null); setRetrying(true)
-    const target = `/pay/${isPool ? 'team/' : ''}${encodeURIComponent(recipientPath)}`
-    window.history.replaceState({}, '', target)
+    setFlow(fresh); setAmountInput(''); setMessageOpen(false); setAmountTouched(false); setCheckoutStatus(null); setRetrying(true)
+    const confirmedPool = checkoutStatus?.poolId
+    const confirmedRecipient = checkoutStatus?.recipientUserId
+    const target = `/pay/${confirmedPool ? 'team/' : ''}${encodeURIComponent(confirmedPool || confirmedRecipient || recipientPath)}`
+    location.assign(target)
   }
   async function refreshStatus() { setLoadRevision(value => value + 1) }
 
-  if (!paymentsEnabled) return <main className="tip-page"><CheckoutBrand /><section className="tip-card"><h1>Zahlungen sind derzeit deaktiviert.</h1><p>Aktuell sind keine Zahlungen möglich.</p></section></main>
-  if (!isResult && recipient && recipient.paymentEnabled === false) return <main className="tip-page"><CheckoutBrand /><section className="tip-card"><span className="step-label">ZAHLUNGSSEITE</span><h1>Momentan nicht verfügbar.</h1><p className="tip-intro">{'Diese Zahlungsseite ist derzeit deaktiviert.'}</p></section></main>
+  useEffect(() => {
+    if (!isResult || !checkoutStatus?.confirmed || !checkoutStatus.recipientUserId || checkoutStatus.poolId) return
+    let current = true
+    fetch(`/user-service/users/public/${encodeURIComponent(checkoutStatus.recipientUserId)}`, {cache: 'no-store'})
+      .then(response => response.ok ? response.json() : Promise.reject())
+      .then(profile => { if (current && profile.userId === checkoutStatus.recipientUserId) setRecipient(profile) })
+      .catch(() => { /* Confirmed amounts remain visible if the public profile is unavailable. */ })
+    return () => { current = false }
+  }, [isResult, checkoutStatus?.confirmed, checkoutStatus?.recipientUserId, checkoutStatus?.poolId])
+
+  if (!paymentsEnabled) return <main className="tip-page checkout-page"><CheckoutBrand /><section className="tip-card"><h1>Zahlungen sind derzeit deaktiviert.</h1><p>Aktuell sind keine Zahlungen möglich.</p><CheckoutLinks /></section></main>
+  if (!isResult && recipient && recipient.paymentEnabled === false) return <main className="tip-page checkout-page"><CheckoutBrand /><section className="tip-card"><span className="step-label">ZAHLUNGSSEITE</span><h1>Momentan nicht verfügbar.</h1><p className="tip-intro">{'Diese Zahlungsseite ist derzeit deaktiviert.'}</p><CheckoutLinks /></section></main>
 
   if (isResult) {
+    const resultIsPool = !!checkoutStatus?.poolId
+    const resultName = resultIsPool ? checkoutStatus?.poolName || 'das Team' : recipient?.userId === checkoutStatus?.recipientUserId ? name : 'die empfangende Person'
     const status = checkoutStatus?.status || 'PENDING'
     const paid = status === 'PAID' && checkoutStatus?.confirmed === true
     const failed = status === 'FAILED'
-    return <main className="tip-page"><CheckoutBrand /><section className="tip-card checkout-result" aria-live="polite">
-      {recipient?.profileImage && <img className="tip-profile-image" src={recipient.profileImage} alt={`Profilbild von ${name}`} />}
-      {paid ? <><span className="step-label">ZAHLUNG BESTÄTIGT</span><h1>Danke!</h1><p>Dein Trinkgeld für {name} wurde erfolgreich bezahlt.</p><div className="tip-breakdown"><SummaryLine label="Bezahlt" value={money(checkoutStatus.amountPaidMinor || flow.amount)} />{checkoutStatus.recipientAmountMinor != null && <SummaryLine label={checkoutStatus.recipientAmountEstimated ? 'Voraussichtlicher Nettoanteil des Empfängers' : isPool ? 'Für den Pool festgelegt' : 'Für den Empfänger festgelegt'} value={money(checkoutStatus.recipientAmountMinor)} />}<SummaryLine label="Referenz" value={checkoutStatus.transactionId || sessionStorage.getItem('gratilo:last-transaction') || '—'} /></div><p className="tip-note">Die Zahlungsbestätigung bedeutet nicht, dass das Geld bereits auf dem Bankkonto des Empfängers ausgezahlt wurde.</p></>
-        : failed ? <><span className="step-label">ZAHLUNG FEHLGESCHLAGEN</span><h1>Das hat leider nicht geklappt.</h1><p>Dieser Checkout wurde von Stripe als abgelaufen oder fehlgeschlagen bestätigt. Deine Betragsauswahl und Nachricht bleiben erhalten.</p><div className="tip-breakdown"><SummaryLine label="Dein Betrag" value={money(flow.amount)} /><SummaryLine label="Gebührenübernahme" value={flow.feeCovered ? 'Ausgewählt' : 'Nicht ausgewählt'} /></div><button className="tip-pay" onClick={retryAfterConfirmedFailure}>Erneut versuchen</button></>
+    return <main className="tip-page checkout-page"><CheckoutBrand /><section className="tip-card checkout-result" aria-live="polite">
+      {recipient?.profileImage && recipient.userId === checkoutStatus?.recipientUserId && !resultIsPool && <img className="tip-profile-image" src={recipient.profileImage} alt={`Profilbild von ${resultName}`} />}
+      {paid ? <><span className="step-label">ZAHLUNG BESTÄTIGT</span><h1>Danke für dein Trinkgeld!</h1><p>Deine Zahlung war erfolgreich.</p><p>{resultName}</p><div className="tip-breakdown"><SummaryLine label="Du hast bezahlt" value={money(checkoutStatus.amountPaidMinor ?? 0)} />{checkoutStatus.recipientAmountMinor != null && <SummaryLine label={checkoutStatus.recipientAmountEstimated ? `${resultName} erhält voraussichtlich` : `${resultName} erhält`} value={money(checkoutStatus.recipientAmountMinor)} />}<SummaryLine label="Referenz" value={checkoutStatus.transactionId || sessionStorage.getItem('gratilo:last-transaction') || '—'} /></div><p className="tip-note">{resultIsPool ? 'Die Auszahlung auf die Bankkonten der Teammitglieder erfolgt später.' : `Die Auszahlung auf das Bankkonto von ${resultName} erfolgt später.`}</p></>
+        : failed ? <><span className="step-label">ZAHLUNG FEHLGESCHLAGEN</span><h1>Das hat leider nicht geklappt.</h1><p>Die Zahlung wurde nicht abgeschlossen. Du kannst es erneut versuchen. Deine Betragsauswahl und Nachricht bleiben erhalten.</p><div className="tip-breakdown"><SummaryLine label="Dein Betrag" value={money(flow.amount)} /><SummaryLine label="Gebührenübernahme" value={flow.feeCovered ? 'Ausgewählt' : 'Nicht ausgewählt'} /></div><button className="tip-pay" onClick={retryAfterConfirmedFailure}>Erneut versuchen</button></>
         : <><span className="step-label">ZAHLUNG WIRD GEPRÜFT</span><h1>Bitte noch nicht erneut bezahlen.</h1><p>Der Status bei Stripe ist noch offen oder konnte gerade nicht bestätigt werden. Es wird keine neue Zahlung angelegt.</p>{checkoutStatus?.checkoutUrl && <a className="tip-pay checkout-hosted-link" href={checkoutStatus.checkoutUrl}>Bestehenden Stripe-Checkout fortsetzen</a>}<button className="outline-button result-action" disabled={statusBusy} onClick={refreshStatus}>{statusBusy ? 'Wird geprüft …' : 'Zahlungsstatus aktualisieren'}</button></>}
-      <button className="text-button result-action" disabled={!checkoutStatus || (!paid && !failed)} onClick={returnToPayment}>Zurück zur Zahlungsseite</button>
-    </section></main>
+      <button className="text-button result-action" disabled={!checkoutStatus || (!paid && !failed)} onClick={returnToPayment}>Zurück zu {resultName}</button>
+    <CheckoutLinks /></section></main>
   }
 
-  if (!recipient) return <main className="tip-page"><CheckoutBrand /><section className="tip-card"><p role="status">{error || 'Gratilo-Profil wird geladen …'}</p></section></main>
-  return <main className="tip-page"><CheckoutBrand /><section className="tip-card">
-    {isPool?<TeamAvatar image={recipient.profileImage} name={name}/>:recipient.profileImage&&<img className="tip-profile-image" src={recipient.profileImage} alt={`Profilbild von ${name}`} />}
-    <span className="step-label">SCHRITT {flow.step} VON 3 · {flow.step === 1 ? 'TRINKGELD' : flow.step === 2 ? 'GEBÜHREN' : 'ZUSAMMENFASSUNG'}</span>
-    <h1>{flow.step === 2 ? `Wie viel kommt bei ${name} an?` : flow.step === 3 ? `Dein Trinkgeld für ${name}` : `Trinkgeld für ${name}.`}</h1>
+  if (!recipient) return <main className="tip-page checkout-page"><CheckoutBrand /><section className="tip-card"><p role="status">{error || 'Gratilo-Profil wird geladen …'}</p><CheckoutLinks /></section></main>
+  return <main className="tip-page checkout-page"><CheckoutBrand /><section className="tip-card">
+    {isPool ? <TeamAvatar image={recipient.profileImage} name={name}/> : recipient.profileImage
+      ? <img className="tip-profile-image" src={recipient.profileImage} alt={`Profilbild von ${name}`} />
+      : <div className="checkout-avatar" role="img" aria-label={`Profil von ${name}`}>{name.slice(0, 1)}</div>}
+    <span className="step-label">Schritt {flow.step === 1 ? 1 : 2} von 3 · {flow.step === 1 ? 'Betrag auswählen' : 'Prüfen'}</span>
+    <h1>{flow.step === 1 ? `Ein Dankeschön für ${name}` : `Dein Dankeschön für ${name}`}</h1>
+    {recipient.organisation && recipient.organisation !== name && <p className="tip-intro">{name} · {recipient.organisation}</p>}
+    {eligibility !== true && <p role={eligibilityCheckFailed ? 'alert' : 'status'}>{eligibility === null ? 'Zahlungsberechtigung wird geprüft …' : eligibilityCheckFailed ? 'Der Zahlungsstatus konnte nicht geprüft werden. Bitte versuche es erneut.' : isPool ? 'Dieses Team kann aktuell noch kein Trinkgeld empfangen. Bitte versuche es später erneut.' : 'Diese Person kann aktuell noch kein Trinkgeld empfangen. Bitte versuche es später erneut.'}</p>}
+    {eligibilityCheckFailed && <button type="button" className="text-button" onClick={() => setEligibilityRevision(value => value + 1)}>Zahlungsstatus erneut prüfen</button>}
+    {error && <div className="message error" role="alert">{error}</div>}
+    {poolLimitsError && <p role="alert">{poolLimitsError}</p>}
     {flow.step === 1 && <>
-      <p className="tip-intro">{isPool ? `Der nach deiner Gebührenauswahl festgelegte Betrag wird nach der gespeicherten Verteilungsregel an alle vorgesehenen Mitglieder von ${name} verteilt.` : `Dein Trinkgeld geht direkt an ${name}${recipient.organisation && recipient.organisation !== name ? ` bei ${recipient.organisation}` : ''}.`} Ohne Gratilo- oder Stripe-Konto für dich als Gast.</p>
-      {isPool && <p className="pool-public-members"><strong>Trinkgeld für das gesamte Team</strong><br/>Ein gemeinsames Danke für euren Service.</p>}
-      {eligibility !== true && <p role={eligibilityCheckFailed ? 'alert' : 'status'}>{eligibility === null ? 'Zahlungsberechtigung wird geprüft …' : eligibilityCheckFailed ? eligibilityCheckError : isPool ? 'Dieser Pool ist noch nicht zahlungsbereit. Aktive Mitglieder mit Anteil müssen Stripe-Transfers empfangen können.' : 'Dieser Empfänger kann derzeit keine Trinkgelder empfangen.'}</p>}
-      {eligibilityCheckFailed && <button type="button" className="text-button" onClick={() => setEligibilityRevision(value => value + 1)}>Stripe-Status erneut prüfen</button>}
-      {error && <div className="message error" role="alert">{error}</div>}
-      {isPool&&<p className="tip-note">Team-Trinkgeld: {money(minimum)} bis {money(maximum)}</p>}
-      {poolLimitsError&&<p role="alert">{poolLimitsError}</p>}
-      {isPool&&validInputAmount===null&&<p role="alert">Bitte wähle einen Team-Trinkgeldbetrag von {money(minimum)} bis {money(maximum)} mit höchstens zwei Nachkommastellen.</p>}
-      <div className="tip-amounts">{[100, 200, 500, 1000].filter(value=>value>=minimum&&value<=maximum).map(value => <button type="button" key={value} aria-pressed={flow.amount === value} className={flow.amount === value ? 'selected' : ''} onClick={() => { update({ amount: value }); setAmountInput((value / 100).toFixed(2).replace('.', ',')) }}>{money(value)}</button>)}</div>
-      <label className="other-amount" htmlFor="checkout-amount">Anderer Betrag (mindestens {money(minimum)})<div className="euro-input"><input id="checkout-amount" inputMode="decimal" min={minimum/100} max={maximum/100} step="0.01" aria-invalid={validInputAmount === null} value={amountInput} onChange={event => { setAmountInput(event.target.value); const parsed = parseMoney(event.target.value,minimum,maximum); if (parsed !== null) update({ amount: parsed }) }} onBlur={() => { if (validInputAmount !== null) setAmountInput((validInputAmount / 100).toFixed(2).replace('.', ',')) }} /><span>€</span></div></label>
-      {flow.message && <div className="tip-note checkout-message-preview"><strong>Deine Nachricht:</strong> {flow.message}</div>}
-      <label htmlFor="checkout-message">Nachricht <span>(optional)</span><textarea id="checkout-message" maxLength={500} value={flow.message} onChange={event => update({ message: event.target.value })} placeholder="Sag noch ein paar nette Worte …" /></label>
-      <p className="tip-note">Stripe zeigt die verfügbaren Zahlungsmethoden im sicheren Checkout an.</p>
+      {isPool && <p className="tip-intro">Ein Dankeschön für das gesamte Team. Der Empfängerbetrag wird nach der hinterlegten Verteilung aufgeteilt.</p>}
+      <h2>Wie viel möchtest du geben?</h2>
+      <div className="tip-amounts">{[200, 500, 1000].filter(value => value >= minimum && value <= maximum).map(value => <button type="button" key={value} aria-pressed={validInputAmount === value} className={validInputAmount === value ? 'selected' : ''} onClick={() => { update({ amount: value }); setAmountInput(moneyLabel(value)); setAmountTouched(true) }}>{money(value)}</button>)}</div>
+      <label className="other-amount" htmlFor="checkout-amount">Anderer Betrag<div className="euro-input"><input id="checkout-amount" aria-label="Anderer Betrag" inputMode="decimal" min={minimum / 100} max={maximum / 100} placeholder="Betrag in €" aria-describedby="checkout-amount-hint checkout-amount-error" aria-invalid={amountTouched && validInputAmount === null} value={amountInput} onChange={event => { setAmountTouched(true); setAmountInput(event.target.value); const parsed = parseMoney(event.target.value, minimum, maximum); update({ amount: parsed ?? 0 }) }} onBlur={() => { setAmountTouched(true); if (validInputAmount !== null) setAmountInput((validInputAmount / 100).toFixed(2).replace('.', ',')) }} /><span aria-hidden="true">€</span></div></label>
+      <p className="tip-note" id="checkout-amount-hint">Mindestens {money(minimum)} · maximal {money(maximum)}</p>
+      <p className="checkout-field-error" id="checkout-amount-error" role={amountTouched && validInputAmount === null ? 'alert' : undefined}>{amountTouched && validInputAmount === null ? `Bitte gib einen Betrag ab ${moneyLabel(minimum)} € ein. Maximal ${money(maximum)}, mit höchstens zwei Nachkommastellen.` : ''}</p>
+      <button type="button" className="text-button" aria-expanded={messageOpen} aria-controls="checkout-message-panel" onClick={() => setMessageOpen(value => !value)}>{messageOpen ? 'Nachricht ausblenden' : 'Nachricht hinzufügen (optional)'}</button>
+      <div id="checkout-message-panel" hidden={!messageOpen}><label htmlFor="checkout-message">Deine Nachricht (optional)<textarea id="checkout-message" maxLength={500} value={flow.message} onChange={event => update({ message: event.target.value })} /></label><p className="tip-note">{isPool ? 'Die Nachricht wird für diese Teamzahlung gespeichert.' : `Deine Nachricht sieht ${name}.`}</p></div>
+      <p className="tip-note">{name} erhält dein Trinkgeld abzüglich der Servicegebühr. Im nächsten Schritt siehst du die genaue Aufteilung.</p>
       <button className="tip-pay" disabled={busy || eligibility !== true || validInputAmount === null || !quote} onClick={() => update({ step: 2 })}>Weiter <span aria-hidden="true">→</span></button>
+      <p className="tip-note">Ohne Anmeldung · Sicher bezahlen mit Stripe</p>
     </>}
-    {flow.step === 2 && !quote && <><p role="status">{error || 'Gebührenberechnung wird aktualisiert …'}</p><button className="text-button result-action" onClick={() => update({step:1})}>← Betrag ändern</button></>}
-    {flow.step === 2 && quote && <>
-      <p className="tip-intro">Dein ausgewählter Betrag beträgt {money(flow.amount)}.{recipientExtraPricing(quote) ? ' Du kannst dem Empfänger-Team freiwillig ein zusätzliches Trinkgeld geben.' : ' Wenn du möchtest, kannst du die Stripe-Zahlungsgebühren freiwillig übernehmen.'}</p>
-      <label className="fee-toggle"><input type="checkbox" checked={flow.feeCovered} onChange={event => update({ feeCovered: event.target.checked })} /><span>{recipientExtraPricing(quote) ? (isPool ? 'Zusätzliches Trinkgeld für das Team geben' : 'Zusätzliches Trinkgeld für den Mitarbeiter geben') : 'Zahlungsgebühren freiwillig übernehmen'}</span></label>
-      {!flow.feeCovered && <p className="hint" role="status">{recipientExtraPricing(quote) ? 'Gratilo trägt die tatsächlichen Stripe-Zahlungskosten aus seiner Servicegebühr. ' : 'Du übernimmst die Gebühren nicht. Die Zahlungsgebühren werden von deinem Trinkgeld abgezogen. '}{isPool ? 'Für den Pool' : 'Beim Empfänger'} {recipientExtraPricing(quote) ? 'sind' : 'kommen voraussichtlich'} {money(quote.recipientAmountMinor)} {recipientExtraPricing(quote) ? 'festgelegt.' : 'an.'}</p>}
-      <p className="hint">{recipientExtraPricing(quote) ? 'Der freiwillige Zusatzbetrag geht vollständig an den Empfänger beziehungsweise wird nach den Pool-Anteilen verteilt. Stripe-Zahlungsgebühren trägt Gratilo; ihre tatsächliche Höhe kann je nach Zahlungsmethode, Kartenherkunft, Kartentyp und Währungsumrechnung abweichen.' : `Die Gebührenübernahme ist eine Schätzung. Zahlungsmethode, Kartenherkunft, Kartentyp und gegebenenfalls Währungsumrechnung beeinflussen die tatsächlichen Kosten. ${quote.recipientAmountEstimated ? 'Stripe zieht seine tatsächlichen Gebühren direkt beim Empfänger ein. Der Gastaufschlag geht nicht zusätzlich an Gratilo; der voraussichtliche Nettoanteil kann abweichen. Dein bestätigter Gesamtbetrag bleibt unverändert.' : 'Mehrkosten trägt Gratilo. Dein bestätigter Gesamtbetrag und der festgelegte Empfängerbetrag bleiben nach der Zahlung unverändert.'}`}</p>
-      <div className="tip-breakdown" aria-live="polite">
-        <SummaryLine label="Ausgewählter Betrag" value={money(quote.tipAmountMinor)} />
-        {quote.platformFeeMinor != null && <SummaryLine noWrap label={platformFeeLabel(quote)} value={`− ${money(quote.platformFeeMinor)}`} />}
-        {platformVatBreakdown(quote) && <p className="tip-note fee-vat-breakdown">{platformVatBreakdown(quote)}</p>}
-        {recipientExtraPricing(quote) ? <><SummaryLine noWrap label={flow.feeCovered ? 'Zusätzliches Trinkgeld für den Empfänger' : 'Stripe-Kosten (Schätzung, von Gratilo getragen)'} value={flow.feeCovered ? `+ ${money(quote.serviceFeeMinor)}` : money(quote.estimatedStripeFeeMinor ?? 0)} />{flow.feeCovered && <SummaryLine noWrap label="Stripe-Kosten (Schätzung, von Gratilo getragen)" value={money(quote.estimatedStripeFeeMinor ?? 0)} />}</> : <SummaryLine noWrap label={flow.feeCovered ? 'Zusätzlich übernommene Gebühren' : 'Stripe-Gebühren als Abzug'} value={flow.feeCovered ? money(quote.serviceFeeMinor) : `− ${money(quote.estimatedStripeFeeMinor ?? 0)}`} />}
-        <SummaryLine noWrap label={recipientExtraPricing(quote) ? (isPool ? 'Für den Pool festgelegt' : 'Beim Mitarbeiter') : flow.feeCovered && !quote.recipientAmountEstimated ? (isPool ? 'Für den Pool festgelegt' : 'Für den Empfänger festgelegt') : (isPool ? 'Voraussichtlicher Nettobetrag für den Pool' : 'Voraussichtlicher Nettobetrag für den Empfänger')} value={money(quote.recipientAmountMinor)} />
-        <SummaryLine label="Du bezahlst insgesamt" value={money(quote.totalAmountMinor)} total />
-      </div>
-      <p className="tip-note">{quote.serviceFeePercent!=null&&quote.fixedFeeMinor!=null?`Referenzschätzung: ${quote.serviceFeePercent} % des Gesamtbetrags + ${money(quote.fixedFeeMinor)}.`:'Serverseitig berechnete Referenzschätzung.'} {quote.feeEstimateBasis} Die Gratilo-Provision ist separat ausgewiesen. Spätere Connect- und Bankauszahlungskosten sind nicht in der Stripe-Kostenschätzung enthalten.</p>
-      {error && <div className="message error" role="alert">{error}</div>}
-      <button className="tip-pay" disabled={!quote} onClick={() => update({ step: 3 })}>Weiter zur Zusammenfassung <span aria-hidden="true">→</span></button>
-      <button className="text-button result-action" onClick={() => update({ step: 1 })}>← Betrag ändern</button>
+    {flow.step !== 1 && <>
+      {flow.attemptKey && <p className="tip-note">Ein Zahlungsversuch wurde gestartet. Verwende „Weiter zur Zahlung“, um denselben Versuch sicher fortzusetzen.</p>}
+      {!quote || !baseQuote || !coveredQuote ? <p role="status">Berechnung wird aktualisiert …</p> : <>
+        <div className="tip-breakdown" aria-live="polite">
+          <SummaryLine label="Ausgewählter Betrag" value={money(quote.tipAmountMinor)} />
+          {quote.platformFeeMinor != null && <SummaryLine label="Servicegebühr" value={`−${money(quote.platformFeeMinor)}`} noWrap />}
+          {flow.feeCovered && <SummaryLine label={fullFeeCompensation(quote) ? 'Freiwilliger Gebührenausgleich' : recipientExtraPricing(quote) ? 'Freiwilliges Zusatztrinkgeld' : 'Freiwilliger Zahlungsaufschlag'} value={`+${money(quote.serviceFeeMinor)}`} noWrap />}
+          {!fullFeeCompensation(quote) && !recipientExtraPricing(quote) && <SummaryLine label="Weitere Zahlungsabzüge (geschätzt)" value={`−${money(quote.totalAmountMinor - quote.recipientAmountMinor - (quote.platformFeeMinor ?? 0))}`} noWrap />}
+          <SummaryLine label={`${name} erhält${quote.recipientAmountEstimated ? ' voraussichtlich' : ''}`} value={money(quote.recipientAmountMinor)} noWrap />
+        </div>
+        <label className="fee-toggle"><input type="checkbox" disabled={busy || !!flow.attemptKey} checked={flow.feeCovered} onChange={event => update({ feeCovered: event.target.checked })} /><span>{fullFeeCompensation(quote) ? 'Servicegebühr freiwillig ausgleichen' : recipientExtraPricing(quote) ? `Zusätzliches Trinkgeld für ${name} geben` : 'Zahlungsgebühren freiwillig übernehmen'} (+{money(optionAmount)})</span></label>
+        <p className="tip-note">{flow.feeCovered ? `${name} erhält ${money(coveredQuote.recipientAmountMinor)}.` : `Mit dieser Auswahl erhält ${name} ${money(coveredQuote.recipientAmountMinor)}. Du würdest insgesamt ${money(coveredQuote.totalAmountMinor)} zahlen.`}</p>
+        <div className="tip-breakdown" aria-live="polite"><SummaryLine label="Du zahlst insgesamt" value={money(quote.totalAmountMinor)} total /></div>
+        <details className="checkout-fee-details"><summary>Gebührendetails anzeigen</summary>
+          {fullFeeCompensation(quote) ? <p>Die Servicegebühr beträgt 0,45 € plus 5 % des ausgewählten Betrags, einschließlich 19 % Umsatzsteuer. Wenn du sie freiwillig ausgleichst, erhält {name} den ausgewählten Betrag vollständig. Auf den freiwilligen Ausgleich fällt keine weitere Servicegebühr an.</p> : <p>Die Servicegebühr und der freiwillige Zusatzbetrag werden nach dem aktuell hinterlegten Gebührenmodell berechnet. {recipientExtraPricing(quote) ? 'Der Zusatzbetrag erhöht den Empfängerbetrag; er gleicht die Servicegebühr nicht vollständig aus.' : 'Die Zahlungsabzüge und der Empfängerbetrag können von den tatsächlichen Kosten der Zahlungsabwicklung abweichen.'}</p>}
+        </details>
+        {flow.message && <div className="checkout-message-preview"><p>Deine Nachricht: „{flow.message}“</p><button className="text-button" disabled={busy || !!flow.attemptKey} onClick={() => { setMessageOpen(true); update({step: 1}) }}>Bearbeiten</button></div>}
+        <button className="tip-pay" disabled={busy || eligibility !== true || validInputAmount !== flow.amount} onClick={startCheckout}>{busy ? 'Zahlung wird geöffnet …' : `Weiter zur Zahlung · ${money(quote.totalAmountMinor)}`}</button>
+        <p className="tip-note">Schritt 3 von 3 · Bezahlen findet bei Stripe statt. Die Zahlung bestätigst du dort.</p>
+      </>}
+      <button className="text-button result-action" disabled={busy || !!flow.attemptKey} onClick={() => update({ step: 1 })}>Betrag ändern</button>
     </>}
-    {flow.step === 3 && quote && <>
-      <p className="tip-intro">Prüfe deine Angaben, bevor du sicher zu Stripe weitergehst.</p>
-      <div className="tip-breakdown">
-        <SummaryLine label="Empfänger" value={name} />
-        <SummaryLine label="Ausgewählter Betrag" value={money(quote.tipAmountMinor)} />
-        <SummaryLine label="Freibetrag" value="Kein separater Freibetrag · Mindestbetrag 1,00 €" />
-        {flow.message.length > 0 && <SummaryLine label="Deine Nachricht" value={flow.message} />}
-        <SummaryLine label={recipientExtraPricing(quote) ? 'Freiwilliges Zusatztrinkgeld' : 'Gebührenausgleich'} value={flow.feeCovered ? 'Freiwillig ausgewählt' : 'Nicht ausgewählt'} />
-        {quote.platformFeeMinor != null && <SummaryLine noWrap label={platformFeeLabel(quote)} value={`− ${money(quote.platformFeeMinor)}`} />}
-        {platformVatBreakdown(quote) && <p className="tip-note fee-vat-breakdown">{platformVatBreakdown(quote)}</p>}
-        {recipientExtraPricing(quote) ? <><SummaryLine noWrap label={flow.feeCovered ? 'Zusätzliches Trinkgeld für den Empfänger' : 'Stripe-Kosten (Schätzung, von Gratilo getragen)'} value={flow.feeCovered ? `+ ${money(quote.serviceFeeMinor)}` : money(quote.estimatedStripeFeeMinor ?? 0)} />{flow.feeCovered && <SummaryLine noWrap label="Stripe-Kosten (Schätzung, von Gratilo getragen)" value={money(quote.estimatedStripeFeeMinor ?? 0)} />}</> : <SummaryLine noWrap label={flow.feeCovered ? 'Zusätzlich übernommene Gebühren' : 'Stripe-Gebühren als Abzug'} value={flow.feeCovered ? money(quote.serviceFeeMinor) : `− ${money(quote.estimatedStripeFeeMinor ?? 0)}`} />}
-        <SummaryLine noWrap label={recipientExtraPricing(quote) ? (isPool ? 'Für den Pool festgelegt' : 'Beim Mitarbeiter') : flow.feeCovered && !quote.recipientAmountEstimated ? (isPool ? 'Für den Pool festgelegt' : 'Für den Empfänger festgelegt') : (isPool ? 'Voraussichtlicher Nettobetrag für den Pool' : 'Voraussichtlicher Nettobetrag für den Empfänger')} value={money(quote.recipientAmountMinor)} />
-        <SummaryLine label="Du bezahlst insgesamt" value={money(quote.totalAmountMinor)} total />
-      </div>
-      <p className="tip-note">{recipientExtraPricing(quote) ? 'Der freiwillige Zusatzbetrag geht vollständig an den Mitarbeiter beziehungsweise wird nach den Pool-Anteilen verteilt. Gratilo erhält daraus keine zusätzliche Provision. Die Stripe-Gebühren trägt Gratilo und sie werden nicht zusätzlich vom Mitarbeiterbetrag abgezogen.' : `Die Zahlungsgebühren und der angezeigte Nettobetrag beruhen auf einer Schätzung. Die tatsächlichen Stripe-Gebühren können abweichen. ${quote.recipientAmountEstimated ? 'Stripe zieht die tatsächlichen Gebühren beim Empfänger ein; sein Nettoanteil kann höher oder niedriger ausfallen. Gratilo erhält ausschließlich die ausgewiesene Servicegebühr. Dein Gesamtbetrag bleibt unverändert.' : 'Nach der Zahlung bleiben Gäste- und Empfängerbetrag unverändert; die Differenz trägt beziehungsweise behält Gratilo.'}`}</p><p className="tip-note">Sichere Zahlungsabwicklung durch Stripe. Als Gast brauchst du kein Gratilo-Konto. Stripe verarbeitet deine Zahlungsdaten; Gratilo erhält keine Kartendaten.</p>
-      {error && <div className="message error" role="alert">{error}</div>}
-      <button className="tip-pay" disabled={busy || eligibility !== true || !quote} onClick={startCheckout}>{busy ? 'Stripe Checkout wird geöffnet …' : 'Jetzt sicher bezahlen'} <span aria-hidden="true">→</span></button>
-      <button className="text-button result-action" disabled={busy} onClick={() => update({ step: 2 })}>{recipientExtraPricing(quote) ? '← Betrag und Zusatztrinkgeld ändern' : '← Betrag und Gebührenübernahme ändern'}</button>
-    </>}
-    <p className="tip-note">Stripe-Testmodus · Keine echten Zahlungen oder Auszahlungen.</p>
+    <CheckoutLinks />
   </section></main>
 }
 
-function CheckoutBrand() { return <div className="tip-brand"><span className="brand-mark">g</span>gratilo<span className="brand-dot">.</span></div> }
+function CheckoutBrand() { return <><div className="checkout-test-banner" role="status">Testmodus · Nur Stripe-Testzahlungsmittel verwenden. Keine echten Zahlungen.</div><div className="tip-brand"><img src="/gratilo-logo.svg" alt="Gratilo – Good people deserve more" width="220" height="98" /></div></> }
+function CheckoutLinks() {
+  const links = [['Impressum', import.meta.env.VITE_CHECKOUT_IMPRINT_URL], ['Datenschutz', import.meta.env.VITE_CHECKOUT_PRIVACY_URL], ['Gastbedingungen', import.meta.env.VITE_CHECKOUT_TERMS_URL], ['Hilfe', import.meta.env.VITE_CHECKOUT_HELP_URL]]
+  return <nav className="checkout-links" aria-label="Rechtliches und Hilfe">{links.map(([label, url]) => url && /^https:\/\//.test(url) ? <a key={label} href={url} target="_blank" rel="noopener noreferrer">{label}</a> : <span key={label}>{label} (noch nicht hinterlegt)</span>)}</nav>
+}
+
 function SummaryLine({ label, value, total = false, noWrap = false }: { label: string; value: string; total?: boolean; noWrap?: boolean }) {
   return <div className={total ? 'tip-total' : ''}><span>{label}</span><strong className={noWrap ? 'checkout-money' : undefined}>{value}</strong></div>
 }

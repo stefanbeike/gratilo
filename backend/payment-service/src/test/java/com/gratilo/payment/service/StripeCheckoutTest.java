@@ -11,6 +11,28 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StripeCheckoutTest {
+    @Test void approvedCompensationRetainsOnlyGrossPlatformFeeAndPreservesHistoricalAttempts() throws Exception {
+        for(boolean covered:new boolean[]{false,true}) {
+            var f=new StripeCheckoutTest();var service=f.service(new java.math.BigDecimal("3.15"));
+            service.fullFeeCompensationEnabled=true;
+            service.create(f.recipient,new TipPaymentRequest(500L,"Danke","full-fee",covered));
+            assertEquals(17,f.savedQuote.pricingVersion());
+            assertEquals(covered?570:500,f.savedQuote.totalAmountMinor());
+            assertEquals(covered?500:430,f.savedQuote.recipientAmountMinor());
+            assertEquals(70,TipPricingSnapshot.from(f.stored).applicationFeeMinor());
+            assertEquals("acct_fixture",f.requestAccount);
+            assertTrue(f.form.contains("payment_intent_data[application_fee_amount]=70&"));
+            assertTrue(f.form.contains("session_id={CHECKOUT_SESSION_ID}"));
+            var frozen=f.stored.getMetadata();service.fullFeeCompensationEnabled=false;
+            service.create(f.recipient,new TipPaymentRequest(500L,"Danke","full-fee",covered));
+            assertEquals(frozen,f.stored.getMetadata());assertEquals(1,f.creates);
+        }
+    }
+    @Test void newIndividualCheckoutRejectsAmountsBelowTwoEuros() {
+        var f=new StripeCheckoutTest();
+        assertThrows(StripeCheckoutService.InvalidCheckoutRequestException.class,()->f.service().create(f.recipient,new TipPaymentRequest(199L,null,"too-small",false)));
+        assertNull(f.stored);assertEquals(0,f.creates);
+    }
     @Test void unknownCollectorCannotReceiveTheApplicationCollectorPricingOrCreateASession() throws Exception {
         for (boolean covered : new boolean[]{false, true}) {
             var fixture = new StripeCheckoutTest();

@@ -127,7 +127,7 @@ public final class PoolReconciliation {
             else if(localPending){status="LOCAL_SETTLEMENT_PENDING";reason="TRANSFER_IDS_NOT_DURABLY_RECONCILED";}
             else if(refunded>0||pendingRefund||tx.getStatus()==TransactionStatus.REFUNDED){status="REFUND_REVIEW_REQUIRED";reason="COMMISSION_REFUND_POLICY_UNDECIDED";}
             long economicRevenue=residual;
-            if(TipPricingSnapshot.isRecipientExtraVersion(pricing.version()))economicRevenue=Math.subtractExact(residual,pricing.platformFeeTaxMinor());
+            if(TipPricingSnapshot.isGrossFeeVersion(pricing.version()))economicRevenue=Math.subtractExact(residual,pricing.platformFeeTaxMinor());
             return new Report(status,reason,group,pricing.platformFeeMinor(),total,original.feeMinor(),pendingRefund?null:residual,outstanding,pendingReversals,
                     "RECONCILED".equals(status)?economicRevenue:null,refunded,transferred,reversed,List.copyOf(ledger),OffsetDateTime.now());
         }catch(Exception failure){

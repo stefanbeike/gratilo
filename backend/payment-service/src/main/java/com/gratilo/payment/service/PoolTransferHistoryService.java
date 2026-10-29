@@ -46,7 +46,7 @@ public class PoolTransferHistoryService {
             Long gross = null, fee = null;
             if(historicalShare!=null&&transaction!=null)try{
                 var pricing=TipPricingSnapshot.from(transaction);
-                if(TipPricingSnapshot.isRecipientExtraVersion(pricing.version())){gross=item.getAmountMinor();fee=0L;}
+                if(TipPricingSnapshot.isGrossFeeVersion(pricing.version())){gross=item.getAmountMinor();fee=0L;}
             }catch(IllegalStateException ignored){}
             if (gross==null&&historicalShare != null && selected != null) {
                 try {

@@ -9,6 +9,10 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PoolCheckoutTest {
+    @Test void approvedFullCompensationIsAllocatedOnceAcrossMembers() throws Exception {
+        for(boolean covered:new boolean[]{false,true})
+            assertPoolCharge(covered,500,new java.math.BigDecimal("3.15"),List.of(20.0,30.0,50.0),"application",true);
+    }
     @Test void memberFeeCollectorNeverChangesThePlatformPoolChargeOrItsSingleCommission() throws Exception {
         // A pool charge is always platform-scoped, even for a stripe-fee-collector recipient.
         for (boolean covered : new boolean[]{false, true})
@@ -76,7 +80,10 @@ class PoolCheckoutTest {
         assertPoolCharge(covered,tip,rate,distribution,"application");
     }
     private void assertPoolCharge(boolean covered,long tip,java.math.BigDecimal rate,List<Double> distribution,String feeCollector) throws Exception {
-        var expected=TipPricing.poolRecipientExtraVatQuote(tip,covered,rate,25,TipPricing.DEFAULT_PLATFORM_PERCENT,TipPricing.DEFAULT_PLATFORM_VAT_PERCENT);
+        assertPoolCharge(covered,tip,rate,distribution,feeCollector,false);
+    }
+    private void assertPoolCharge(boolean covered,long tip,java.math.BigDecimal rate,List<Double> distribution,String feeCollector,boolean compensation) throws Exception {
+        var expected=compensation ? TipPricing.compensationQuote(tip,covered,rate,25,TipPricing.DEFAULT_PLATFORM_PERCENT,TipPricing.DEFAULT_PLATFORM_VAT_PERCENT,true) : TipPricing.poolRecipientExtraVatQuote(tip,covered,rate,25,TipPricing.DEFAULT_PLATFORM_PERCENT,TipPricing.DEFAULT_PLATFORM_VAT_PERCENT);
         UUID owner = UUID.randomUUID(), first = new UUID(0,1), second = new UUID(0,2), third = new UUID(0,3);
         var members=new ArrayList<PoolDistributionClient.Member>();
         members.add(new PoolDistributionClient.Member(first,"A",distribution.get(0),true));
@@ -130,6 +137,7 @@ class PoolCheckoutTest {
                 return "{\"livemode\":false,\"id\":\"cs_test_pool\",\"url\":\"https://checkout.stripe.com/test\"}";
             }
         };
+        service.fullFeeCompensationEnabled=compensation;
         assertThrows(StripeCheckoutService.PoolNotReadyException.class,()->service.createPool(frozenPoolId,
                 new TipPaymentRequest(tip,"Team danke","wrong-target",covered,null,null,UUID.randomUUID())));
         assertTrue(calls.isEmpty());assertNull(stored.get());assertTrue(snapshots.isEmpty());

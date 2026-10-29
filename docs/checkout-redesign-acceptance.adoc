@@ -1,0 +1,131 @@
+= Checkout: Umsetzung und Abnahme
+Stand: 29. Oktober 2026
+
+Die Arbeitsanleitung vom 26. Oktober 2026 ist technisch im bestehenden
+React-/Micronaut-Checkout umgesetzt. Dies ist keine Produkt-, Gebühren- oder
+Livefreigabe. Die vorhandene Stripe-Anbindung akzeptiert ausschließlich Testschlüssel;
+deshalb bleibt der Testhinweis sichtbar.
+
+== Umgesetzt
+
+* Zwei Gratilo-Seiten: Betrag auswählen und Prüfen. Schritt drei ist der gehostete
+Stripe-Checkout; der Übergang erklärt ausdrücklich, wo die Zahlung bestätigt wird.
+* Kein vorausgewählter Betrag bei einem neuen Vorgang. Standardminimum 2 EUR,
+Höchstbetrag Einzelzahlung 10.000 EUR; Teamgrenzen bleiben serverseitig konfiguriert
+(standardmäßig 2–500 EUR). Einzelzahlungen unter 2 EUR werden serverseitig abgewiesen.
+Ein-Euro-Sonderfälle sind nicht aktiviert.
+* Kommaeingabe, Centgenauigkeit, gemeinsame Auswahl für Vorschläge und Freieingabe,
+optionale aufklappbare Nachricht, neutrale Profilvertretung, vorhandene Logo-Datei.
+* Prüfung mit Empfängerbetrag, aktuellem Gesamtbetrag, konkretem optionalem Aufschlag,
+Gebührendetails und Bearbeitung ohne Verlust der Nachricht.
+* Für neue Berechnungen werden beide Auswahlzustände vom Server geladen.
+Verspätete Antworten für alte Beträge werden verworfen. Nach einem gestarteten
+Zahlungsversuch sind Betrags-/Nachrichten-/Optionsänderungen gesperrt, bis dessen
+Status geklärt ist; Wiederholungen behalten denselben Idempotenzschlüssel.
+* Erfolgsanzeige ausschließlich nach serverseitiger Zahlungsbestätigung.
+Beträge und Empfängerkennung stammen aus der Transaktion; Teamkennung und Teamname
+werden aus dem eingefrorenen Transaktionsdatensatz zurückgegeben. Ein Profil aus
+einem anderen lokalen Vorgang wird nicht als bestätigter Empfänger ausgegeben.
+* Offene Zahlungen bieten keinen neuen Zahlungsversuch an. Abbruch-Rückleitungen
+enthalten die Stripe-Sitzungskennung, damit der bestehende Versuch geprüft werden kann.
+* Keine Bestätigung einer Nachrichtenübermittlung ohne Zustellnachweis.
+* Mobile Darstellung, lesbare Abrechnung, Fokusmarkierung und Bedienung im Querformat.
+
+== Gebührenentscheidung und Aktivierung
+
+[cols="1,3,2",options="header"]
+|===
+|ID |Stand |Verantwortlich
+|D01 |Offen: wirtschaftliche Freigabe und tatsächliche Stripe-Abrechnungsnachweise fehlen. |Stefan K / Stefan B
+|D02 |Offen: Vollausgleich ist vorbereitet und standardmäßig deaktiviert. |Stefan K
+|D03 |Standardminimum 2 EUR technisch umgesetzt; formale Produktbestätigung offen. Keine 1-EUR-Ausnahme aktiviert. |Stefan K
+|D04 |Keine weitere Servicegebühr auf den Vollausgleich; technische Berechnung und Buchungsparameter getestet. Tatsächliche Abrechnung noch nachzuweisen. |Stefan K / Stefan B
+|D05 |Offen: Zahlungsarten im Stripe-Dashboard für Plattform und verbundene Konten prüfen; Klarna und Wallets dort abstimmen. |Stefan K / Stefan B
+|===
+
+`GRATILO_FULL_FEE_COMPENSATION_ENABLED=false` ist der sichere Ausgangszustand.
+Bis zur Freigabe verwendet die Anwendung weiterhin das vorhandene Zusatztrinkgeldmodell
+(Versionen 15/16), mit passender Beschriftung und ohne die Zusage eines vollständigen
+Gebührenausgleichs. Ein bestehender Vorgang wird nicht neu bepreist.
+
+Erst nach D01/D02/D04 und dem Stripe-Nachweis darf
+`GRATILO_FULL_FEE_COMPENSATION_ENABLED=true` gesetzt werden. Die bestehende separate
+Zahlungssperre `GRATILO_NEW_PRICING_ENABLED` bleibt ebenfalls maßgeblich.
+Das neue Modell verwendet Version 17 (Direct Charge) beziehungsweise 18 (Team).
+
+Formel: F = 45 Cent + kaufmännisch auf Cent gerundete 5 % von B.
+Umsatzsteuer wird aus dieser Bruttogebühr herausgerechnet. Ohne Ausgleich:
+Gesamt B, Empfänger B − F. Mit Ausgleich: Gesamt B + F, Empfänger B.
+Bei B = 500 Cent ergibt das 500/430 beziehungsweise 570/500 Cent.
+Auf den Ausgleich wird keine weitere Servicegebühr berechnet.
+Direct Charges bleiben auf Konten mit `fees_collector=application` beschränkt;
+Konten mit Stripe-Gebührenabzug beim Empfänger werden weiter gesperrt.
+Die Application Fee beträgt im neuen Modell F; Teamanteile summieren sich exakt zum
+Empfängerbetrag. Stripe-Kostenschätzungen bleiben intern für Audit und Abstimmung.
+
+Alte Transaktionen behalten ihre Versionen und Beträge, auch bei später geänderter
+Konfiguration. Snapshotvalidierung, Gebührenaudit, Poolabstimmung und
+Empfängerbenachrichtigungen unterstützen die neuen Versionen.
+
+== Noch vor Pilot/Livefreigabe erforderlich
+
+* Tatsächliche freigegebene HTTPS-Ziele für `VITE_CHECKOUT_IMPRINT_URL`,
+`VITE_CHECKOUT_PRIVACY_URL`, `VITE_CHECKOUT_TERMS_URL` und `VITE_CHECKOUT_HELP_URL`
+hinterlegen und auf Erreichbarkeit prüfen. Vite liest sie beim Build;
+Docker-Buildargumente und Compose-Weitergabe sind vorbereitet.
+Ohne Ziel zeigt der Test-Checkout den fehlenden Inhalt ausdrücklich an.
+Dies erfüllt noch nicht die P0-Abnahme für Rechtstextlinks.
+* Vorhandenes Logo und die daraus verwendete Mintfarbe mit den verbindlichen
+Markenvorgaben abgleichen. Die vorhandene SVG wird wiederverwendet, kein neues Logo erstellt.
+* Stripe-Branding, tatsächlichen Geschäftsnamen und sichtbare Empfängerinformation,
+Zahlungsarten, E-Mail-Erfordernis und freiwilliges Stripe Link auf den tatsächlich
+verwendeten Konten prüfen. Es wird keine eigene Karteneingabe gebaut und kein Konto umbenannt.
+Die gehostete Oberfläche und ihre Wallet-Verfügbarkeit werden von Stripe bestimmt.
+Siehe https://docs.stripe.com/payments/checkout/customization[Stripe Checkout-Anpassung]
+und https://docs.stripe.com/payments/payment-methods/dynamic-payment-methods[dynamische Zahlungsarten].
+* Vier echte Stripe-Testabrechnungen dokumentieren: Einzel/Team jeweils mit/ohne
+Vollausgleich. Checkoutbetrag, tatsächliche Stripe-Kosten, Application Fee/Plattformrest
+und Empfängergutschrift gemeinsam belegen. Bei Teams vollständige Verteilung und
+transferbereite Testmitglieder prüfen. Lokale Provider-Fakes ersetzen diese Belege nicht.
+* Nachrichtensichtbarkeit für Teammitglieder fachlich bestätigen; es wird derzeit
+nur die Speicherung zugesagt. Eine Zustellbestätigung erfordert eine separate
+serverseitige Zustellinformation.
+* Vertragsrollen, freigegebene Rechtstexte und Gründungsvoraussetzungen bestätigen.
+Livezahlungen bleiben durch die bestehende Test-only-Anbindung ausgeschlossen.
+
+== Testnachweise
+
+Lokale Prüfung am 29. Oktober 2026, ohne Livezahlung und ohne neue Stripe-Transaktion.
+Frontend-Gesamtsuite: 165 Tests erfolgreich; nach zwei ergänzten Regressionstests
+gezielt nochmals 27 Checkout-Tests erfolgreich. Payment-Service: 254 Tests erfolgreich.
+TypeScript-/Vite-Produktionsbuild erfolgreich.
+
+[cols="1,3,3",options="header"]
+|===
+|Test |Lokaler Nachweis |Externe Abnahme
+|T01/T02 |Centberechnung, Direct-Charge-Application-Fee, Snapshot und Teamverteilung mit Provider-Fakes getestet. |Tatsächliche Stripe-Buchungen offen.
+|T03 |Komma, Leerwert, Minimum, Maximalwert und ungültige Nachkommastellen automatisiert getestet. |Produktbestätigung D03 offen.
+|T04/T05 |Ausgleich an/aus, Betragswechsel, verspätete Antworten und gesperrte Änderungen nach Zahlungsstart getestet. |Stripe-Sitzungen im vollständigen Testablauf prüfen.
+|T06 |Einzel-/Teamendpunkte, Namen und eingefrorene Teamverteilung getestet. |Team-Nachrichtensichtbarkeit bestätigen.
+|T07 |Chromium mit API-Fakes: 320/390/430 px, Querformat, 200 % Zoom; kein horizontaler Überlauf und keine Browserfehler. |Tastaturprüfung auf Zielgeräten ergänzen.
+|T08 |Stripe bleibt gehostet; keine Wallets werden erfunden. |Wallet/Karte/Abbruch auf tatsächlichen Testkonten offen.
+|T09 |Bestätigt/offen/fehlgeschlagen, Idempotenz, bestehender Versuch und fehlende Zustellbestätigung getestet. |Echte Stripe-Fehlerpfade ergänzen.
+|T10 |Konfigurierbare HTTPS-Links vorbereitet. |Zieladressen, Erreichbarkeit und Stripe Link offen.
+|T11 |Audit- und Buchungsparameter automatisiert geprüft. |Tatsächliche Abrechnungsbelege fehlen; Freigabe blockiert.
+|===
+
+Reproduzierbare automatisierte Prüfungen:
+
+[source,bash]
+----
+npm test --prefix frontend -- --maxWorkers=2
+npm run build --prefix frontend
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew :backend:payment-service:test --console=plain
+----
+
+Browserbilder der lokalen Prüfung liegen unter `build/reports/checkout/`:
+`gratilo-checkout-amount.png`, `gratilo-checkout-review.png`,
+`gratilo-checkout-compensation.png`, `gratilo-checkout-success.png`.
+Sie verwenden Fixture-Daten und sind keine Zahlungs- oder Zustellnachweise.
+
+Technische Abnahme Stefan B: offen. Produkt-/Gebührenfreigabe Stefan K: offen.

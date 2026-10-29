@@ -24,6 +24,7 @@ public class StripeCheckoutService {
     private final BigDecimal platformPercent;
     private final BigDecimal platformVatPercent;
 
+    @Inject @Value("${gratilo.full-fee-compensation-enabled:false}") boolean fullFeeCompensationEnabled;
     private final boolean pricingEnabled;
     private final PoolDistributionClient poolClient; private final PoolTransferRepository poolTransfers;
     public StripeCheckoutService(TransactionRepository transactions, ConnectedAccountRepository accounts, StripeConnectService connect, @Value("${stripe.secret-key:}") String secret, @Value("${stripe.success-url}") String successUrl, @Value("${stripe.cancel-url}") String cancelUrl, @Value("${stripe.fee-percent:3.15}") BigDecimal feePercent, @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor, RecipientAvailability recipients) {
@@ -56,7 +57,13 @@ public class StripeCheckoutService {
         if(platformPercent.compareTo(TipPricing.DEFAULT_PLATFORM_PERCENT)!=0||platformFixedMinor!=45||platformVatPercent.compareTo(TipPricing.DEFAULT_PLATFORM_VAT_PERCENT)!=0)throw new IllegalArgumentException("Invalid commission or VAT configuration");
         this.pricingEnabled=pricingEnabled;
         TipPricing.platformFee(100,platformPercent);this.platformPercent=platformPercent;this.platformVatPercent=platformVatPercent;this.feeAudit = feeAudit;
-        this.recipients=recipients; this.transactions=transactions; this.accounts=accounts; this.connect=connect; this.poolClient=poolClient; this.poolTransfers=poolTransfers; StripeConnectService.requireTestKey(secret); this.secret=secret; this.successUrl=absoluteUrl(successUrl); this.cancelUrl=absoluteUrl(cancelUrl); this.feePercent=feePercent; this.fixedFeeMinor=fixedFeeMinor;
+        this.recipients=recipients; this.transactions=transactions; this.accounts=accounts; this.connect=connect; this.poolClient=poolClient; this.poolTransfers=poolTransfers; StripeConnectService.requireTestKey(secret); this.secret=secret; this.successUrl=absoluteUrl(successUrl); this.cancelUrl=checkoutCancelUrl(cancelUrl); this.feePercent=feePercent; this.fixedFeeMinor=fixedFeeMinor;
+    }
+    static String checkoutCancelUrl(String url) {
+        String absolute = absoluteUrl(url);
+        if (absolute.contains("session_id={CHECKOUT_SESSION_ID}")) return absolute;
+        if (absolute.contains("session_id=") || absolute.contains("#")) throw new IllegalArgumentException("Invalid Checkout cancel URL");
+        return absolute + (absolute.contains("?") ? "&" : "?") + "session_id={CHECKOUT_SESSION_ID}";
     }
     public TipQuote quote(long amount,boolean covered){return TipPricing.quote(amount,covered,feePercent,fixedFeeMinor,platformPercent);}
     public TipQuote quote(UUID recipient,long amount,boolean covered) throws Exception {
@@ -65,13 +72,15 @@ public class StripeCheckoutService {
     private TipQuote directQuote(long amount,boolean covered,String collector) {
         if("stripe".equals(collector))throw new UnsupportedRecipientFeeModelException();
         if(!"application".equals(collector))throw new RecipientNotReadyException();
+        if(amount < 200) throw new InvalidCheckoutRequestException();
+        if(fullFeeCompensationEnabled) return TipPricing.compensationQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent,platformVatPercent,false);
         return TipPricing.directRecipientExtraVatQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent,platformVatPercent);
     }
     private static long applicationFee(com.gratilo.payment.api.TipQuote quote) {
-        return TipPricingSnapshot.isStripeCollectorVersion(quote.pricingVersion()) || quote.pricingVersion()==15 ? quote.platformFeeMinor() : quote.totalAmountMinor()-quote.recipientAmountMinor();
+        return TipPricingSnapshot.isStripeCollectorVersion(quote.pricingVersion()) || (quote.pricingVersion()==15 || quote.pricingVersion()==17) ? quote.platformFeeMinor() : quote.totalAmountMinor()-quote.recipientAmountMinor();
     }
     public PoolPaymentLimits.Limits poolLimits(){return poolLimits.current();}
-    public TipQuote poolQuote(long amount,boolean covered){poolLimits.validate(amount);return TipPricing.poolRecipientExtraVatQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent,platformVatPercent);}
+    public TipQuote poolQuote(long amount,boolean covered){poolLimits.validate(amount);return fullFeeCompensationEnabled ? TipPricing.compensationQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent,platformVatPercent,true) : TipPricing.poolRecipientExtraVatQuote(amount,covered,feePercent,fixedFeeMinor,platformPercent,platformVatPercent);}
     public boolean isConfigured() { return !secret.isBlank(); }
     public boolean isSandbox() { return true; }
 
@@ -110,7 +119,8 @@ public class StripeCheckoutService {
         long amountPaid = session.get("amount_total") instanceof Number amount ? amount.longValue() : tx.getAmountMinor();
         String checkoutUrl = "PENDING".equals(status) && "open".equals(session.get("status")) && session.get("url") instanceof String url ? url : null;
         return new CheckoutStatus(status, "PAID".equals(status), tx.getId().toString(), tx.getAmountMinor(), amountPaid,
-                tx.getAccountUserId().toString(), checkoutUrl, TipPricingSnapshot.from(tx).recipientMinor(),TipPricingSnapshot.from(tx).recipientEstimated());
+                tx.getAccountUserId().toString(), checkoutUrl, TipPricingSnapshot.from(tx).recipientMinor(),TipPricingSnapshot.from(tx).recipientEstimated(),
+                Objects.toString(json(tx.getMetadata()).get("poolId"),null),Objects.toString(json(tx.getMetadata()).get("poolName"),null));
     }
     public Optional<CheckoutResponse> create(UUID recipient, TipPaymentRequest request) throws Exception {
         if(request.expectedPoolId()!=null) throw new InvalidCheckoutRequestException();
@@ -148,7 +158,7 @@ public class StripeCheckoutService {
             tx.setType(TransactionType.TIP); tx.setStatus(TransactionStatus.PENDING); tx.setDescription(request.message());
             tx.setIdempotencyKey(key); tx.setProvider("STRIPE");
             var context=TipPricingSnapshot.metadata(quote,request.feeCovered());
-            context.put("applicationFeeMinor",applicationFee(quote));context.put("stripeCostContributionMinor",TipPricingSnapshot.isStripeCollectorVersion(quote.pricingVersion())||TipPricingSnapshot.isRecipientExtraVersion(quote.pricingVersion())?0:request.feeCovered()?quote.serviceFeeMinor():quote.estimatedStripeFeeMinor());
+            context.put("applicationFeeMinor",applicationFee(quote));context.put("stripeCostContributionMinor",TipPricingSnapshot.isStripeCollectorVersion(quote.pricingVersion())||TipPricingSnapshot.isGrossFeeVersion(quote.pricingVersion())?0:request.feeCovered()?quote.serviceFeeMinor():quote.estimatedStripeFeeMinor());
             context.put("recipientExtraMinor",TipPricingSnapshot.isRecipientExtraVersion(quote.pricingVersion())?quote.serviceFeeMinor():0);
             context.put("chargeModel","DIRECT");context.put("stripeAccountId",accountId);context.put("feesCollector",verified.feesCollector());
             tx.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(context));
@@ -319,7 +329,7 @@ public class StripeCheckoutService {
                 Map.entry("platform_fee_tax_minor",Long.toString(q.platformFeeTaxMinor())),
                 Map.entry("platform_fee_vat_percent",q.platformFeeVatPercent().toPlainString()),
                 Map.entry("platform_fee_percent",q.platformFeePercent().toPlainString()),
-                Map.entry("platform_fee_fixed_minor",Long.toString(q.platformFeeNetMinor()-TipPricing.platformFee(q.tipAmountMinor(),q.platformFeePercent()))),
+                Map.entry("platform_fee_fixed_minor",Long.toString(TipPricingSnapshot.isGrossFeeVersion(q.pricingVersion()) ? TipPricing.DEFAULT_PLATFORM_FIXED_MINOR : q.platformFeeNetMinor()-TipPricing.platformFee(q.tipAmountMinor(),q.platformFeePercent()))),
                 Map.entry("payment_kind",kind),
                 Map.entry("tip_amount_minor",Long.toString(q.tipAmountMinor())),
                 Map.entry("stripe_fee_surcharge_minor",Long.toString(q.serviceFeeMinor())),

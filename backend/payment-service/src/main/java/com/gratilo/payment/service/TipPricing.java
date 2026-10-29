@@ -62,6 +62,18 @@ public final class TipPricing {
     public static TipQuote directRecipientExtraVatQuote(long tip,boolean extraSelected,BigDecimal percent,long fixed,BigDecimal platformPercent,BigDecimal vatPercent){return calculateRecipientExtraVat(tip,extraSelected,percent,fixed,platformPercent,vatPercent,15);}
     /** New SCT agreement: the single gross platform fee is retained once and the optional extra is distributed to members. */
     public static TipQuote poolRecipientExtraVatQuote(long tip,boolean extraSelected,BigDecimal percent,long fixed,BigDecimal platformPercent,BigDecimal vatPercent){return calculateRecipientExtraVat(tip,extraSelected,percent,fixed,platformPercent,vatPercent,16);}
+    /** Proposed full service-fee compensation. Enable only after D01, D02 and D04 approval. */
+    public static TipQuote compensationQuote(long tip, boolean covered, BigDecimal percent, long fixed,
+            BigDecimal platformPercent, BigDecimal vatPercent, boolean pool) {
+        var base = calculateRecipientExtraVat(tip, false, percent, fixed, platformPercent, vatPercent, pool ? 18 : 17);
+        long surcharge = covered ? base.platformFeeMinor() : 0;
+        long total = safeTotal(tip, surcharge);
+        return new TipQuote(tip, surcharge, total, "EUR", percent, fixed, total - base.platformFeeMinor(),
+                false, serviceFeeMinor(total, percent, fixed),
+                "Vollständiger freiwilliger Servicegebührenausgleich; keine erneute Servicegebühr auf den Ausgleich.",
+                pool ? 18 : 17, platformPercent, base.platformFeeMinor(), "application", false,
+                base.platformFeeNetMinor(), base.platformFeeTaxMinor(), vatPercent);
+    }
     /** The same fixed-plus-percent commission is charged once before pool allocation. */
     public static TipQuote poolQuote(long tip, boolean covered, BigDecimal percent, long fixed, BigDecimal platformPercent) {
         return calculate(tip, covered, percent, fixed, platformPercent, DEFAULT_PLATFORM_FIXED_MINOR, 10);

@@ -4,6 +4,21 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class TipPricingTest {
+    @Test void fullCompensationUsesGrossFeeOnBaseOnlyWithCentRoundingAndFrozenSnapshots() throws Exception {
+        for(boolean pool:new boolean[]{false,true})for(boolean covered:new boolean[]{false,true})for(long amount:new long[]{200,201,210,500,1000,50000}) {
+            var q=TipPricing.compensationQuote(amount,covered,new java.math.BigDecimal("3.15"),25,TipPricing.DEFAULT_PLATFORM_PERCENT,TipPricing.DEFAULT_PLATFORM_VAT_PERCENT,pool);
+            long fee=45+java.math.BigDecimal.valueOf(amount).multiply(new java.math.BigDecimal("0.05")).setScale(0,java.math.RoundingMode.HALF_UP).longValueExact();
+            assertEquals(fee,q.platformFeeMinor());assertEquals(covered?amount+fee:amount,q.totalAmountMinor());
+            assertEquals(covered?amount:amount-fee,q.recipientAmountMinor());assertEquals(covered?fee:0,q.serviceFeeMinor());
+            assertEquals(fee,q.platformFeeNetMinor()+q.platformFeeTaxMinor());
+            var tx=new com.gratilo.payment.domain.TransactionEntity();tx.setAmountMinor(amount);
+            var data=TipPricingSnapshot.metadata(q,covered);tx.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(data));
+            assertEquals(q.recipientAmountMinor(),TipPricingSnapshot.from(tx).recipientMinor());
+            data.put("feeSurchargeMinor",q.serviceFeeMinor()+1);
+            tx.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(data));
+            assertThrows(IllegalStateException.class,()->TipPricingSnapshot.from(tx));
+        }
+    }
     @Test void voluntaryIncreaseCoversFeeCalculatedOnTheFullCharge() {
         long increase = TipPricing.voluntaryIncreaseMinor(500, new java.math.BigDecimal("1.5"), 25);
         assertEquals(33, increase);

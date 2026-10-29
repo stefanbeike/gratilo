@@ -4,381 +4,178 @@ vi.mock('./stripe', () => ({ paymentsEnabled: true }))
 import { DemoPayment } from './Dashboard'
 
 const user = '11111111-1111-1111-1111-111111111111'
+const poolId = '22222222-2222-2222-2222-222222222222'
 const response = (data: unknown, ok = true) => ({ ok, json: async () => data })
-function installGuest(extra: (url: string, options?: RequestInit) => unknown = () => response({})) {
+type Options = {pool?: boolean; version?: number; eligible?: boolean; result?: unknown; post?: unknown; quote?: (url: string) => Promise<ReturnType<typeof response>>}
+function mount({pool = false, version = pool ? 18 : 17, eligible = true, result, post, quote}: Options = {}) {
+  if (!result) history.replaceState({}, '', `/pay/${pool ? 'team/' : ''}${user}`)
   const fetch = vi.fn(async (url: string, options?: RequestInit) => {
-    if (url.includes('/users/public/')) return response({ userId: user, firstName: 'Alex', organisation: 'Café Beispiel', paymentEnabled: true })
-    if (url.includes('/eligibility')) return response({ canReceiveTips: true })
+    if (url.includes('/pool-limits')) return response({minAmountMinor:200,maxAmountMinor:50000})
+    if (url.includes('/public/')) return response(pool ? {ownerId:user,poolId,name:'Team Sonnenseite',paymentTarget:'POOL'} : {userId:user,firstName:'Emily',lastName:'Erdbeer',organisation:'Café Sonnenseite',paymentEnabled:true})
+    if (url.includes('/eligibility')) return response({canReceiveTips:eligible})
+    if (url.includes('/confirm')) return response(result)
     if (url.includes('/quote')) {
-      const covered = new URLSearchParams(url.split('?')[1]).get('feeCovered') === 'true'
-      return response({ tipAmountMinor: 500, serviceFeeMinor: covered ? 33 : 0, totalAmountMinor: covered ? 533 : 500, recipientAmountMinor: covered ? 500 : 467, estimatedStripeFeeMinor: covered ? 33 : 33 })
+      if (quote) return quote(url)
+      const query = new URLSearchParams(url.split('?')[1]), amount = Number(query.get('amountMinor')), covered = query.get('feeCovered') === 'true'
+      const fee = 45 + Math.floor(amount * .05 + .5)
+      const extra = covered ? ([17,18].includes(version) ? fee : 42) : 0
+      return response({tipAmountMinor:amount,serviceFeeMinor:extra,totalAmountMinor:amount+extra,recipientAmountMinor:amount-fee+extra,platformFeeMinor:fee,platformFeeNetMinor:59,platformFeeTaxMinor:11,platformFeeVatPercent:19,pricingVersion:version,recipientAmountEstimated:false})
     }
-    return extra(url, options) as ReturnType<typeof response>
+    if (url.includes('/checkout')) return response(post || {transactionId:'tx-test'}, !post)
+    throw new Error(`Unexpected request ${url} ${options?.method}`)
   })
-  stubCheckoutFetch( fetch)
+  vi.stubGlobal('fetch',fetch)
+  render(<DemoPayment />)
   return fetch
 }
-function stubCheckoutFetch(fetch:(url:string,options?:RequestInit)=>Promise<unknown>){
-  vi.stubGlobal('fetch',(url:string,options?:RequestInit)=>url.includes('/pool-limits')?Promise.resolve(response({minAmountMinor:200,maxAmountMinor:50000,currency:'EUR'})):fetch(url,options))
+async function choose(amount = '5,00') {
+  const input = await screen.findByLabelText('Anderer Betrag')
+  fireEvent.change(input,{target:{value:amount}})
+  await waitFor(()=>expect(screen.getByRole('button',{name:/^Weiter/})).toBeEnabled())
 }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); history.replaceState({}, '', '/'); sessionStorage.clear() })
+async function review() { await choose(); fireEvent.click(screen.getByRole('button',{name:/^Weiter/})) }
+const pay = () => screen.getByRole('button',{name:/Weiter zur Zahlung/})
+afterEach(()=>{cleanup();vi.unstubAllGlobals();sessionStorage.clear();history.replaceState({},'','/')})
 
-it('displays the recipient and only continues after eligibility and quote are ready', async () => {
-  installGuest()
-  history.replaceState({}, '', `/pay/${user}`)
-  render(<DemoPayment />)
-  expect(await screen.findByRole('heading', { name: 'Trinkgeld für Alex.' })).toBeInTheDocument()
-  expect(screen.getByText(/bei Café Beispiel/)).toBeInTheDocument()
-  const next = screen.getByRole('button', { name: /Weiter/ })
-  await waitFor(() => expect(next).toBeEnabled())
-  fireEvent.click(next)
-  expect(await screen.findByRole('heading', { name: 'Wie viel kommt bei Alex an?' })).toBeInTheDocument()
+it('starts without a selection and shows the saved identity, logo and test banner',async()=>{
+  const fetch = mount()
+  expect(await screen.findByRole('heading',{name:'Ein Dankeschön für Emily Erdbeer'})).toBeInTheDocument()
+  expect(screen.getByText('Emily Erdbeer · Café Sonnenseite')).toBeInTheDocument()
+  expect(screen.getByAltText(/Gratilo/)).toHaveAttribute('src','/gratilo-logo.svg')
+  expect(screen.getByText(/Testmodus/)).toBeInTheDocument()
+  expect(screen.getByLabelText('Anderer Betrag')).toHaveValue('')
+  expect(screen.getByRole('button',{name:/^Weiter/})).toBeDisabled()
+  expect(screen.queryAllByRole('button',{pressed:true})).toHaveLength(0)
+  expect(fetch.mock.calls.some(([url])=>url.includes('/quote'))).toBe(false)
 })
 
-it('uses the team QR route and creates a guest payment against the pool endpoint', async () => {
-  const poolId = '22222222-2222-2222-2222-222222222222'
-  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
-    if (url.includes('/pools/public/')) return response({ ownerId: user, poolId, name: 'Service-Team', memberNames: ['Alex', 'Sam'],profileImage:'data:image/jpeg;base64,team-fixture' })
-    if (url.includes('/eligibility')) return response({ canReceiveTips: true })
-    if (url.includes('/quote')) return response({ tipAmountMinor: 500, serviceFeeMinor: 0, totalAmountMinor: 500, recipientAmountMinor: 500 })
-    if (url.includes('/checkout')) return response({ transactionId: 'pool-tx' })
-    return response({})
-  })
-  stubCheckoutFetch( fetch)
-  history.replaceState({}, '', `/pay/team/${user}`)
-  render(<DemoPayment />)
-  expect(await screen.findByRole('heading', { name: 'Trinkgeld für Service-Team.' })).toBeInTheDocument()
-  expect(screen.getByAltText('Team-Profilbild von Service-Team')).toHaveAttribute('src','data:image/jpeg;base64,team-fixture');expect(screen.getByText('Trinkgeld für das gesamte Team')).toBeInTheDocument();expect(screen.queryByText(/Alex, Sam/)).not.toBeInTheDocument()
-  const next = screen.getByRole('button', { name: /Weiter/ }); await waitFor(() => expect(next).toBeEnabled()); fireEvent.click(next)
-  fireEvent.click(await screen.findByRole('button', { name: /Weiter zur Zusammenfassung/ }))
-  fireEvent.click(await screen.findByRole('button', { name: /Jetzt sicher bezahlen/ }))
-  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes(`/payment-service/tips/pools/${poolId}/checkout`))).toBe(true))
-  expect(await screen.findByText(/sichere Stripe-Zahlungsseite wurde nicht zurückgegeben/)).toBeInTheDocument()
-  const checkout = fetch.mock.calls.find(([url]) => url.includes('/checkout'))
-  expect(checkout?.[1]?.headers && (checkout[1]?.headers as Record<string, string>).Authorization).toBeUndefined()
+for (const invalid of ['', '0', '-1', '1,99', '2,001', '10000,01', '1.000,00', 'abc']) it(`blocks invalid amount ${invalid}`,async()=>{
+  const fetch=mount();await choose()
+  fireEvent.change(screen.getByLabelText('Anderer Betrag'),{target:{value:invalid}})
+  expect(screen.getByRole('button',{name:/^Weiter/})).toBeDisabled()
+  expect(screen.getByRole('alert')).toHaveTextContent('Bitte gib einen Betrag ab 2 € ein.')
+  expect(fetch.mock.calls.some(([url])=>url.includes('/checkout'))).toBe(false)
 })
 
-it('distinguishes a failed pool-readiness check and lets the guest retry', async () => {
-  const poolId='22222222-2222-2222-2222-222222222222'
-  let eligibilityChecks=0
-  const fetch=vi.fn(async(url:string)=>{
-    if(url.includes('/pools/public/'))return response({ownerId:user,poolId,name:'Service-Team',memberNames:[]})
-    if(url.includes('/eligibility')){
-      eligibilityChecks++
-      return eligibilityChecks===1
-        ? {ok:false,status:503,json:async()=>({status:'CHECK_FAILED',message:'Der Zahlungsstatus wird derzeit geprüft. Bitte versuche es erneut.'})}
-        : response({canReceiveTips:true})
-    }
-    if(url.includes('/quote'))return response({tipAmountMinor:500,serviceFeeMinor:0,totalAmountMinor:500,recipientAmountMinor:500})
-    return response({})
-  })
-  stubCheckoutFetch(fetch)
-  history.replaceState({}, '', `/pay/team/${user}`)
-  render(<DemoPayment />)
-  expect(await screen.findByRole('alert')).toHaveTextContent('Der Zahlungsstatus wird derzeit geprüft')
-  expect(screen.getByRole('button',{name:'Stripe-Status erneut prüfen'})).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button',{name:'Stripe-Status erneut prüfen'}))
-  await waitFor(()=>expect(eligibilityChecks).toBe(2))
-  await waitFor(()=>expect(screen.getByRole('button',{name:/Weiter/})).toBeEnabled())
+it('uses one amount state for presets and comma input and accepts the minimum',async()=>{
+  mount();await screen.findByLabelText('Anderer Betrag')
+  fireEvent.click(screen.getByRole('button',{name:/^5,00/}))
+  expect(screen.getByLabelText('Anderer Betrag')).toHaveValue('5')
+  await choose('2,00')
+  expect(screen.getByRole('button',{name:/^2,00/})).toHaveAttribute('aria-pressed','true')
+  expect(screen.getByRole('button',{name:/^5,00/})).toHaveAttribute('aria-pressed','false')
 })
 
-it('supports fee coverage, summary and back navigation while preserving the message', async () => {
-  installGuest()
-  history.replaceState({}, '', `/pay/${user}`)
-  render(<DemoPayment />)
-  await screen.findByRole('heading', { name: 'Trinkgeld für Alex.' })
-  fireEvent.change(screen.getByLabelText(/Nachricht/), { target: { value: 'Danke für den tollen Service' } })
-  const next = screen.getByRole('button', { name: /Weiter/ }); await waitFor(() => expect(next).toBeEnabled()); fireEvent.click(next)
-  const toggle = await screen.findByRole('checkbox', { name: /Zahlungsgebühren freiwillig übernehmen/ })
+for(const pool of [false,true]) for(const covered of [false,true]) it(`submits canonical ${pool?'team':'individual'} amounts, coverage=${covered}, from the review step`,async()=>{
+  const fetch=mount({pool});await review()
+  expect(screen.getByText('Schritt 2 von 3 · Prüfen')).toBeInTheDocument()
+  const toggle=screen.getByRole('checkbox',{name:/Servicegebühr freiwillig ausgleichen/})
   expect(toggle).not.toBeChecked()
-  fireEvent.click(toggle)
-  expect((await screen.findAllByText(/0,33/)).length).toBeGreaterThan(0)
-  fireEvent.click(await screen.findByRole('button', { name: /Weiter zur Zusammenfassung/ }))
-  expect(await screen.findByRole('heading', { name: 'Dein Trinkgeld für Alex' })).toBeInTheDocument()
-  expect(screen.getByText('Danke für den tollen Service')).toBeInTheDocument()
-  expect(screen.getByText('Du bezahlst insgesamt')).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: /Betrag und Gebührenübernahme ändern/ }))
-  expect(await screen.findByRole('heading', { name: 'Wie viel kommt bei Alex an?' })).toBeInTheDocument()
-  expect(screen.getByRole('checkbox', { name: /Zahlungsgebühren freiwillig übernehmen/ })).toBeChecked()
+  expect(toggle).toHaveAccessibleName(/0,70/)
+  expect(pay()).toHaveTextContent('5,00')
+  if(covered) fireEvent.click(toggle)
+  expect(pay()).toHaveTextContent(covered?'5,70':'5,00')
+  fireEvent.click(pay())
+  await waitFor(()=>expect(fetch.mock.calls.filter(([url])=>url.endsWith('/checkout'))).toHaveLength(1))
+  const call=fetch.mock.calls.find(([url])=>url.endsWith('/checkout'))!
+  expect(call[0]).toBe(`/payment-service/tips/${pool?`pools/${poolId}`:user}/checkout`)
+  expect(JSON.parse(String(call[1]?.body))).toMatchObject({tipAmountMinor:500,feeCovered:covered,expectedTotalAmountMinor:covered?570:500,expectedRecipientAmountMinor:covered?500:430})
+  expect((call[1]?.headers as Record<string,string>).Authorization).toBeUndefined()
+  expect(screen.queryByText(/Freibetrag|Stripe-Kosten enthalten|Stripe-Kosten \(Schätzung/)).not.toBeInTheDocument()
+  expect(screen.queryByText(/Mitarbeiter|Empfänger-Team/)).not.toBeInTheDocument()
 })
 
-it('does not permit amounts below one euro or above the maximum', async () => {
-  installGuest()
-  history.replaceState({}, '', `/pay/${user}`)
-  render(<DemoPayment />)
-  await screen.findByRole('heading', { name: 'Trinkgeld für Alex.' })
-  const amount = screen.getByLabelText(/Anderer Betrag/)
-  fireEvent.change(amount, { target: { value: '0,50' } })
-  expect(amount).toHaveAttribute('aria-invalid', 'true')
-  const next = screen.getByRole('button', { name: /Weiter/ }); await waitFor(() => expect(next).toBeDisabled())
-  expect(screen.getByRole('heading', { name: 'Trinkgeld für Alex.' })).toBeInTheDocument()
+it('updates totals immediately for toggles and recalculates after editing, preserving the message',async()=>{
+  mount();await choose()
+  expect(screen.queryByRole('textbox',{name:'Deine Nachricht (optional)'})).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button',{name:'Nachricht hinzufügen (optional)'}))
+  fireEvent.change(screen.getByRole('textbox',{name:'Deine Nachricht (optional)'}),{target:{value:'Danke für den Service!'}})
+  fireEvent.click(screen.getByRole('button',{name:/^Weiter/}))
+  const toggle=screen.getByRole('checkbox');fireEvent.click(toggle);expect(pay()).toHaveTextContent('5,70')
+  fireEvent.click(toggle);expect(pay()).toHaveTextContent('5,00');fireEvent.click(toggle)
+  fireEvent.click(screen.getByRole('button',{name:'Bearbeiten'}))
+  expect(screen.getByRole('textbox',{name:'Deine Nachricht (optional)'})).toHaveValue('Danke für den Service!')
+  await choose('10,00');fireEvent.click(screen.getByRole('button',{name:/^Weiter/}))
+  expect(screen.getByRole('checkbox')).toBeChecked();expect(pay()).toHaveTextContent('10,95')
 })
 
-it('starts a guest Checkout only after the summary and sends canonical amount, message and fee choice', async () => {
-  const fetch = installGuest((url, options) => url.includes('/checkout') ? response({ transactionId: 'tx-test' }) : response({}))
-  history.replaceState({}, '', `/pay/${user}`)
-  render(<DemoPayment />)
-  await screen.findByRole('heading', { name: 'Trinkgeld für Alex.' })
-  fireEvent.change(screen.getByLabelText(/Nachricht/), { target: { value: 'Danke' } })
-  const next = screen.getByRole('button', { name: /Weiter/ }); await waitFor(() => expect(next).toBeEnabled()); fireEvent.click(next)
-  fireEvent.click(await screen.findByRole('checkbox', { name: /Zahlungsgebühren freiwillig übernehmen/ }))
-  fireEvent.click(await screen.findByRole('button', { name: /Weiter zur Zusammenfassung/ }))
-  fireEvent.click(await screen.findByRole('button', { name: /Jetzt sicher bezahlen/ }))
-  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(true))
-  const call = fetch.mock.calls.find(([url]) => url.includes('/checkout'))
-  const body = JSON.parse(String(call?.[1]?.body))
-  expect(body).toMatchObject({ tipAmountMinor: 500, message: 'Danke', feeCovered: true })
-  expect(body.idempotencyKey).toBeTruthy()
-  expect((call?.[1]?.headers as Record<string, string>).Authorization).toBeUndefined()
+it('ignores late quotes for a previous amount',async()=>{
+  let resolveOld: (value:ReturnType<typeof response>)=>void = ()=>{}
+  const fetch=mount({quote:async url=>{
+    const q=new URLSearchParams(url.split('?')[1]),a=Number(q.get('amountMinor'))
+    if(a===500)return new Promise(resolve=>{resolveOld=resolve})
+    return response({tipAmountMinor:a,totalAmountMinor:a,recipientAmountMinor:a-95,serviceFeeMinor:0})
+  }})
+  await screen.findByLabelText('Anderer Betrag')
+  fireEvent.change(screen.getByLabelText('Anderer Betrag'),{target:{value:'5'}})
+  await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url.includes('amountMinor=500'))).toBe(true))
+  await choose('10');resolveOld(response({tipAmountMinor:500,totalAmountMinor:500,recipientAmountMinor:430,serviceFeeMinor:0}))
+  fireEvent.click(screen.getByRole('button',{name:/^Weiter/}));expect(pay()).toHaveTextContent('10,00')
 })
 
-it('keeps payment disabled if recipient eligibility is false', async () => {
-  const fetch = vi.fn(async (url: string) => url.includes('/users/public/') ? response({ userId: user, firstName: 'Alex', paymentEnabled: true }) : response({ canReceiveTips: false }))
-  stubCheckoutFetch( fetch)
-  history.replaceState({}, '', `/pay/${user}`)
-  render(<DemoPayment />)
-  expect(await screen.findByText(/Dieser Empfänger kann derzeit keine Trinkgelder empfangen/)).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Weiter/ })).toBeDisabled()
-  expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(false)
+it('retains the existing extra-tip semantics until the full compensation model is approved',async()=>{
+  mount({version:15});await review()
+  const toggle=screen.getByRole('checkbox',{name:/Zusätzliches Trinkgeld für Emily Erdbeer geben/})
+  expect(toggle).toHaveAccessibleName(/0,42/);fireEvent.click(toggle)
+  expect(pay()).toHaveTextContent('5,42')
+  expect(screen.getByText(/er gleicht die Servicegebühr nicht vollständig aus/)).toBeInTheDocument()
 })
 
-it('shows success only after Stripe status confirms payment', async () => {
-  history.replaceState({}, '', '/pay/success?session_id=cs_test_fixture')
-  sessionStorage.setItem('gratilo:last-recipient', user)
-  const fetch = vi.fn(async (url: string) => url.includes('/confirm')
-    ? response({ status: 'PAID', confirmed: true, transactionId: 'tx-fixture', tipAmountMinor: 500, amountPaidMinor: 533 })
-    : response({ userId: user, firstName: 'Alex', paymentEnabled: true }))
-  stubCheckoutFetch( fetch)
-  render(<DemoPayment />)
-  expect(await screen.findByText(/wurde erfolgreich bezahlt/)).toBeInTheDocument()
-  expect(screen.getByText(/nicht, dass das Geld bereits auf dem Bankkonto/)).toBeInTheDocument()
+it('blocks an unready team without exposing KYC internals',async()=>{
+  const fetch=mount({pool:true,eligible:false});await screen.findByText('Dieses Team kann aktuell noch kein Trinkgeld empfangen. Bitte versuche es später erneut.')
+  fireEvent.change(screen.getByLabelText('Anderer Betrag'),{target:{value:'5'}})
+  expect(screen.getByRole('button',{name:/^Weiter/})).toBeDisabled()
+  expect(fetch.mock.calls.some(([url])=>url.includes('/checkout'))).toBe(false)
 })
 
-it('shows pending status and never offers another payment while Stripe is unclear', async () => {
-  history.replaceState({}, '', '/pay/cancelled?session_id=cs_test_fixture')
-  sessionStorage.setItem('gratilo:last-recipient', user)
-  const fetch = vi.fn(async (url: string) => url.includes('/confirm') ? response({ status: 'PENDING', confirmed: false }) : response({ userId: user, firstName: 'Alex' }))
-  stubCheckoutFetch( fetch)
-  render(<DemoPayment />)
-  expect(await screen.findByRole('heading', { name: 'Bitte noch nicht erneut bezahlen.' })).toBeInTheDocument()
-  expect(await screen.findByRole('button', { name: /Zahlungsstatus aktualisieren/ })).toBeEnabled()
-  expect(screen.queryByRole('button', { name: /Jetzt sicher bezahlen|Erneut versuchen/ })).not.toBeInTheDocument()
+for(const status of ['PENDING','PAID','FAILED']) it(`renders server status ${status} and never pays merely from a return URL`,async()=>{
+  history.replaceState({},'','/pay/success?session_id=cs_test_fixture');sessionStorage.setItem('gratilo:last-recipient',user)
+  const fetch=mount({result:{status,confirmed:status==='PAID',recipientUserId:user,amountPaidMinor:570,recipientAmountMinor:500}})
+  await screen.findByRole('heading',{name:status==='PAID'?'Danke für dein Trinkgeld!':status==='FAILED'?'Das hat leider nicht geklappt.':'Bitte noch nicht erneut bezahlen.'})
+  expect(fetch.mock.calls.filter(([url])=>url.endsWith('/checkout'))).toHaveLength(0)
+  if(status==='PAID') {
+    expect(screen.getByText('Deine Zahlung war erfolgreich.')).toBeInTheDocument()
+    expect(screen.queryByText(/Nachricht wurde/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Auszahlung auf das Bankkonto/)).toBeInTheDocument()
+  } else if(status==='PENDING') expect(screen.queryByRole('button',{name:'Erneut versuchen'})).not.toBeInTheDocument()
+  else {fireEvent.click(screen.getByRole('button',{name:'Erneut versuchen'}));expect(await screen.findByLabelText('Anderer Betrag')).toBeInTheDocument()}
 })
 
-it('allows a new attempt only after Stripe confirms the prior session failed', async () => {
-  history.replaceState({}, '', '/pay/success?session_id=cs_test_fixture')
-  sessionStorage.setItem('gratilo:last-recipient', user)
-  sessionStorage.setItem(`gratilo:checkout:${user}`, JSON.stringify({ amount: 500, message: 'bleibt', feeCovered: true, step: 3 }))
-  const fetch = vi.fn(async (url: string) => url.includes('/confirm') ? response({ status: 'FAILED', confirmed: false }) : response({ userId: user, firstName: 'Alex' }))
-  stubCheckoutFetch( fetch)
-  render(<DemoPayment />)
-  fireEvent.click(await screen.findByRole('button', { name: /Erneut versuchen/ }))
-  expect(await screen.findByRole('heading', { name: 'Trinkgeld für Alex.' })).toBeInTheDocument()
-  expect(JSON.parse(sessionStorage.getItem(`gratilo:checkout:individual:${user}`) || '{}')).toMatchObject({ message: 'bleibt', feeCovered: true })
+it('does not claim success for an unconfirmed PAID response',async()=>{
+  history.replaceState({},'','/pay/success?session_id=cs_test_fixture')
+  mount({result:{status:'PAID',confirmed:false}})
+  expect(await screen.findByRole('heading',{name:'Bitte noch nicht erneut bezahlen.'})).toBeInTheDocument()
 })
 
-for (const pool of [false,true]) it(`returns a confirmed ${pool?'pool':'individual'} payment to the first step with a new attempt`,async()=>{
-  history.replaceState({},'', '/pay/success?session_id=cs_test_fixture')
-  sessionStorage.setItem('gratilo:last-recipient',user); sessionStorage.setItem('gratilo:last-pool',String(pool))
-  sessionStorage.setItem(`gratilo:checkout:${user}`,JSON.stringify({amount:1000,message:'old',feeCovered:true,step:3,attemptKey:'old-key',pendingSessionId:'cs_test_fixture'}))
-  stubCheckoutFetch(vi.fn(async(url:string)=>{
-    if(url.includes('/confirm'))return response({status:'PAID',confirmed:true,amountPaidMinor:1041})
-    if(url.includes('/pools/public/'))return response({ownerId:user,name:'Team',memberNames:['Alex','Sam']})
-    if(url.includes('/eligibility'))return response({canReceiveTips:true})
-    if(url.includes('/quote'))return response({tipAmountMinor:500,serviceFeeMinor:0,totalAmountMinor:500,recipientAmountMinor:500})
-    return response({userId:user,firstName:'Alex',paymentEnabled:true})
-  }))
-  render(<DemoPayment />)
-  await screen.findByRole('heading',{name:'Danke!'})
-  fireEvent.click(screen.getByRole('button',{name:'Zurück zur Zahlungsseite'}))
-  expect(await screen.findByRole('heading',{name:`Trinkgeld für ${pool?'Team':'Alex'}.`})).toBeInTheDocument()
-  expect(location.pathname).toBe(`/pay/${pool?'team/':''}${user}`)
-  expect(JSON.parse(sessionStorage.getItem(`gratilo:checkout:${pool?'pool':'individual'}:${user}`)||'{}')).toEqual({amount:500,message:'',feeCovered:false,step:1})
-})
-it('labels the voluntary fee as an estimate and does not invent a Gratilo platform fee',async()=>{
- const fetch=installGuest();history.replaceState({},'',`/pay/${user}`);render(<DemoPayment />)
- const next=await screen.findByRole('button',{name:/Weiter/});await waitFor(()=>expect(next).toBeEnabled());fireEvent.click(next)
- expect(await screen.findByText(/Die Gebührenübernahme ist eine Schätzung/)).toBeInTheDocument()
- expect(screen.queryByText('Berücksichtigte Gratilo-Gebühr')).not.toBeInTheDocument()
- fireEvent.click(screen.getByRole('checkbox',{name:/Zahlungsgebühren freiwillig übernehmen/}));fireEvent.click(await screen.findByRole('button',{name:/Weiter zur Zusammenfassung/}))
- await waitFor(()=>expect(screen.getByRole('button',{name:/Jetzt sicher bezahlen/})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:/Jetzt sicher bezahlen/}))
- await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url.includes('/checkout'))).toBe(true))
- const call=fetch.mock.calls.find(([url])=>url.includes('/checkout'));expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({expectedTotalAmountMinor:533,feeCovered:true})
+for (const pool of [false,true]) it(`resolves an already processed ${pool?'team':'individual'} attempt without another charge`,async()=>{
+  const fetch=mount({pool,post:{code:'CHECKOUT_ALREADY_PROCESSED',sessionId:'cs_test_prior'},result:undefined})
+  await review();fireEvent.click(pay())
+  await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url.includes('/confirm?sessionId=cs_test_prior'))).toBe(true))
+  expect(fetch.mock.calls.filter(([url])=>url.endsWith('/checkout'))).toHaveLength(1)
 })
 
-for(const pool of [false,true])for(const status of ['PAID','PENDING'])it(`resolves a reused ${pool?'pool':'individual'} checkout as ${status} without creating another payment`,async()=>{
- history.replaceState({},'',`/pay/${pool?'team/':''}${user}`)
- const fetch=vi.fn(async(url:string)=>{
-  if(url.includes('/pools/public/'))return response({ownerId:user,name:'Team',memberNames:['Alex','Sam']})
-  if(url.includes('/users/public/'))return response({userId:user,firstName:'Alex',paymentEnabled:true})
-  if(url.includes('/eligibility'))return response({canReceiveTips:true})
-  if(url.includes('/quote'))return response({tipAmountMinor:500,serviceFeeMinor:0,totalAmountMinor:500,recipientAmountMinor:500})
-  if(url.includes('/confirm'))return response({status,confirmed:status==='PAID',amountPaidMinor:500})
-  if(url.includes('/checkout'))return response({code:'CHECKOUT_ALREADY_PROCESSED',message:'Prüfe den bestehenden Versuch.',transactionId:'prior-tx',sessionId:'cs_test_prior'},false)
-  throw new Error('Unexpected request')
- })
- stubCheckoutFetch(fetch);render(<DemoPayment/>);
- const next=await screen.findByRole('button',{name:/Weiter/});await waitFor(()=>expect(next).toBeEnabled());fireEvent.click(next)
- fireEvent.click(await screen.findByRole('button',{name:/Weiter zur Zusammenfassung/}));fireEvent.click(await screen.findByRole('button',{name:/Jetzt sicher bezahlen/}));
- await screen.findByRole('heading',{name:status==='PAID'?'Danke!':'Bitte noch nicht erneut bezahlen.'})
- expect(fetch.mock.calls.filter(([url])=>url.includes('/checkout')&&!url.includes('/confirm'))).toHaveLength(1)
- await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url.includes('/confirm?sessionId=cs_test_prior'))).toBe(true))
- if(status==='PENDING')expect(screen.queryByRole('button',{name:/Jetzt sicher bezahlen|Erneut versuchen/})).not.toBeInTheDocument()
+it('keeps a failed network attempt idempotent on retry',async()=>{
+  const fetch=mount();await review();fireEvent.click(pay())
+  await screen.findByRole('alert');fireEvent.click(pay())
+  await waitFor(()=>expect(fetch.mock.calls.filter(([url])=>url.endsWith('/checkout'))).toHaveLength(2))
+  const bodies=fetch.mock.calls.filter(([url])=>url.endsWith('/checkout')).map(([,o])=>JSON.parse(String(o?.body)))
+  expect(bodies[0].idempotencyKey).toBe(bodies[1].idempotencyKey)
 })
 
-it.each([false,true])('shows the voluntary extra as recipient money for new %s pricing',async pool=>{
- history.replaceState({},'',`/pay/${pool?'team/':''}${user}`)
- const fetch=vi.fn(async(url:string,options?:RequestInit)=>{
-  if(url.includes('/pools/public/'))return response({ownerId:user,name:'Team'})
-  if(url.includes('/users/public/'))return response({userId:user,firstName:'Alex',paymentEnabled:true})
-  if(url.includes('/eligibility'))return response({canReceiveTips:true})
-  if(url.includes('/quote')){const covered=new URLSearchParams(url.split('?')[1]).get('feeCovered')==='true';return response({tipAmountMinor:500,serviceFeeMinor:covered?41:0,totalAmountMinor:covered?541:500,recipientAmountMinor:covered?471:430,estimatedStripeFeeMinor:41,platformFeeMinor:70,platformFeeNetMinor:59,platformFeeTaxMinor:11,platformFeeVatPercent:19,pricingVersion:pool?16:15,feesCollector:'application',recipientAmountEstimated:false})}
-  return response({transactionId:'extra-test'})
- })
- stubCheckoutFetch(fetch);render(<DemoPayment/>);await screen.findByRole('heading',{name:`Trinkgeld für ${pool?'Team':'Alex'}.`})
- fireEvent.change(screen.getByLabelText(/Anderer Betrag/),{target:{value:'5,00'}})
- const next=screen.getByRole('button',{name:/Weiter/});await waitFor(()=>expect(next).toBeEnabled());fireEvent.click(next)
- expect(await screen.findByText(/Gratilo trägt die tatsächlichen Stripe-Zahlungskosten/)).toBeInTheDocument()
- fireEvent.click(screen.getByRole('checkbox',{name:pool?'Zusätzliches Trinkgeld für das Team geben':'Zusätzliches Trinkgeld für den Mitarbeiter geben'}))
- expect(await screen.findByText('Zusätzliches Trinkgeld für den Empfänger')).toBeInTheDocument()
- expect(await screen.findByText(/\+ 0,41\s*€/)).toBeInTheDocument()
- expect(screen.getByText(pool?'Für den Pool festgelegt':'Beim Mitarbeiter')).toBeInTheDocument()
- expect(screen.getByText(/4,71\s*€/)).toBeInTheDocument()
- expect(screen.queryByText('Stripe-Gebühren als Abzug')).not.toBeInTheDocument()
+it('locks edits after an uncertain checkout start and retries the same immutable attempt',async()=>{
+  mount();await review();fireEvent.click(pay());await screen.findByRole('alert')
+  expect(screen.getByRole('checkbox')).toBeDisabled()
+  expect(screen.getByRole('button',{name:'Betrag ändern'})).toBeDisabled()
+  expect(pay()).toBeEnabled()
 })
 
-for(const pool of [true,false])it(`keeps the ${pool?'pool':'individual'} attempt separate from legacy state of the other payment type`,async()=>{
- sessionStorage.setItem('gratilo:last-pool',String(!pool));sessionStorage.setItem(`gratilo:checkout:${user}`,JSON.stringify({amount:1000,message:'Other payment',step:3,attemptKey:'other-attempt'}))
- history.replaceState({},'',`/pay/${pool?'team/':''}${user}`)
- stubCheckoutFetch(vi.fn(async(url:string)=>url.includes('/pools/public/')?response({ownerId:user,name:'Team',memberNames:[]}):url.includes('/users/public/')?response({userId:user,firstName:'Alex',paymentEnabled:true}):url.includes('/eligibility')?response({canReceiveTips:true}):response({tipAmountMinor:500,totalAmountMinor:500,serviceFeeMinor:0,recipientAmountMinor:500})))
- render(<DemoPayment/>);await screen.findByRole('heading',{name:`Trinkgeld für ${pool?'Team':'Alex'}.`})
- const flow=JSON.parse(sessionStorage.getItem(`gratilo:checkout:${pool?'pool':'individual'}:${user}`)||'{}');expect(flow.amount).toBe(500);expect(flow.attemptKey).toBeUndefined()
- expect(JSON.parse(sessionStorage.getItem(`gratilo:checkout:${user}`)||'{}').attemptKey).toBe('other-attempt')
-})
-
-for (const pool of [false, true]) it(`uses the server's international-card estimate for ${pool ? 'pool' : 'individual'} checkout without changing the promised tip`, async () => {
-  history.replaceState({}, '', `/pay/${pool ? 'team/' : ''}${user}`)
-  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
-    if (url.includes('/pools/public/')) return response({ ownerId: user, name: 'Team', memberNames: ['Alex', 'Sam'] })
-    if (url.includes('/users/public/')) return response({ userId: user, firstName: 'Alex', paymentEnabled: true })
-    if (url.includes('/eligibility')) return response({ canReceiveTips: true })
-    if (url.includes('/quote')) {
-      const covered = new URLSearchParams(url.split('?')[1]).get('feeCovered') === 'true'
-      return response({ tipAmountMinor: 2500, serviceFeeMinor: covered ? 107 : 0, totalAmountMinor: covered ? 2607 : 2500, recipientAmountMinor: covered ? 2500 : 2396, estimatedStripeFeeMinor: covered ? 107 : 104, serviceFeePercent: 3.15, fixedFeeMinor: 25, feeEstimated: true })
-    }
-    if (url.includes('/checkout')) return response({ transactionId: 'fake' })
-    return response({})
-  })
-  stubCheckoutFetch( fetch)
-  render(<DemoPayment />)
-  await screen.findByRole('heading', { name: `Trinkgeld für ${pool ? 'Team' : 'Alex'}.` })
-  fireEvent.change(screen.getByLabelText(/Anderer Betrag/), { target: { value: '25,00' } })
-  const next = screen.getByRole('button', { name: /Weiter/ }); await waitFor(() => expect(next).toBeEnabled()); fireEvent.click(next)
-  expect(await screen.findByText(/Mehrkosten trägt Gratilo/)).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Zahlungsgebühren freiwillig übernehmen' }))
-  expect(await screen.findByText(/1,07/)).toBeInTheDocument()
-  expect(screen.getByText(/3.15 % des Gesamtbetrags/)).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: /Weiter zur Zusammenfassung/ }))
-  const pay = screen.getByRole('button', { name: /Jetzt sicher bezahlen/ }); await waitFor(() => expect(pay).toBeEnabled()); fireEvent.click(pay)
-  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(true))
-  const sent = fetch.mock.calls.find(([url]) => url.includes('/checkout'))
-  expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ tipAmountMinor: 2500, expectedTotalAmountMinor: 2607, feeCovered: true })
-})
-
-for (const pool of [false, true]) it(`shows the server-calculated fee deduction for an uncovered ${pool ? 'pool' : 'individual'} payment`, async () => {
-  history.replaceState({}, '', `/pay/${pool ? 'team/' : ''}${user}`)
-  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
-    if (url.includes('/pools/public/')) return response({ ownerId: user, name: 'Team', memberNames: ['Alex', 'Sam'] })
-    if (url.includes('/users/public/')) return response({ userId: user, firstName: 'Alex', paymentEnabled: true })
-    if (url.includes('/eligibility')) return response({ canReceiveTips: true })
-    if (url.includes('/quote')) return response({ tipAmountMinor: 2500, serviceFeeMinor: 0, totalAmountMinor: 2500, recipientAmountMinor: 2396, estimatedStripeFeeMinor: 104, feeEstimated: true })
-    return response({ transactionId: 'fake' })
-  })
-  stubCheckoutFetch( fetch); render(<DemoPayment />)
-  await screen.findByRole('heading', { name: `Trinkgeld für ${pool ? 'Team' : 'Alex'}.` })
-  fireEvent.change(screen.getByLabelText(/Anderer Betrag/), { target: { value: '25,00' } })
-  const next = screen.getByRole('button', { name: /Weiter/ }); await waitFor(() => expect(next).toBeEnabled()); fireEvent.click(next)
-  expect(await screen.findByText(/Du übernimmst die Gebühren nicht/)).toHaveTextContent('23,96')
-  expect(screen.getByText('Stripe-Gebühren als Abzug')).toBeInTheDocument()
-  expect(screen.getByText(/− 1,04/)).toBeInTheDocument()
-  expect(screen.getByText(`Voraussichtlicher Nettobetrag für den ${pool ? 'Pool' : 'Empfänger'}`)).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: /Weiter zur Zusammenfassung/ }))
-  expect(screen.getByText(/− 1,04/)).toBeInTheDocument()
-  const pay = screen.getByRole('button', { name: /Jetzt sicher bezahlen/ }); await waitFor(() => expect(pay).toBeEnabled()); fireEvent.click(pay)
-  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(true))
-  const sent = fetch.mock.calls.find(([url]) => url.includes('/checkout'))
-  expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ tipAmountMinor: 2500, expectedTotalAmountMinor: 2500, expectedRecipientAmountMinor: 2396, feeCovered: false })
-})
-it('shows the actionable net-minimum error without allowing checkout', async () => {
-  history.replaceState({}, '', `/pay/${user}`)
-  const fetch = vi.fn(async (url: string) => url.includes('/users/public/') ? response({ userId: user, firstName: 'Alex', paymentEnabled: true })
-    : url.includes('/eligibility') ? response({ canReceiveTips: true })
-    : response({ code: 'TIP_TOO_SMALL_AFTER_FEES', message: 'Nach Gebührenabzug muss mindestens 0,01 € übrig bleiben.' }, false))
-  stubCheckoutFetch( fetch); render(<DemoPayment />)
-  expect(await screen.findByRole('alert')).toHaveTextContent('0,01 €')
-  expect(screen.getByRole('button', { name: /Weiter/ })).toBeDisabled()
-  expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(false)
-})
-
-for (const newPricing of [false,true]) for (const [pool,collector] of [[false,'application'],[false,'stripe'],[true,'application']] as const) for (const covered of [false, true]) it(`shows separate commission and frozen net for ${pool ? 'pool' : 'direct'} collector=${collector} with coverage=${covered}, fixed fee=${newPricing}`, async () => {
-  history.replaceState({}, '', `/pay/${pool ? 'team/' : ''}${user}`)
-  const commission = newPricing ? 170 : 125
-  let selectedCoverage = false
-  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
-    if (url.includes('/pools/public/')) return response({ ownerId: user, name: 'Team' })
-    if (url.includes('/users/public/')) return response({ userId: user, firstName: 'Alex', paymentEnabled: true })
-    if (url.includes('/eligibility')) return response({ canReceiveTips: true })
-    if (url.includes('/quote')) {
-      selectedCoverage = new URLSearchParams(url.split('?')[1]).get('feeCovered') === 'true'
-      return response({ tipAmountMinor: 2500, serviceFeeMinor: selectedCoverage ? 107 : 0, totalAmountMinor: selectedCoverage ? 2607 : 2500,
-        recipientAmountMinor: 2500 - commission - (selectedCoverage ? 0 : 104), platformFeeMinor: commission,
-        platformFeePercent: 5, pricingVersion: newPricing ? (pool ? 10 : collector==='stripe' ? 11 : 9) : (pool ? 7 : collector==='stripe' ? 8 : 6), feesCollector:collector, recipientAmountEstimated:collector==='stripe', estimatedStripeFeeMinor: selectedCoverage ? 107 : 104 })
-    }
-    return response({ transactionId: 'fake' })
-  })
-  stubCheckoutFetch( fetch); render(<DemoPayment />)
-  await screen.findByRole('heading', { name: `Trinkgeld für ${pool ? 'Team' : 'Alex'}.` })
-  fireEvent.change(screen.getByLabelText(/Anderer Betrag/), { target: { value: '25,00' } })
-  await waitFor(() => expect(screen.getByRole('button', { name: /Weiter/ })).toBeEnabled())
-  fireEvent.click(screen.getByRole('button', { name: /Weiter/ }))
-  if (covered) fireEvent.click(screen.getByRole('checkbox', { name: 'Zahlungsgebühren freiwillig übernehmen' }))
-  await waitFor(() => expect(selectedCoverage).toBe(covered))
-  expect(await screen.findByText(newPricing ? /Gratilo-Servicegebühr: 0,45 € \+ 5 % des Trinkgeldbetrags/ : /Gratilo-Servicegebühr: 5 % des Trinkgeldbetrags/)).toBeInTheDocument()
-  expect(screen.getByText(/Die Gebührenübernahme ist eine Schätzung/)).toBeInTheDocument()
-  if(collector==='stripe') {
-    expect(screen.getByText(/Stripe zieht seine tatsächlichen Gebühren direkt beim Empfänger ein/)).toBeInTheDocument()
-    expect(screen.queryByText(/Mehrkosten trägt Gratilo/)).not.toBeInTheDocument()
-    expect(screen.getByText('Voraussichtlicher Nettobetrag für den Empfänger')).toBeInTheDocument()
-  }
-  expect(screen.getByText(/Spätere Connect- und Bankauszahlungskosten sind nicht in der Stripe-Kostenschätzung enthalten/)).toBeInTheDocument()
-  expect(screen.queryByText(/Keine Gratilo-Plattformgebühr/)).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: /Weiter zur Zusammenfassung/ }))
-  expect(screen.getByText(/Die Zahlungsgebühren und der angezeigte Nettobetrag beruhen auf einer Schätzung/)).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: /Jetzt sicher bezahlen/ }))
-  await waitFor(() => expect(fetch.mock.calls.some(([url]) => url.includes('/checkout'))).toBe(true))
-  const sent = fetch.mock.calls.find(([url]) => url.includes('/checkout'))
-  expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ tipAmountMinor: 2500, feeCovered: covered,
-    expectedTotalAmountMinor: covered ? 2607 : 2500, expectedRecipientAmountMinor: 2500 - commission - (covered ? 0 : 104) })
-})
-
-it.each([false,true])('resolves preallocated team links by server mapping (team route=%s)', async explicitTeam => {
-  const poolId='22222222-2222-2222-2222-222222222222'
-  const fetch=vi.fn(async(url:string, options?:RequestInit)=>{
-    if(url.includes('/public/'))return response({ownerId:user,poolId,name:'Bestandslink-Team',paymentTarget:'POOL',memberNames:[]})
-    if(url.includes('/eligibility'))return response({canReceiveTips:true})
-    if(url.includes('/quote'))return response({tipAmountMinor:500,serviceFeeMinor:0,totalAmountMinor:500,recipientAmountMinor:410})
-    return response({transactionId:'pool-test'})
-  })
-  stubCheckoutFetch(fetch)
-  history.replaceState({},'',`/pay/${explicitTeam?'team/':''}gratilo-002?recipient=manipulated`)
-  render(<DemoPayment />)
-  await screen.findByRole('heading',{name:'Trinkgeld für Bestandslink-Team.'})
-  const next=screen.getByRole('button',{name:/Weiter/});await waitFor(()=>expect(next).toBeEnabled());fireEvent.click(next)
-  fireEvent.click(await screen.findByRole('button',{name:/Weiter zur Zusammenfassung/}))
-  fireEvent.click(await screen.findByRole('button',{name:/Jetzt sicher bezahlen/}))
+it('routes a mapped personal link to the team and restores only that team draft',async()=>{
+  sessionStorage.setItem(`gratilo:checkout:pool:${user}`,JSON.stringify({amount:1000,message:'Team danke',feeCovered:false,step:2}))
+  const fetch=mount({pool:true})
+  // The public link is initially a personal route; the server mapping is authoritative.
+  cleanup();history.replaceState({},'',`/pay/${user}`);render(<DemoPayment />)
+  expect(await screen.findByRole('heading',{name:'Dein Dankeschön für Team Sonnenseite'})).toBeInTheDocument()
+  await waitFor(()=>expect(pay()).toHaveTextContent('10,00'))
+  fireEvent.click(pay())
   await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url===`/payment-service/tips/pools/${poolId}/checkout`)).toBe(true))
-  const checkout=fetch.mock.calls.find(([url])=>url.endsWith('/checkout'))!
-  expect(JSON.parse(String(checkout[1]?.body))).toMatchObject({expectedPoolId:poolId,expectedRecipientAmountMinor:410})
-  expect(fetch.mock.calls.some(([url])=>url.includes('manipulated'))).toBe(false)
-  expect(fetch.mock.calls.some(([url])=>url===`/payment-service/tips/${user}/checkout`)).toBe(false)
 })

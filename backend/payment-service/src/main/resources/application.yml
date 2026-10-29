@@ -105,9 +105,12 @@ gratilo:
   pool-tip-min-minor: ${GRATILO_POOL_TIP_MIN_MINOR:200}
   pool-tip-max-minor: ${GRATILO_POOL_TIP_MAX_MINOR:50000}
   platform-fee-percent: ${GRATILO_PLATFORM_FEE_PERCENT:5.00}
-  # Net service fee for new pricing; 19% VAT is added to this amount.
+  # Gross VAT-inclusive fee for pricing versions 15–18; older snapshots keep their rules.
   platform-fee-fixed-minor: ${GRATILO_PLATFORM_FEE_FIXED_MINOR:45}
-  # VAT is applied to the net Gratilo service fee and frozen per new checkout.
+  # VAT is extracted from the gross fee for versions 15–18 and frozen per checkout.
   platform-fee-vat-percent: ${GRATILO_PLATFORM_FEE_VAT_PERCENT:19.00}
   # Remains off until refund commission policy and sandbox acceptance have been approved.
   new-pricing-enabled: ${GRATILO_NEW_PRICING_ENABLED:false}
+
+  # D01/D02/D04 approval and actual Stripe accounting evidence required.
+  full-fee-compensation-enabled: ${GRATILO_FULL_FEE_COMPENSATION_ENABLED:false}

@@ -211,7 +211,7 @@ public class StripeFeeAuditService {
         long stripeBudget=Math.subtractExact(audit.getApplicationFeeMinor(),TipPricingSnapshot.from(tx).platformFeeMinor());
         audit.setActualFeeMinor(actualFeeMinor);audit.setDifferenceMinor(Math.subtractExact(actualFeeMinor,audit.getEstimatedFeeMinor()));
         audit.setUncoveredMinor(Math.subtractExact(actualFeeMinor,stripeBudget));audit.setFeeSourceReference(reportReference);
-        long grossLessTax=TipPricingSnapshot.isRecipientExtraVersion(TipPricingSnapshot.from(tx).version())
+        long grossLessTax=TipPricingSnapshot.isGrossFeeVersion(TipPricingSnapshot.from(tx).version())
                 ?TipPricingSnapshot.from(tx).platformFeeNetMinor():audit.getApplicationFeeMinor();
         audit.setPlatformNetRevenueMinor(Objects.requireNonNullElse(audit.getRefundedMinor(),0L)>0
                 ||tx.getStatus()==TransactionStatus.REFUNDED||tx.getStatus()==TransactionStatus.DISPUTED||tx.getStatus()==TransactionStatus.CHARGEBACK
