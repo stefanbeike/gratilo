@@ -1,4 +1,5 @@
 import { useTipPoolsEnabled } from './features'
+import { LandingPage } from './LandingPage'
 import { useEffect, useState, type FormEvent } from 'react'
 import { api, type Session } from './api'
 import { prepareProfileImage } from './profileImage'
@@ -70,6 +71,7 @@ export function App() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Bitte versuche es erneut.') }
     finally { setBusy(false) }
   }
+  if (location.pathname === '/' && !session && !sessionExpired) return <LandingPage />
   if (location.pathname.startsWith('/pay/')) return <DemoPayment session={session} />
   if (location.pathname.startsWith('/pool/invitations/') && !tipPoolsEnabled) return <main className="shell"><section className="account-card"><h1>Diese Funktion ist derzeit nicht verfügbar.</h1><a href="/account">Zum Konto</a></section></main>
   if (location.pathname.startsWith('/pool/invitations/') && !session) return <PoolInvitationLogin onLogin={() => { sessionStorage.setItem('gratilo.invitationPath', location.pathname); window.location.assign('/login') }} onRegister={() => { sessionStorage.setItem('gratilo.invitationPath', location.pathname); window.location.assign('/register') }} />

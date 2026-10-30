@@ -1,0 +1,31 @@
+= Öffentliches Kontaktformular
+
+Die Homepage sendet Name, Antwortadresse, festes Anliegen und Nachricht als JSON
+an POST /user-service/contact. Der User-Service versendet über EmailSendService
+und den bestehenden SMTP-/SES-Transport ausschließlich an info@gratilo.eu.
+Besucherdaten werden nicht als Mail-Header oder frei wählbarer Empfänger benutzt.
+Keine zusätzliche Datenbanktabelle und keine automatische Antwortmail.
+
+Vorhandene Umgebungsvariablen für den Mailtransport und MAIL_GENERAL_FROM_EMAIL
+müssen in der Zielumgebung korrekt gesetzt sein. Der interne Notification-Endpunkt
+und sein Secret-Schutz bleiben unverändert. Fehler des Mailtransports werden vom
+bestehenden EmailDeliveryExceptionHandler als 503 gemeldet. Erst nach Annahme durch
+den Mailtransport liefert das Formular eine Erfolgsmeldung; dies garantiert keine
+Zustellung in den Posteingang (z.B. Bounce oder Spamfilter).
+
+Missbrauchsschutz: feste Empfängeradresse und Themenliste, begrenzte Feldlängen,
+Honeypot, maximal drei Versuche pro normalisierter E-Mail und 30 Versuche insgesamt
+je 15-Minuten-Fenster und laufender Serverinstanz. Fehlerhafte Versandversuche
+verbrauchen ebenfalls Budget. Nur SHA-256-Adressschlüssel werden bis zum Reset im
+Speicher gehalten. Der Schutz ist absichtlich begrenzt und nicht persistent:
+mehrere ECS-Tasks und Neustarts haben getrennte Budgets. Bei öffentlichem Betrieb
+zusätzlich die zentralen AWS-WAF-/Rate-Limits passend zum Traffic konfigurieren.
+
+In einer einzeln geöffneten HTML-Datei ist der Versand bewusst deaktiviert.
+Die lokale Vite-Vorschau benötigt den User-Service samt Mailtransport; sonst
+erscheint ein Fehler und die Eingaben bleiben erhalten. Es wird kein Erfolg
+simuliert. Nach Veröffentlichung mit dem Betreiber abgestimmt eine echte Anfrage
+prüfen, danach Eingang und Antwortadresse im Team-Postfach kontrollieren.
+
+Datenschutzerklärung um Kontaktzweck, Rechtsgrundlage, Empfänger/Transport und
+Löschfristen ergänzen. Keine Werbeeinwilligung für die Kontaktanfrage verlangt.
