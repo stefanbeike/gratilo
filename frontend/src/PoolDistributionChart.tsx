@@ -30,7 +30,9 @@ function useAnimatedShares(data: ChartEntry[]) {
   const [values, setValues] = useState(initial)
   useEffect(() => {
     const target = Object.fromEntries(data.map(entry => [entry.key, entry.value]))
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !data.length) {
+    const animationAvailable = typeof window.matchMedia === 'function' &&
+      typeof window.requestAnimationFrame === 'function' && typeof window.cancelAnimationFrame === 'function'
+    if (!animationAvailable || window.matchMedia('(prefers-reduced-motion: reduce)').matches || !data.length) {
       current.current = target
       setValues(target)
       return
@@ -46,10 +48,10 @@ function useAnimatedShares(data: ChartEntry[]) {
         (from[entry.key] ?? 0) + (entry.value - (from[entry.key] ?? 0)) * eased]))
       current.current = next
       setValues(next)
-      if (progress < 1) frame = requestAnimationFrame(tick)
+      if (progress < 1) frame = window.requestAnimationFrame(tick)
     }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
+    frame = window.requestAnimationFrame(tick)
+    return () => window.cancelAnimationFrame(frame)
   }, [data])
   return values
 }
