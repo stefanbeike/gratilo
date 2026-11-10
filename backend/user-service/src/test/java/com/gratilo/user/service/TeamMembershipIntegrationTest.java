@@ -56,6 +56,23 @@ class TeamMembershipIntegrationTest implements TestPropertyProvider {
         assertTrue(service.allPools(member).stream().anyMatch(p->p.id().equals(second.id())));
         assertTrue(service.allPools(member).stream().anyMatch(p->p.id().equals(fourth.id())));
     }
+    @Test void twoOwnPoolsAndThreeForeignMembershipsRemainIndependentWhenLeavingOne(){
+        UUID user=user();var ownA=service.create(user,"Own A");var ownB=service.create(user,"Own B");
+        var foreign=new ArrayList<UUID>();
+        for(int i=0;i<3;i++){
+            UUID owner=user();var pool=service.create(owner,"Foreign "+i);foreign.add(pool.id());
+            var invitation=service.invite(owner,pool.id(),users.findById(user).orElseThrow().getEmail()).members().stream().filter(m->m.userId().equals(user)).findFirst().orElseThrow();
+            service.respond(invitation.invitationToken(),user,true);
+        }
+        assertEquals(2,pools.findAllByOwnerIdOrderByCreatedAtAsc(user).size());
+        assertEquals(3,service.memberships(user).size());assertEquals(5,service.allPools(user).size());
+        assertEquals(5,service.allPools(user).stream().map(p->p.paymentUrl()).distinct().count());
+        UUID leaving=members.findByPoolIdAndUserId(foreign.get(1),user).orElseThrow().getId();
+        service.removeMember(user,leaving);
+        assertEquals(Set.of(foreign.get(0),foreign.get(2)),new HashSet<>(service.memberships(user).stream().map(p->p.id()).toList()));
+        assertEquals(4,service.allPools(user).size());assertNotNull(service.details(user,ownA.id()));assertNotNull(service.details(user,ownB.id()));
+        assertThrows(PoolService.PoolPermissionException.class,()->service.details(user,foreign.get(1)));
+    }
     @Test void acceptingAnInvitationAndCreatingOwnPoolCanHappenConcurrently() throws Exception{
         UUID owner=user(),member=user();var p=service.create(owner,"Existing");
         var invited=service.invite(owner,p.id(),users.findById(member).orElseThrow().getEmail()).members().stream().filter(m->m.userId().equals(member)).findFirst().orElseThrow();

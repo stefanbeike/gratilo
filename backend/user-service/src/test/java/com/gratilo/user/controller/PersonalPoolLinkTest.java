@@ -33,6 +33,17 @@ class PersonalPoolLinkTest {
         var restored=(UserResponses.PublicProfile)controller.publicProfile(owner).body();
         assertTrue(restored.paymentEnabled()); assertFalse(restored.personalLinkPaused()); assertEquals(paused.paymentUrl(),restored.paymentUrl());
     }
+    @Test void personalPauseDoesNotDisablePoolParticipation() {
+        var user=new UserEntity();user.setId(UUID.randomUUID());user.setPaymentEnabled(false);
+        var users=mock(UserRepository.class);when(users.findById(user.getId())).thenReturn(Optional.of(user));
+        var controller=new UserController(users,mock(EmailVerificationService.class),null,null);
+        var profile=(UserResponses.PublicProfile)controller.publicProfile(user.getId()).body();
+        assertFalse(profile.paymentEnabled());assertTrue(profile.poolParticipationEnabled());
+        user.setDeletedAt(java.time.OffsetDateTime.now());
+        assertFalse(UserResponses.PublicProfile.from(user).poolParticipationEnabled());
+        assertEquals(io.micronaut.http.HttpStatus.NOT_FOUND,controller.publicProfile(user.getId()).status());
+    }
+
     @Test void membershipInSomeoneElsesPoolDoesNotPauseThePersonalLink() {
         var pools=mock(PoolRepository.class); when(pools.findByOwnerId(any())).thenReturn(Optional.empty());
         var service=new PoolService(pools,mock(PoolMemberRepository.class),mock(UserRepository.class),mock(EmailSendService.class),"http://localhost",true);

@@ -60,8 +60,9 @@ public final class UserResponses {
     public record PublicProfile(UUID userId, String firstName, String lastName, String organisation, String profileImage, String paymentUrl, boolean paymentEnabled, String poolName, boolean personalLinkPaused, boolean poolParticipationEnabled) {
         public static PublicProfile from(UserEntity user) { return from(user, null); }
         public static PublicProfile from(UserEntity user, String poolName) {
-            // A team never replaces the employee's personal payment identity.
-            return new PublicProfile(user.getId(), user.getFirstName(), user.getLastName(), user.getOrganisation(), user.getProfileImage(), user.getPaymentUrlPath(), user.isPaymentEnabled(), null, false, user.isPaymentEnabled());
+            // Personal-link activation is independent of pool participation. Pool membership
+            // activity is checked per pool; deleted users cannot receive pool transfers.
+            return new PublicProfile(user.getId(), user.getFirstName(), user.getLastName(), user.getOrganisation(), user.getProfileImage(), user.getPaymentUrlPath(), user.isPaymentEnabled(), null, false, user.getDeletedAt() == null);
         }
     }
 }
