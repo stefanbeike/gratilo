@@ -43,14 +43,14 @@ it('keeps the personal account section mounted across views and hides team motif
  for (const image of screen.getAllByAltText('Team-Profilbild von Eigenes Team')) expect(image).toHaveAttribute('src','https://example.test/saved-team.jpg');
  expect(screen.getByLabelText('Poolname bearbeiten')).toBeInTheDocument();
 })
-it('keeps memberships and pool administration independent and still offers another pool',async()=>{
+it('keeps memberships and pool administration independent without offering a second own pool',async()=>{
  mount({admin:true,team:true});await screen.findByRole('button',{name:'Transaktion personal ansehen'});fireEvent.click(screen.getByRole('button',{name:'Meine Pools'}));
  expect(await screen.findByRole('button',{name:/Eigenes Team/})).toBeInTheDocument();expect(screen.getByRole('button',{name:/Team Sonnenseite/})).toBeInTheDocument();
- expect(screen.getByRole('button',{name:'+ Neuen Pool erstellen'})).toBeEnabled();expect(screen.queryByText(/mehrere aktive Team-Zuordnungen/)).not.toBeInTheDocument();
+ expect(screen.queryByRole('button',{name:'+ Neuen Pool erstellen'})).not.toBeInTheDocument();expect(screen.queryByText(/mehrere aktive Team-Zuordnungen/)).not.toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:/Team Sonnenseite/}));expect(screen.queryByText('Pool-Einstellungen und Mitglieder verwalten')).not.toBeInTheDocument();
  expect(screen.getByRole('button',{name:'Pool verlassen'})).toBeEnabled();
 })
-it('does not silently show a zero history when an API request fails',async()=>{mount({failure:true});expect(await screen.findByRole('alert')).toHaveTextContent('nicht vollständig geladen');expect(screen.getByRole('button',{name:'Erneut laden'})).toBeInTheDocument()})
+it('does not silently show a zero history when an API request fails',async()=>{mount({failure:true});await screen.findByRole('button',{name:'Transaktion personal ansehen'});expect(screen.queryByRole('alert')).not.toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'Meine Pools'}));expect(await screen.findByRole('alert')).toHaveTextContent('nicht vollständig geladen');expect(screen.getByRole('button',{name:'Erneut laden'})).toBeInTheDocument()})
 
 it('shows manual reconciliation as action required rather than a successful transfer',async()=>{mount({reason:'RECONCILIATION_REQUIRED'});await screen.findByRole('button',{name:'Transaktion personal ansehen'});fireEvent.click(screen.getByRole('button',{name:'Meine Pools'}));expect(await screen.findByText('Handlungsbedarf')).toBeInTheDocument();expect(screen.queryByText('Gebucht')).not.toBeInTheDocument()})
 it('marks a completed personal team transfer as booked',async()=>{mount({status:'TRANSFERRED',reason:''});await screen.findByRole('button',{name:'Transaktion personal ansehen'});fireEvent.click(screen.getByRole('button',{name:'Meine Pools'}));expect(await screen.findByText('Gebucht')).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'Transaktion pool-transfer-allocation ansehen'}));expect(within(screen.getByRole('dialog')).getByText('Transfer erfolgreich')).toBeInTheDocument()})

@@ -1,0 +1,288 @@
+= Pool-Auflösung
+
+== Verhalten und Rollen
+
+Ein authentifizierter Inhaber kann einen konkreten eigenen Pool über „Pool auflösen“
+auflösen. Der Dialog verlangt den exakten, vollständigen Poolnamen. Mitglieder und
+fremde Nutzer erhalten HTTP 403. Fehlende Pools ergeben 404; ein falscher Name 400.
+Ein wiederholter, korrekt authentifizierter Aufruf für einen bereits aufgelösten Pool
+bestätigt das bestehende Ergebnis ohne weitere Änderungen oder Benachrichtigungen.
+
+Für neue Pools gilt die Vorgabe dieses Auftrags: höchstens ein nicht gelöschter eigener
+Pool. `CLOSING` zählt mit. Die Erstellung sperrt dazu die Benutzerzeile vor der Prüfung;
+auch parallele Anfragen können keinen zweiten Pool anlegen. Nach der Auflösung ist
+eine Neuanlage möglich. Vorhandene Mehrfach-Inhaberschaften aus Migration 019 bleiben
+erhalten und einzeln verwaltbar. Die frühere explizite Freigabe mehrerer eigener Pools
+wird damit für Neuanlagen durch die Vorgabe dieses Auftrags ersetzt.
+Fremde Mitgliedschaften bleiben unbegrenzt. Persönliche Trinkgelder bleiben unabhängig.
+
+== Ablauf und Transaktionen
+
+. Eine kurze User-Service-Transaktion prüft Inhaber und Namen unter Pool-Zeilensperre
+  und setzt `ACTIVE -> CLOSING`, inklusive `dissolution_started_at`.
+. Öffentliche Pool-Links und die interne Verteilung stehen nur für `ACTIVE` zur
+  Verfügung. Einladungen, Annahmen und Änderungen sind ab `CLOSING` gesperrt.
+. Außerhalb der User-Datenbanktransaktion sperrt ein authentifizierter interner Aufruf
+  das Payment-Service-Zahlungstor dauerhaft. Laufende Checkout-Reservierungen und
+  gespeicherte Finanzvorgänge werden geprüft.
+. Bei offenen/ungeklärten Vorgängen antwortet die API mit 409 `POOL_FINANCE_PENDING`;
+  bei nicht überprüfbarer Finanzverbindung mit 503 `POOL_FINANCE_UNAVAILABLE`.
+  Der Pool bleibt sichtbar und gesperrt. Nach Abschluss der Vorgänge muss der Inhaber
+  dieselbe Aktion erneut ausführen. Es werden noch keine Auflösungs-E-Mails angelegt.
+. Nach erfolgreicher Prüfung beendet eine weitere kurze User-Transaktion aktive,
+  pausierte aktive und ausstehende Mitgliedschaften mit Status `ENDED` und `ended_at`.
+  Alle Mitgliedszeilen bleiben erhalten, werden deaktiviert und verlieren Einladungstoken
+  und Ablaufdatum. Bereits verlassene/abgelehnte Mitgliedschaften erhalten keine Mail.
+. Dieselbe Transaktion markiert den Pool `DELETED`, setzt `deleted_at` und legt genau
+  einen Outbox-Auftrag je betroffenem Nutzer an. Der Inhaber gehört als bestehendes
+  Pool-Mitglied ebenfalls zu den Empfängern. Ein Fehler rollt diese lokale Transaktion
+  vollständig zurück; der vorher gesetzte Schutzstatus `CLOSING` bleibt bestehen.
+. Der gelöschte Pool verschwindet aus aktiven Listen. Historische Transaktionen,
+  Verteilungs-Snapshots und Transfers bleiben unverändert und weiterhin abrufbar.
+
+Kein HTTP- oder SMTP-Aufruf findet in den Auflösungs-Datenbanktransaktionen statt.
+Es gibt bewusst keine verteilte Datenbanktransaktion. Ein Prozessabbruch ist durch
+Wiederholung des Aufrufs behebbar; abgelaufene Schutzsperren werden nicht automatisch
+aufgehoben. Die bisherige physische DELETE-Route löscht nichts mehr und verweist auf
+die bestätigte Auflösung. Auch die Kontoschließung darf eigene Pools nicht mehr
+physisch löschen: eigene nicht gelöschte Pools müssen zuerst aufgelöst werden.
+
+== Zahlungsintegrität
+
+Der öffentliche Pool-Checkout verwendet `PoolCheckoutCoordinator`. Vor dem Aufruf
+des transaktionalen Stripe-Checkout-Service speichert er eine dauerhafte Reservierung inklusive Checkout-Idempotenzschlüssel
+unter Sperre derselben Payment-Torzeile, die die Auflösung sperrt. Nach erfolgreichem
+Checkout-Commit wird die Reservierung abgeschlossen. Bekannte Validierungs- und
+Bereitschaftsfehler geben sie ebenfalls frei. Neue Sessions und PaymentIntents erhalten denselben `checkout_key` als Metadatum; damit
+kann eine Reservierung auch bei einem nicht gespeicherten Transaktions-Commit dem
+Provider-Vorgang zugeordnet werden. Bestehende unvollständige Sessions behalten
+ihren ursprünglichen Stripe-Request ohne neue Metadaten, damit ein idempotenter
+Wiederholungsaufruf weiterhin dieselben Parameter verwendet. Unklare Provider-/Commit-Ergebnisse
+bleiben gesperrt, bis ihr tatsächlicher Ausgang geklärt ist.
+
+Ein vor der Auflösung zugelassener Checkout blockiert damit die finale Auflösung;
+ein nach der Sperre gestarteter Checkout erreicht Stripe nicht. Es werden keine
+Checkout-Sessions im Rahmen der Auflösung bei Stripe erstellt, storniert oder blind
+als abgelaufen angenommen. Offene Sessions müssen über bestätigte Webhooks oder
+eine kontrollierte Prüfung ihres tatsächlichen Provider-Zustands abgeschlossen werden.
+
+Die Finanzprüfung berücksichtigt Pool-Zuordnung aus dem gespeicherten `poolId`,
+nicht nur den Kontoinhaber. Sie blockiert ausstehende/autorisierte/strittige oder
+unbekannte Zahlungszustände, unvollständige Transfers und offene Rückbuchungsbeträge.
+Fehlgeschlagene/stornierte Zahlungen mit niemals eingereichten Transfers sind
+abschließend; unklare Transfer-Versuche bleiben blockiert. Persönliche Zahlungen,
+andere Pools und persönliche Bankauszahlungen werden nicht verändert.
+
+Verspätete bestätigte Zahlungen, Erstattungen und Streitfälle laufen weiterhin durch
+die bestehenden Webhook- und Transfer-Prozesse anhand unveränderter Transaktions-
+und Allokations-Snapshots. Sie benötigen keinen aktiven Pool im User-Service.
+Die bestehenden Stripe-Idempotenz- und Transfer-Abgleichsverfahren bleiben erhalten.
+Auch nach einer Auflösung können neue externe Erstattungs-/Streitfallereignisse
+auftreten und werden über diese historischen Zuordnungen verarbeitet.
+
+Alte Zahlungslinks bleiben dem ursprünglichen Pool zugeordnet und werden nicht
+für einen Ersatzpool wiederverwendet. Auch der Legacy-Inhaber-Verweis darf nach
+der Neuanlage nicht auf den Ersatzpool umspringen. Neue Pools erhalten neue IDs/Links.
+
+== E-Mail-Versand
+
+Die transaktionale Outbox `user_mgmt.pool_dissolution_outbox` hat eine eindeutige
+Zuordnung `(pool_id,user_id)`. Sie speichert Poolname und Nutzer-ID; die Adresse
+und der Vorname werden erst beim Versand aus dem bestehenden Benutzerkonto gelesen.
+Betreff: „Dein Gratilo-Pool wurde aufgelöst“. Der Text bestätigt das Ende genau dieser
+Mitgliedschaft sowie den Fortbestand des persönlichen Kontos und anderer Pools.
+
+`PoolDissolutionMailer` verwendet unverändert `EmailSendService` und dessen
+SMTP-/Amazon-SES-Konfiguration. Das bestehende Flag für Trinkgeld-Eingangsmails
+unterdrückt diese Auflösungsbenachrichtigungen nicht. Bei aktivierten Pools läuft der
+Worker alle 15 Sekunden, mit maximal 20 Aufträgen pro Durchlauf. Er beansprucht
+Aufträge transaktional mit `FOR UPDATE SKIP LOCKED` und einer Zwei-Minuten-Lease;
+der SMTP-Aufruf selbst läuft danach außerhalb der Transaktion.
+
+Bekannt nicht angenommene Zustellungen werden höchstens zehnmal versucht, mit
+exponentiellem Abstand von 60 Sekunden bis 32 Minuten. Fehlerlogs enthalten nur
+Auftrags-ID, Status und Fehlerklasse, keine Adressen, Namen, Nachrichtentexte oder
+Provider-Fehlermeldungen. Gelöschte Konten oder ungültige Adressen führen zu
+`SUPPRESSED`; ausgeschöpfte Versuche zu `FAILED`.
+
+SMTP bietet keine atomare Exactly-once-Zustellung zusammen mit der Datenbank.
+Timeouts nach möglicher Annahme oder ein Prozessabbruch während `SENDING` ergeben
+daher `UNKNOWN` statt eines blinden Neuversands. Betreiber müssen die Annahme beim
+Mailanbieter prüfen: bestätigte Zustellung als `SENT` verbuchen; nur bei nachweislich
+nicht angenommener Zustellung kontrolliert auf `RETRY` setzen. Die logische Nachricht
+bleibt dabei dieselbe. Ein SMTP-Fehler macht niemals die Auflösung rückgängig.
+
+== API und Konfiguration
+
+[cols="2,3"]
+|===
+|Endpunkt |Verhalten
+|`POST /user-service/pools/{poolId}/dissolve` |JWT erforderlich; JSON `{"poolName":"exakter Name"}`. Erfolg 200 mit `status: DELETED`; wiederholt idempotent.
+|`POST /payment-service/internal/pools/{poolId}/freeze` |Nur mit gültigem `X-Internal-Secret`; friert Zahlungen ein und liefert `safeToDissolve`. Kein Stripe-Aufruf.
+|`DELETE /user-service/pools/{poolId}` |Keine physische Löschung mehr; verweist auf den Bestätigungsablauf.
+|`GET /user-service/pools/all`, `/memberships`, `/{poolId}` |Aktive Listen ohne gelöschte Pools; verbleibende Pools enthalten den Lifecycle-Status.
+|`DELETE /user-service/users/account` |409, solange eigene nicht gelöschte Pools existieren.
+|===
+
+`pool.payment-service-url` verwendet `PAYMENT_SERVICE_URL`, standardmäßig
+`http://localhost:8082`. Die geprüfte ECS-Aufgabendefinition nutzt `awsvpc` und enthält
+beide Services in derselben Aufgabe; deren bestehende localhost-Verbindung genügt.
+Docker Compose setzt dafür `http://payment-service:8082`. Der bestehende serverseitige
+`internal.api-key`/`INTERNAL_API_KEY` wird weiterverwendet. Keine neuen Cloud-Ressourcen
+oder Frontend-Secrets wurden eingeführt. `prd`- und Live-Daten wurden nicht verändert.
+
+Migrationen, jeweils als 020 im vorhandenen Liquibase-Master eingebunden:
+
+* User-Service: Lifecycle-Felder, `ended_at`, zulässiger Deaktivierungsgrund
+  `DISSOLVED`, Schutz vor kaskadierender Pool-Mitgliedslöschung und Outbox.
+* Payment-Service: Zahlungstore, dauerhafte Checkout-Reservierungen und Index auf
+  historische Pool-Zuordnung. Keine historischen Finanzdaten werden umgeschrieben.
+
+Bei einer später freigegebenen Veröffentlichung zuerst den Payment-Service mit
+Migration und Checkout-Schutz ausrollen und sämtliche alten in-flight Requests
+abfließen lassen. Erst danach den User-Service und die neue UI bereitstellen.
+Ein gleichzeitiger Mischbetrieb mit alten, ungeschützten Checkout-Instanzen erfüllt
+die neue Zulassungsgarantie noch nicht. Keine Produktionseinführung ist Bestandteil
+dieses Pull Requests.
+
+== Betrieb und verbleibende Einschränkungen
+
+* `CLOSING` ist absichtlich dauerhaft: es gibt keine automatische Wiederöffnung.
+  Nach bestätigtem Abschluss offener Vorgänge die UI-Aktion wiederholen.
+* Eine offene Reservierung nach einem unbekannten Stripe-/Commit-Ausgang darf erst
+  nach Abgleich von Transaktion, Session, Stripe-Idempotenzschlüssel und Provider-Zustand
+  abgeschlossen werden. Nicht allein anhand des Alters freigeben. Die Auflösung
+  erzwingt keine Transfers und verändert keine Gebühren-/Verteilungsdaten.
+* `UNKNOWN`, `FAILED` und länger unveränderte `CLOSING`-Pools benötigen eine
+  Betreiberprüfung. Es wurde keine neue Admin-Konsole für diese Ausnahmefälle gebaut.
+* Die interne Finanzprüfung beruht auf bestätigten lokalen Finanzzuständen und
+  unaufgelösten Reservierungen. Bereits vor Einführung dieses Schutzes entstandene,
+  überhaupt nicht gespeicherte Stripe-Vorgänge benötigen gesonderten Provider-Abgleich.
+* Die Maximalzahl eigener Pools wurde im Gespräch unterschiedlich vorgegeben; diese
+  Implementierung folgt der jüngsten Auftragsfassung für Neuanlagen und erhält Altbestand.
+
+== Nachweise
+
+Die Tests decken Inhaber-/Mitglieds-/Fremdzugriff, falsche/fehlende IDs, Namensbestätigung,
+Soft-Delete, Auftrags-Eindeutigkeit, Wiederholung, Transaktions-Rollback, Einladungssperre,
+drei fremde Mitgliedschaften mit genau einem Wegfall, unveränderte persönliche Links,
+Neuanlage nach Auflösung, parallele Neuanlage und den Kontoschließungs-Umweg ab.
+Echte isolierte PostgreSQL-Tests prüfen die Migrationen, Checkout-Zulassung gegen
+parallele Sperren, finanzielle Blocker, wiederholte verspätete Zahlungs-/Erstattungs-
+Webhooks, historische Snapshots, Outbox-Leases und erschöpfte Wiederholungsversuche.
+SMTP-Erfolg, sicher wiederholbare Verbindungsfehler und unklare Timeouts sind gemockt.
+
+Für die PostgreSQL-Tests sind ausschließlich diese Wegwerf-Datenbanken zugelassen:
+
+----
+POOL_PAYMENT_TEST_JDBC_URL=jdbc:postgresql://127.0.0.1:55441/payment_dissolution_test
+POOL_USER_TEST_JDBC_URL=jdbc:postgresql://127.0.0.1:55441/user_dissolution_test
+----
+
+Nutzer `postgres`, kein Passwort bei expliziter lokaler Test-Trust-Authentifizierung.
+Die Tests löschen ausschließlich die jeweiligen Testschemas. CI erstellt dafür einen
+isolierten PostgreSQL-15-Service mit Loopback-Port; lokal wurden PostgreSQL 16 und
+Java 21 verwendet. Ohne die exakt passenden Umgebungsvariablen werden diese beiden
+Datenbanktests übersprungen. Gradle berücksichtigt die Test-URLs als Task-Eingaben.
+
+----
+bash ./gradlew :backend:user-service:test :backend:payment-service:test
+cd frontend
+npm test -- --maxWorkers=2 --minWorkers=1
+npm run build
+----
+
+Unter eingeschränktem Java-Attachment ist für Mockito dessen vorhandene JAR als
+`-javaagent` einzubinden; lokal wurde dafür ein temporäres Gradle-Init-Skript verwendet.
+Die Backend-Distributionen werden mit den `assemble`-Tasks gebaut.
+
+== Ausgeführte Prüfungen dieses Pull Requests
+
+* User-Service: 95 Tests erfolgreich, einschließlich echter H2-Transaktionen und des PostgreSQL-Outbox-Tests.
+* Payment-Service: 286 Tests erfolgreich, einschließlich PostgreSQL-Zahlungstor, verspäteter Webhooks und des bestehenden Stripe-Finanzhistorien-Audittests; kein Test übersprungen.
+* Frontend: 187 Tests in 24 Dateien erfolgreich; TypeScript-/Vite-Produktionsbuild erfolgreich.
+* Beide Backend-Distributionen: `assemble` erfolgreich.
+* Deployment-Werkzeuge: 149 Tests erfolgreich, drei Compose-Renderingtests mangels funktionsfähiger Docker-/WSL-Anbindung übersprungen. Der erste Lauf traf bei diesen drei Tests auf den nicht funktionsfähigen Windows-Docker-Platzhalter; der abschließende Lauf schloss ihn aus dem Test-PATH aus und erkannte die fehlende Fähigkeit korrekt.
+* `git diff --check`: erfolgreich. SMTP und Stripe wurden ausschließlich über Test-Fixtures angesprochen; keine echten Auflösungen, Mails, Live-Zahlungen oder produktiven Datenbankänderungen.
+
+== Ergänzende Prüfung vor dem Merge
+
+Der separate CI-PostgreSQL-Lauf zeigte einen Fehler ausschließlich in der Testbereinigung:
+Mit dem neuen RESTRICT-Fremdschlüssel müssen sämtliche Test-Mitgliedschaften vor den
+Test-Pools entfernt werden. Diese Reihenfolge wurde korrigiert. Alle 15 Tests des
+separaten `registrationPostgresTest` laufen anschließend auch lokal mit echten
+Liquibase-Migrationen erfolgreich durch. Der Container-Sicherheitsscan meldete
+veraltete `apt`-/`libapt-pkg6.0`-Pakete aus dem Basisimage; die Runtime-Dockerfiles
+fordern jetzt auch deren aktuelle Paketversionen beim bestehenden apt-Update an.
+
+== Geänderte Dateien
+
+Die folgende Liste umfasst alle Commits dieses Feature-Branches:
+
+----
+.github/workflows/002_unit_tests.yml
+backend/payment-service/Dockerfile
+backend/payment-service/build.gradle
+backend/payment-service/src/main/java/com/gratilo/payment/config/StripeTestAccessRule.java
+backend/payment-service/src/main/java/com/gratilo/payment/controller/PoolDissolutionController.java
+backend/payment-service/src/main/java/com/gratilo/payment/controller/TipController.java
+backend/payment-service/src/main/java/com/gratilo/payment/service/PoolCheckoutCoordinator.java
+backend/payment-service/src/main/java/com/gratilo/payment/service/PoolCheckoutGate.java
+backend/payment-service/src/main/java/com/gratilo/payment/service/StripeCheckoutService.java
+backend/payment-service/src/main/resources/application.yml
+backend/payment-service/src/main/resources/db/changelog/changelog-master.xml
+backend/payment-service/src/main/resources/db/changelog/payment_mgmt/020_pool_dissolution.sql
+backend/payment-service/src/test/java/com/gratilo/payment/GuestCheckoutHttpTest.java
+backend/payment-service/src/test/java/com/gratilo/payment/ProductionPaymentTest.java
+backend/payment-service/src/test/java/com/gratilo/payment/controller/PoolDissolutionDatabaseTest.java
+backend/payment-service/src/test/java/com/gratilo/payment/service/PoolCheckoutCoordinatorTest.java
+backend/payment-service/src/test/java/com/gratilo/payment/service/PoolCheckoutTest.java
+backend/user-service/Dockerfile
+backend/user-service/build.gradle
+backend/user-service/src/main/java/com/gratilo/user/api/PoolResponses.java
+backend/user-service/src/main/java/com/gratilo/user/api/UserResponses.java
+backend/user-service/src/main/java/com/gratilo/user/controller/PoolDissolutionController.java
+backend/user-service/src/main/java/com/gratilo/user/controller/UserController.java
+backend/user-service/src/main/java/com/gratilo/user/domain/PoolDissolutionNotice.java
+backend/user-service/src/main/java/com/gratilo/user/domain/PoolEntity.java
+backend/user-service/src/main/java/com/gratilo/user/domain/PoolMemberEntity.java
+backend/user-service/src/main/java/com/gratilo/user/repository/PoolDissolutionNoticeRepository.java
+backend/user-service/src/main/java/com/gratilo/user/service/PaymentUrlPoolService.java
+backend/user-service/src/main/java/com/gratilo/user/service/PoolDissolutionMailer.java
+backend/user-service/src/main/java/com/gratilo/user/service/PoolDissolutionOutbox.java
+backend/user-service/src/main/java/com/gratilo/user/service/PoolDissolutionService.java
+backend/user-service/src/main/java/com/gratilo/user/service/PoolDissolutionState.java
+backend/user-service/src/main/java/com/gratilo/user/service/PoolPaymentClosureClient.java
+backend/user-service/src/main/java/com/gratilo/user/service/PoolService.java
+backend/user-service/src/main/java/com/gratilo/user/service/TipNotificationSender.java
+backend/user-service/src/main/resources/application.yml
+backend/user-service/src/main/resources/db/changelog/changelog-master.xml
+backend/user-service/src/main/resources/db/changelog/user_mgmt/020_pool_dissolution.sql
+backend/user-service/src/test/java/com/gratilo/user/controller/PersonalPoolLinkTest.java
+backend/user-service/src/test/java/com/gratilo/user/controller/RegistrationIntegrationTest.java
+backend/user-service/src/test/java/com/gratilo/user/service/PaymentLinkInventoryTest.java
+backend/user-service/src/test/java/com/gratilo/user/service/PoolDissolutionMailerTest.java
+backend/user-service/src/test/java/com/gratilo/user/service/PoolDissolutionOutboxDatabaseTest.java
+backend/user-service/src/test/java/com/gratilo/user/service/TeamDashboardTest.java
+backend/user-service/src/test/java/com/gratilo/user/service/TeamMembershipIntegrationTest.java
+docker-compose/Dockerfile.local-runtime
+docker-compose/compose.stripe-test.yml
+docker-compose/docker-compose.services.yml
+docs/pool-dissolution.adoc
+docs/pool-many-to-many-dashboard.adoc
+frontend/src/Dashboard.tsx
+frontend/src/DashboardAccountViews.test.tsx
+frontend/src/DashboardMultiRoles.test.tsx
+frontend/src/DashboardStructure.test.tsx
+frontend/src/PoolDissolveDialog.test.tsx
+frontend/src/PoolDissolveDialog.tsx
+frontend/src/PoolDistributionChart.tsx
+frontend/src/PoolPayments.test.tsx
+frontend/src/api.ts
+frontend/src/dashboard.css
+frontend/src/features.test.tsx
+frontend/src/features.tsx
+frontend/src/poolPercentages.test.ts
+frontend/src/poolPercentages.ts
+frontend/src/test/setup.ts
+----

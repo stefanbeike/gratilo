@@ -39,7 +39,7 @@ it('keeps a confirmed READY pool when the member-status refresh changes or eligi
  window.dispatchEvent(new Event('focus'))
  await waitFor(()=>expect(calls.mock.calls.filter(([url])=>String(url).endsWith('/members')).length).toBeGreaterThan(1))
  expect((calls as typeof calls & {eligibilityCalls:number}).eligibilityCalls).toBeGreaterThanOrEqual(2)
- expect(screen.getAllByText(/Letzte Prüfung: zahlungsbereit/)).not.toHaveLength(0)
+ expect(await screen.findAllByText(/Letzte Prüfung: zahlungsbereit/)).not.toHaveLength(0)
  expect(screen.getByTitle('Team-Trinkgeld QR-Code')).toBeInTheDocument()
 })
 it('keeps the recent confirmed member READY when a later member-status request fails',async()=>{

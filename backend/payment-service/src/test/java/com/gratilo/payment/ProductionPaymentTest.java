@@ -35,7 +35,7 @@ class ProductionPaymentTest {
 
     @Test
     void demoParameterCannotReachPaymentServicesWhenDisabled() {
-        var controller = new TipController(null, new java.math.BigDecimal("1.5"), 25);
+        var controller = new TipController(null, null, new java.math.BigDecimal("1.5"), 25);
         for (String demo : new String[]{"1", "true", "TRUE"}) {
             assertEquals(HttpStatus.BAD_REQUEST, controller.checkout(UUID.randomUUID(), demo,
                     new TipPaymentRequest(500L, null, "test-only")).getStatus());

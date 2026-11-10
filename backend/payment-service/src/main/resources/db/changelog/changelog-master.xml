@@ -22,4 +22,5 @@
     <include file="payment_mgmt/017_platform_fee_vat_pricing.sql" relativeToChangelogFile="true"/>
     <include file="payment_mgmt/018_recipient_extra_pricing_history.sql" relativeToChangelogFile="true"/>
     <include file="payment_mgmt/019_stripe_payment_audit.sql" relativeToChangelogFile="true"/>
+    <include file="payment_mgmt/020_pool_dissolution.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>

@@ -14,7 +14,13 @@ export async function api<T = { message: string }>(path: string, body?: unknown,
     // Backend errors (especially Stripe) contain a useful, safe diagnostic.
     // Preserve it so the account page can tell the operator what to fix.
     const backendMessage = data?.detail ? `${data.message || 'Anfrage fehlgeschlagen'} ${data.detail}` : data?.message
-    throw new Error(response.status === 401 ? 'E-Mail oder Passwort ist nicht korrekt.' : backendMessage || (response.status >= 500 ? 'Das hat leider nicht geklappt. Bitte versuche es später erneut.' : 'Bitte prüfe deine Angaben. Der Link könnte ungültig oder abgelaufen sein.'))
+    const error = new Error(response.status === 401 ? 'E-Mail oder Passwort ist nicht korrekt.' : backendMessage || (response.status >= 500 ? 'Das hat leider nicht geklappt. Bitte versuche es später erneut.' : 'Bitte prüfe deine Angaben. Der Link könnte ungültig oder abgelaufen sein.'))
+    Object.assign(error, { code: data?.code, status: response.status })
+    throw error
   }
   return data as T
+}
+
+export function dissolvePool(id: string, poolName: string, token: string) {
+  return api<{ status: 'DELETED'; message: string }>(`/pools/${encodeURIComponent(id)}/dissolve`, { poolName }, token)
 }

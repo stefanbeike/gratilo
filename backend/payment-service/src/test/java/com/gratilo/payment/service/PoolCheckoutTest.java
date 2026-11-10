@@ -43,7 +43,7 @@ class PoolCheckoutTest {
         assertEquals(5,result.quote().pricingVersion());assertEquals(45,result.quote().platformFeeMinor());assertEquals(99955,result.quote().recipientAmountMinor());
         assertEquals(original,tx.getMetadata());
     }
-    @Test void manipulatedNewPoolAmountsAreRejectedBeforeProviderOrAllocationOperations(){
+    @Test void manipulatedNewPoolAmountsAreRejectedBeforeProviderOrAllocationOperations()throws Exception{
         UUID owner=UUID.randomUUID(), poolId=UUID.randomUUID();
         var repo=proxy(TransactionRepository.class,(p,m,a)->{assertEquals("findByAccountUserIdAndIdempotencyKey",m.getName());return Optional.empty();});
         var allocations=proxy(PoolTransferRepository.class,(p,m,a)->{throw new AssertionError("No allocation writes");});
@@ -51,7 +51,7 @@ class PoolCheckoutTest {
         var service=new StripeCheckoutService(repo,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null,poolClient,allocations);
         for(long amount:new long[]{199,50001})for(boolean covered:new boolean[]{true,false}){
             assertThrows(PoolPaymentLimits.InvalidPoolAmount.class,()->service.createPool(UUID.randomUUID(),new TipPaymentRequest(amount,null,"invalid",covered)));
-            var response=new com.gratilo.payment.controller.TipController(service,new java.math.BigDecimal("3.15"),25)
+            var response=new com.gratilo.payment.controller.TipController(coordinator(service),service,new java.math.BigDecimal("3.15"),25)
                     .poolCheckout(UUID.randomUUID(),"false",new TipPaymentRequest(amount,null,"invalid",covered));
             assertEquals(io.micronaut.http.HttpStatus.BAD_REQUEST,response.getStatus());
         }
@@ -149,6 +149,8 @@ class PoolCheckoutTest {
                 new TipPaymentRequest(tip,"Team danke","pool-key",covered,null,null,UUID.randomUUID())));
         assertEquals("https://checkout.stripe.com/test", response.checkoutUrl());
         var form = calls.getFirst();
+        assertTrue(form.contains("metadata%5Bcheckout_key%5D=pool-key"));
+        assertTrue(form.contains("payment_intent_data%5Bmetadata%5D%5Bcheckout_key%5D=pool-key"));
         assertTrue(form.contains("line_items%5B0%5D%5Bprice_data%5D%5Bunit_amount%5D="+expected.totalAmountMinor()));
         assertTrue(form.contains("payment_intent_data%5Btransfer_group%5D=gratilo_"));
         assertFalse(form.contains("transfer_data%5Bdestination%5D"));
@@ -202,7 +204,7 @@ class PoolCheckoutTest {
         var allocations=proxy(PoolTransferRepository.class,(p,m,a)->{throw new AssertionError("Unknown eligibility must not create allocations");});
         var service=new StripeCheckoutService(transactions,accounts,stripe,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("1.5"),25,recipient,pool,allocations);
         assertThrows(StripeCheckoutService.PoolEligibilityUnavailableException.class,()->service.createPool(poolId,new TipPaymentRequest(1000L,"Danke","unknown-status",false,null,null,poolId)));
-        var response=new com.gratilo.payment.controller.TipController(service,new java.math.BigDecimal("1.5"),25).poolCheckout(poolId,"false",new TipPaymentRequest(1000L,"Danke","unknown-status-http",false,null,null,poolId));
+        var response=new com.gratilo.payment.controller.TipController(coordinator(service),service,new java.math.BigDecimal("1.5"),25).poolCheckout(poolId,"false",new TipPaymentRequest(1000L,"Danke","unknown-status-http",false,null,null,poolId));
         assertEquals(io.micronaut.http.HttpStatus.SERVICE_UNAVAILABLE,response.getStatus());assertEquals("POOL_ELIGIBILITY_UNKNOWN",((Map<?,?>)response.body()).get("code"));
     }
 
@@ -231,5 +233,10 @@ class PoolCheckoutTest {
         if (type == int.class) return 0;
         if (type == long.class) return 0L;
         return null;
+    }
+    private static jakarta.inject.Provider<PoolCheckoutCoordinator> coordinator(StripeCheckoutService service)throws Exception{
+        var coordinator=org.mockito.Mockito.mock(PoolCheckoutCoordinator.class);
+        org.mockito.Mockito.when(coordinator.create(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any())).thenAnswer(call->service.createPool(call.getArgument(0),call.getArgument(1)));
+        return ()->coordinator;
     }
 }

@@ -66,13 +66,15 @@ class PaymentLinkInventoryTest {
         assertThrows(IllegalArgumentException.class,()->service.delete(UUID.randomUUID(),p.getId()));assertThrows(IllegalArgumentException.class,()->service.rename(UUID.randomUUID(),p.getId(),"Other"));
         verifyNoInteractions(urls);
     }
-    @Test void repeatedCreateCreatesIndependentPoolsWithoutNeedingInventory() {
+    @Test void secondCreateIsRejectedWithoutConsumingInventory() {
         var owner=UUID.randomUUID();var u=new UserEntity();u.setId(owner);when(users.findByIdForUpdate(owner)).thenReturn(Optional.of(u));
         when(pools.save(any())).thenAnswer(invocation->invocation.getArgument(0));
         when(members.findByPoolIdAndUserId(any(),eq(owner))).thenReturn(Optional.empty());
         var service=new PoolService(pools,members,users,mock(EmailSendService.class),"http://localhost",true);
-        var first=service.create(owner,"First");var second=service.create(owner,"Second");
-        assertNotEquals(first.id(),second.id());assertNotEquals(first.paymentUrl(),second.paymentUrl());
-        verify(pools,times(2)).save(any());verify(members,times(2)).save(any());
+        var first=service.create(owner,"First");
+        var existing=new PoolEntity();existing.setId(first.id());existing.setOwnerId(owner);existing.setName(first.name());
+        when(pools.findAllByOwnerIdOrderByCreatedAtAsc(owner)).thenReturn(List.of(existing));
+        assertThrows(IllegalArgumentException.class,()->service.create(owner,"Second"));
+        verify(pools,times(1)).save(any());verify(members,times(1)).save(any());
     }
 }

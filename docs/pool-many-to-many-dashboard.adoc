@@ -36,3 +36,27 @@ Das Dashboard bleibt im vorhandenen hellen Modus. Die Änderungen verwenden vorh
 Backend-Regressionen decken einen Benutzer ab, der mehreren Pools beitritt, mehrere Pools erstellt und parallel Einladungen annimmt. Frontend-Regressionen prüfen die gleichzeitige Mitgliedschaft und Administration, Poolwechsel, rollenabhängige Aktionen und die eindeutige Pool-ID beim öffentlichen Checkout. Die Zahlungsschnittstellen werden in Tests gemockt; Stripe-, AWS- und produktive Datenbank-Schreibzugriffe werden nicht ausgeführt.
 
 Vor einem Deployment muss die additive Migration regulär in einer isolierten Umgebung geprüft werden. Es wurden im Rahmen dieser Änderung keine produktiven Datenbanken verändert und kein Deployment beziehungsweise Push ausgeführt.
+
+
+== Korrekturen für kombinierte Rollen
+
+Eigene Pools und fremde Mitgliedschaften bleiben beliebig kombinierbar. Ein weiterer eigener Pool ist weiterhin erlaubt. Die Eingabe zum Erstellen eines neuen Pools ist von der Namensbearbeitung des ausgewählten Pools getrennt.
+
+Pool-Antworten ergänzen `memberCount`, `activeMemberCount` und `membersComplete`. Normale Mitglieder bekommen weiterhin ausschließlich ihre eigene Mitgliedschaft; die anonymen Gesamtzahlen stammen trotzdem aus dem vollständigen Pool. Die UI leitet die Mitgliederzahl bei älteren fremden Pool-Antworten nicht aus der Teilliste ab. Sie kennzeichnet die Zahl dann als unbekannt.
+
+Das Diagramm einer fremden Mitgliedschaft zeigt ausschließlich den bestätigten eigenen `effectiveSharePercent`. Ein Anteil von 25 % bleibt 25 %, auch wenn die API keine weiteren Mitglieder liefert. Relative Gewichte einer Teilliste werden nicht auf 100 % hochgerechnet. Vollständige Inhaberansichten und deren Gewichtsvorschau verwenden weiterhin die vorhandene Verteilungsberechnung.
+
+„Alle meine Poolanteile“ ist eine aggregierte Zahlungsansicht ohne ausgewählten Einzelpool. Verwaltungs- oder Mitgliedsaktionen erscheinen dort nicht. Nach Auswahl eines konkreten Pools werden die dafür verfügbaren Aktionen angezeigt. Späte Antworten von Verwaltungsaktionen aktualisieren ihren Pool, wechseln aber nicht die inzwischen gewählte Poolansicht.
+
+Die persönliche Zahlungsseite verwendet weiterhin `paymentEnabled`. Diese persönliche Pause deaktiviert keine Pool-Teilnahme. Dort gelten der Status und die Aktivierung der konkreten Mitgliedschaft sowie die bestehende Stripe-Prüfung. Gelöschte Benutzer bleiben ausgeschlossen. Es ist dafür keine neue Datenbankspalte nötig.
+
+Persönliche Transaktionen und Pool-Transfers werden unabhängig geladen. Lade- und Fehlerzustände gehören jeweils zur betroffenen Ansicht; ein Fehler der Pool-Historie unterdrückt keine erfolgreich geladenen persönlichen Transaktionen. Eine fehlgeschlagene Feature-Konfiguration bleibt von einer bestätigten Deaktivierung unterscheidbar und kann über die UI oder einen Fensterfokus erneut abgefragt werden. Bereits bestätigte Einstellungen bleiben bei einem technischen Abfragefehler erhalten.
+
+Regressionen prüfen zwei eigene Pools mit drei fremden Mitgliedschaften, Wechsel und aggregierte Ansicht, Austritt aus genau einem Pool, verspätete Verwaltungsantworten, eingeschränkte Mitgliederantworten, getrennte Historienfehler und die persönliche Zahlungspause. Die Mitgliedschafts-Integrationstests können mit H2 laufen; eine PostgreSQL-Migrationsprüfung ist davon getrennt.
+
+== Neuanlagen nach Einführung der Pool-Auflösung
+
+Die neuere Vorgabe für Pool-Auflösungen begrenzt neue Inhaberschaften auf einen
+nicht gelöschten eigenen Pool. Vorhandene Mehrfach-Inhaberschaften aus Migration 019
+bleiben erhalten und werden weiterhin korrekt dargestellt. Fremde Mitgliedschaften
+bleiben unbegrenzt. Details und Betriebsverfahren stehen in `pool-dissolution.adoc`.

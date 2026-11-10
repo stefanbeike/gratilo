@@ -16,7 +16,16 @@ interface WeightedMember {
 }
 
 /** Mirrors PoolWeights.effectiveShares: largest remainder, ties by user UUID. */
-export function poolDistribution(members: readonly WeightedMember[], drafts: Readonly<Record<string, string>> = {}) {
+export function poolDistribution(members: readonly WeightedMember[], drafts: Readonly<Record<string, string>> = {}, complete = true) {
+  if (!complete) {
+    // A member-only response contains no denominator for normalizing weights.
+    // Only confirmed server percentages describe this member's actual share.
+    const shares = Object.fromEntries(members.map(member => [member.id,
+      member.active && member.status === 'ACTIVE' && member.effectiveSharePercent !== undefined &&
+      Number.isFinite(member.effectiveSharePercent) && member.effectiveSharePercent >= 0 && member.effectiveSharePercent <= 100
+        ? member.effectiveSharePercent : 0]))
+    return { shares, preview: false, invalid: false }
+  }
   const parsed = members.map(member => ({
     member,
     weight: percentageBasisPoints(drafts[member.id] ?? String(member.sharePercent)),
@@ -40,7 +49,7 @@ export function poolDistribution(members: readonly WeightedMember[], drafts: Rea
     for (let index = 0; index < remaining; index++) order[index].basis++
     allocations.forEach(entry => { shares[entry.id] = entry.basis / 100 })
   }
-  // Use a complete confirmed allocation; older/partial API responses use the same local fallback.
+  // Prefer a complete confirmed allocation. Full owner responses without one use the weight-based fallback.
   const confirmed = eligible.map(({ member }) => member.effectiveSharePercent)
   if (!preview && confirmed.length > 0 && confirmed.every(value =>
     value !== undefined && Number.isFinite(value) && value >= 0 && value <= 100) &&

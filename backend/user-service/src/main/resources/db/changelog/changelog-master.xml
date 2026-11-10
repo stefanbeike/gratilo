@@ -22,4 +22,5 @@
     <include file="user_mgmt/017_member_deactivation.sql" relativeToChangelogFile="true"/>
     <include file="user_mgmt/018_tip_notification_inbox.sql" relativeToChangelogFile="true"/>
     <include file="user_mgmt/019_multi_pool_memberships.sql" relativeToChangelogFile="true"/>
+    <include file="user_mgmt/020_pool_dissolution.sql" relativeToChangelogFile="true"/>
 </databaseChangeLog>

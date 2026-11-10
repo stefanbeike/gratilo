@@ -56,15 +56,16 @@ function useAnimatedShares(data: ChartEntry[]) {
   return values
 }
 
-export function PoolDistributionChart({ members, drafts = emptyDrafts }: {
+export function PoolDistributionChart({ members, drafts = emptyDrafts, complete = true }: {
   members: PoolParticipant[]
   drafts?: Record<string, string>
+  complete?: boolean
 }) {
   const headingId = useId()
   const legendId = useId()
   const [highlighted, setHighlighted] = useState<string | null>(null)
   const colors = useRef(new Map<string, string>())
-  const distribution = useMemo(() => poolDistribution(members, drafts), [members, drafts])
+  const distribution = useMemo(() => poolDistribution(members, drafts, complete), [members, drafts, complete])
   const data = useMemo(() => [...members].sort((a, b) => a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0).filter(member => distribution.shares[member.id] > 0)
     .map(member => ({
       key: member.id,
@@ -80,16 +81,16 @@ export function PoolDistributionChart({ members, drafts = emptyDrafts }: {
 
   return <section className="account-card pool-distribution" aria-labelledby={headingId} onKeyDown={event => { if (event.key === 'Escape') setHighlighted(null) }}>
     <div className="pool-distribution-heading">
-      <div><h2 id={headingId}>Trinkgeldverteilung</h2><p>Effektive Anteile der aktiven Pool-Mitglieder</p></div>
+      <div><h2 id={headingId}>{complete ? 'Trinkgeldverteilung' : 'Dein Pool-Anteil'}</h2><p>{complete ? 'Effektive Anteile der aktiven Pool-Mitglieder' : 'Dein bestätigter Anteil. Andere Mitgliederdaten bleiben geschützt.'}</p></div>
       {distribution.preview && <span className="status-pill pending" role="status">Vorschau – noch nicht gespeichert</span>}
     </div>
     {data.length > 0 ? <div className="pool-distribution-layout">
-      <div className="pool-distribution-visual" role="img" aria-label="Trinkgeldverteilung als Donut-Diagramm" aria-describedby={legendId}>
-        <PieChart data={chartData.some(entry => entry.value > 0) ? chartData : data} lineWidth={28} startAngle={-90}
+      <div className="pool-distribution-visual" role="img" aria-label={complete ? 'Trinkgeldverteilung als Donut-Diagramm' : 'Dein Pool-Anteil als Donut-Diagramm'} aria-describedby={legendId}>
+        <PieChart totalValue={100} data={chartData.some(entry => entry.value > 0) ? chartData : data} lineWidth={28} startAngle={-90}
           segmentsStyle={index => ({ opacity: selected && selected.key !== data[index].key ? 0.55 : 1 })}
           onMouseOver={(_, index) => setHighlighted(data[index].key)} onMouseOut={() => setHighlighted(null)}
           onClick={(_, index) => setHighlighted(previous => previous === data[index].key ? null : data[index].key)} />
-        <div className="pool-distribution-center" aria-hidden="true"><strong>100 %</strong><span>verteilt</span></div>
+        <div className="pool-distribution-center" aria-hidden="true"><strong>{complete ? '100 %' : `${percent.format(data.reduce((sum, entry) => sum + entry.value, 0))} %`}</strong><span>{complete ? 'verteilt' : 'dein Anteil'}</span></div>
         {selected && <div className="pool-distribution-tooltip" role="tooltip">{selected.title}</div>}
       </div>
       <ul className="pool-distribution-legend" id={legendId} aria-label="Mitglieder und effektive Anteile">
@@ -101,7 +102,9 @@ export function PoolDistributionChart({ members, drafts = emptyDrafts }: {
           <span className="pool-distribution-name">{entry.name}</span><strong>{percent.format(entry.value)} %</strong>
         </button></li>)}
       </ul>
-    </div> : <p className="muted pool-distribution-empty">{hasActiveMembers
+    </div> : <p className="muted pool-distribution-empty">{!complete
+      ? 'Dein aktueller Anteil ist null oder noch nicht bestätigt.'
+      : hasActiveMembers
       ? 'Noch keine Verteilung: Mindestens ein aktives Mitglied benötigt ein gültiges positives Prozentgewicht.'
       : 'Noch keine aktiven Mitglieder. Sobald ein Mitglied aktiv ist und ein positives Prozentgewicht hat, erscheint die Verteilung hier.'}</p>}
     {distribution.invalid && <p className="muted" role="status">Leere oder ungültige Gewichte werden in der Vorschau ausgelassen. Bitte gib zum Speichern Werte von 0 bis 100 mit höchstens zwei Nachkommastellen ein.</p>}

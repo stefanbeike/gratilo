@@ -2,7 +2,12 @@ package com.gratilo.user.api;
 import com.gratilo.user.domain.*; import io.micronaut.serde.annotation.Serdeable; import java.util.*; import java.time.OffsetDateTime;
 public final class PoolResponses { private PoolResponses() {}
  @Serdeable public record Member(UUID id,UUID userId,String email,String name,double sharePercent,String status,boolean active,OffsetDateTime invitationExpiresAt,String invitationToken,double effectiveSharePercent,String deactivationReason) {}
- @Serdeable public record Pool(UUID id,String name,UUID ownerId,List<Member> members,String profileImage,String paymentUrl) { public Pool(UUID id,String name,UUID ownerId,List<Member> members,String profileImage){this(id,name,ownerId,members,profileImage,null);} public Pool(UUID id,String name,UUID ownerId,List<Member> members){this(id,name,ownerId,members,null);} }
+ @Serdeable public record Pool(UUID id,String name,UUID ownerId,List<Member> members,String profileImage,String paymentUrl,int memberCount,int activeMemberCount,boolean membersComplete,String status) {
+  public Pool(UUID id,String name,UUID ownerId,List<Member> members,String profileImage,String paymentUrl,int memberCount,int activeMemberCount,boolean membersComplete){this(id,name,ownerId,members,profileImage,paymentUrl,memberCount,activeMemberCount,membersComplete,"ACTIVE");}
+  public Pool(UUID id,String name,UUID ownerId,List<Member> members,String profileImage,String paymentUrl){this(id,name,ownerId,members,profileImage,paymentUrl,members.size(),(int)members.stream().filter(m->m.active()&&"ACTIVE".equals(m.status())).count(),true);}
+  public Pool(UUID id,String name,UUID ownerId,List<Member> members,String profileImage){this(id,name,ownerId,members,profileImage,null);}
+  public Pool(UUID id,String name,UUID ownerId,List<Member> members){this(id,name,ownerId,members,null);}
+ }
  @Serdeable public record DistributionMember(UUID userId,String name,String email,double sharePercent,boolean active,boolean stripeOnboardingCompleted) {}
  @Serdeable public record Distribution(UUID poolId,String poolName,List<DistributionMember> members,UUID ownerId) { public Distribution(UUID poolId,String poolName,List<DistributionMember> members){this(poolId,poolName,members,null);} }
  @Serdeable public record PublicPool(UUID ownerId,String name,List<String> memberNames,String profileImage,UUID poolId,String paymentTarget) { public PublicPool(UUID ownerId,String name,List<String> memberNames,String profileImage){this(ownerId,name,memberNames,profileImage,null,"POOL");} public PublicPool(UUID ownerId,String name,List<String> memberNames){this(ownerId,name,memberNames,null);} }

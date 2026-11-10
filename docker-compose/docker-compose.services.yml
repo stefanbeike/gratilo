@@ -10,6 +10,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      PAYMENT_SERVICE_URL: http://payment-service:8082
       DATASOURCES_DEFAULT_URL: jdbc:postgresql://postgres:5432/gratilodb
       DATASOURCES_DEFAULT_USERNAME: postgres
       DATASOURCES_DEFAULT_PASSWORD: dbpass

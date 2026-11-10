@@ -14,7 +14,7 @@ class GuestCheckoutHttpTest {
         var service=new StripeCheckoutService(null,null,null,"sk_test_fixture","http://localhost/success","http://localhost/cancel",new java.math.BigDecimal("3.15"),25,null){
             @Override public boolean checkPoolEligibility(UUID poolRef){throw new IllegalStateException("upstream unavailable");}
         };
-        var response=new com.gratilo.payment.controller.TipController(service,new java.math.BigDecimal("3.15"),25).poolEligibility(UUID.randomUUID());
+        var response=new com.gratilo.payment.controller.TipController(null,service,new java.math.BigDecimal("3.15"),25).poolEligibility(UUID.randomUUID());
         assertEquals(io.micronaut.http.HttpStatus.SERVICE_UNAVAILABLE,response.getStatus());
         assertTrue(response.getBody().orElseThrow().toString().contains("CHECK_FAILED"));
         assertFalse(response.getBody().orElseThrow().toString().contains("upstream unavailable"));
@@ -34,7 +34,7 @@ class GuestCheckoutHttpTest {
             @Override public boolean checkPoolEligibility(UUID poolRef){return true;}
         };
         try(var context=ApplicationContext.builder().properties(props).environments("test","prd").build()){
-            context.registerSingleton(StripeCheckoutService.class,service);context.start();
+            context.registerSingleton(StripeCheckoutService.class,service); registerPoolCheckout(context,service);context.start();
             assertTrue(context.containsBean(com.gratilo.payment.config.StripeTestAccessRule.class));
             var server=context.getBean(EmbeddedServer.class).start();var client=HttpClient.newHttpClient();
             var limits=server.getURI().resolve("/payment-service/tips/pool-limits");
@@ -82,7 +82,7 @@ class GuestCheckoutHttpTest {
         var props=new HashMap<String,Object>();props.put("payments.enabled",true);props.put("features.tip-pools-enabled",true);props.put("stripe.secret-key","sk_test_fixture");props.put("stripe.webhook-secret","whsec_fixture");props.put("micronaut.server.port",-1);
         props.put("datasources.default.enabled",false);props.put("jpa.default.enabled",false);props.put("liquibase.enabled",false);props.put("liquibase.datasources.default.enabled",false);
         try(var context=ApplicationContext.builder().properties(props).environments("test").build()){
-            context.registerSingleton(StripeCheckoutService.class,service);context.start();var server=context.getBean(EmbeddedServer.class).start();var client=HttpClient.newHttpClient();
+            context.registerSingleton(StripeCheckoutService.class,service); registerPoolCheckout(context,service);context.start();var server=context.getBean(EmbeddedServer.class).start();var client=HttpClient.newHttpClient();
             var limits=client.send(HttpRequest.newBuilder(server.getURI().resolve("/payment-service/tips/pool-limits")).GET().build(),HttpResponse.BodyHandlers.ofString());
             assertEquals(200,limits.statusCode());assertTrue(limits.body().contains("\"minAmountMinor\":200"));assertTrue(limits.body().contains("\"maxAmountMinor\":50000"));
             String path="/payment-service/tips/pools/"+UUID.randomUUID();
@@ -106,7 +106,7 @@ class GuestCheckoutHttpTest {
         var props=new HashMap<String,Object>();props.put("payments.enabled",true);props.put("features.tip-pools-enabled",true);props.put("stripe.secret-key","sk_test_fixture");props.put("stripe.webhook-secret","whsec_fixture");props.put("micronaut.server.port",-1);
         props.put("datasources.default.enabled",false);props.put("jpa.default.enabled",false);props.put("liquibase.enabled",false);props.put("liquibase.datasources.default.enabled",false);
         try(var context=ApplicationContext.builder().properties(props).environments("test").build()){
-            context.registerSingleton(StripeCheckoutService.class,service);context.start();var server=context.getBean(EmbeddedServer.class).start();
+            context.registerSingleton(StripeCheckoutService.class,service); registerPoolCheckout(context,service);context.start();var server=context.getBean(EmbeddedServer.class).start();
             var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(server.getURI().resolve("/payment-service/tips/pools/"+UUID.randomUUID()+"/checkout"))
                 .header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString("{\"tipAmountMinor\":500,\"idempotencyKey\":\"prior-attempt\"}")).build(),HttpResponse.BodyHandlers.ofString());
             assertEquals(409,response.statusCode());assertTrue(response.body().contains("CHECKOUT_ALREADY_PROCESSED"));assertTrue(response.body().contains("cs_test_prior"));
@@ -120,7 +120,7 @@ class GuestCheckoutHttpTest {
         var props=new HashMap<String,Object>();props.put("payments.enabled",true);props.put("stripe.fee-percent","99");props.put("stripe.secret-key","sk_test_fixture");props.put("stripe.webhook-secret","whsec_fixture");props.put("micronaut.server.port",-1);
         props.put("datasources.default.enabled",false);props.put("jpa.default.enabled",false);props.put("liquibase.enabled",false);props.put("liquibase.datasources.default.enabled",false);
         try(var context=ApplicationContext.builder().properties(props).environments("test").build()){
-            context.registerSingleton(StripeCheckoutService.class,service);context.start();var server=context.getBean(EmbeddedServer.class).start();
+            context.registerSingleton(StripeCheckoutService.class,service); registerPoolCheckout(context,service);context.start();var server=context.getBean(EmbeddedServer.class).start();
             var result=HttpClient.newHttpClient().send(HttpRequest.newBuilder(server.getURI().resolve("/payment-service/tips/"+UUID.randomUUID()+"/quote?amountMinor=100&feeCovered=false")).GET().build(),HttpResponse.BodyHandlers.ofString());
             assertEquals(400,result.statusCode());assertTrue(result.body().contains("TIP_TOO_SMALL_AFTER_FEES"));assertTrue(result.body().contains("0,01"));
         }
@@ -163,5 +163,10 @@ class GuestCheckoutHttpTest {
             assertEquals(200,quote.statusCode());assertTrue(quote.body().contains("\"recipientAmountMinor\":2267"));
             assertTrue(quote.body().contains("\"estimatedStripeFeeMinor\":63"));
         }
+    }
+    private static void registerPoolCheckout(ApplicationContext context,StripeCheckoutService service)throws Exception{
+        var coordinator=org.mockito.Mockito.mock(com.gratilo.payment.service.PoolCheckoutCoordinator.class);
+        org.mockito.Mockito.when(coordinator.create(org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any())).thenAnswer(call->service.createPool(call.getArgument(0),call.getArgument(1)));
+        context.registerSingleton(com.gratilo.payment.service.PoolCheckoutCoordinator.class,coordinator);
     }
 }

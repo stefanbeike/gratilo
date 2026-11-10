@@ -61,8 +61,22 @@ class TeamDashboardTest {
         when(members.findByUserId(user)).thenReturn(List.of(mine));when(members.findByPoolId(teamId)).thenReturn(List.of(mine,foreign));
         var result=service.memberships(user).getFirst();assertEquals(1,result.members().size());assertEquals(user,result.members().getFirst().userId());
     }
+    @Test void memberResponsesKeepAnonymousTotalsWithoutExposingOtherMembers(){
+        pool();var mine=membership(teamId,true,"ACTIVE");
+        var second=membership(teamId,true,"ACTIVE");second.setUserId(UUID.randomUUID());
+        var third=membership(teamId,false,"ACTIVE");third.setUserId(UUID.randomUUID());
+        var invited=membership(teamId,true,"INVITED");invited.setUserId(UUID.randomUUID());invited.setInvitationToken("private-token");
+        when(members.findByUserId(user)).thenReturn(List.of(mine));
+        when(members.findByPoolId(teamId)).thenReturn(List.of(mine,second,third,invited));
+        var response=service.memberships(user).getFirst();
+        assertEquals(4,response.memberCount());assertEquals(2,response.activeMemberCount());assertFalse(response.membersComplete());
+        assertEquals(1,response.members().size());assertEquals(user,response.members().getFirst().userId());
+        assertEquals(50,response.members().getFirst().effectiveSharePercent());
+        var ownerResponse=service.details(other,teamId);
+        assertTrue(ownerResponse.membersComplete());assertEquals(4,ownerResponse.members().size());
+    }
     @Test void publicTeamDoesNotExposeNamesEmailsOrMemberIds(){
-        var p=pool();p.setProfileImage("saved-image");when(pools.findFirstByOwnerIdOrderByCreatedAtAsc(other)).thenReturn(Optional.of(p));
+        var p=pool();p.setProfileImage("saved-image");when(pools.findAllByOwnerIdOrderByCreatedAtAsc(other)).thenReturn(List.of(p));
         var result=service.publicDetails(other);assertEquals("saved-image",result.profileImage());assertTrue(result.memberNames().isEmpty());verifyNoInteractions(members,users);
     }
     @Test void teamImageRequiresOwnershipAndRejectsInvalidImage(){

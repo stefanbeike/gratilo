@@ -31,6 +31,7 @@ dependencies {
 
     testImplementation 'io.micronaut:micronaut-http-client'
     testImplementation 'io.micronaut.test:micronaut-test-junit5'
+    testImplementation 'org.mockito:mockito-junit-jupiter:5.14.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -65,4 +66,10 @@ micronaut {
         incremental true
         annotations 'com.gratilo.payment.*', 'io.micronaut.liquibase.*'
     }
+}
+
+// Database-dependent tests must rerun when switching between fixtures and unit-only runs.
+tasks.named('test') {
+    inputs.property('POOL_PAYMENT_TEST_JDBC_URL', providers.environmentVariable('POOL_PAYMENT_TEST_JDBC_URL').orElse(''))
+    inputs.property('AUDIT_TEST_JDBC_URL', providers.environmentVariable('AUDIT_TEST_JDBC_URL').orElse(''))
 }

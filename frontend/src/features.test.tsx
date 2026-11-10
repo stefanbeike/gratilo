@@ -43,3 +43,31 @@ it('blocks invitation links while disabled', () => {
   expect(screen.getByRole('heading', { name: 'Diese Funktion ist derzeit nicht verfügbar.' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /Annehmen/ })).not.toBeInTheDocument()
 })
+
+
+it('distinguishes unknown configuration and recovers without a page reload', async () => {
+  const fetchMock = mount(undefined)
+  fireEvent.click(screen.getByRole('button',{name:'Meine Pools'}))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Pool-Konfiguration')
+  expect(screen.queryByText('Team-Trinkgelder sind derzeit deaktiviert.')).not.toBeInTheDocument()
+  fetchMock.mockImplementation(async url => {
+    if(url==='/user-service/features')return {ok:true,json:async()=>({tipPoolsEnabled:true})}
+    return {ok:true,json:async()=>[]}
+  })
+  fireEvent.click(screen.getByRole('button',{name:'Pool-Konfiguration erneut laden'}))
+  expect(await screen.findByText('Du bist noch keinem Pool beigetreten.')).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+it('retains confirmed pool access after a feature refresh fails', async () => {
+  const fetchMock = mount(true)
+  fireEvent.click(screen.getByRole('button',{name:'Meine Pools'}))
+  await screen.findByText('Du bist noch keinem Pool beigetreten.')
+  fetchMock.mockImplementation(async url => {
+    if(url==='/user-service/features')throw Error('offline')
+    return {ok:true,json:async()=>[]}
+  })
+  window.dispatchEvent(new Event('focus'))
+  expect(await screen.findByRole('alert')).toHaveTextContent('bestätigte Einstellungen bleiben erhalten')
+  expect(screen.getByText('Du bist noch keinem Pool beigetreten.')).toBeInTheDocument()
+})

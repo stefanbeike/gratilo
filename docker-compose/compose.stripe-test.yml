@@ -41,6 +41,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      PAYMENT_SERVICE_URL: http://payment-service:8082
       <<: *backend-env
       MAIL_HOST: mailhog
       MAIL_PORT: "1025"

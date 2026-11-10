@@ -54,7 +54,7 @@ public class TipNotificationSender {
         }
         return retry;
     }
-    private static boolean validRecipient(String value){
+    static boolean validRecipient(String value){
         if(value==null||value.isBlank()||value.indexOf('\r')>=0||value.indexOf('\n')>=0)return false;
         try{
             var address=new jakarta.mail.internet.InternetAddress(value.trim(),true);address.validate();

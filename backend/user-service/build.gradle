@@ -87,3 +87,8 @@ tasks.register('registrationPostgresTest', Test) {
         }
     }
 }
+
+// Database-dependent tests must rerun when switching between fixtures and unit-only runs.
+tasks.named('test') {
+    inputs.property('POOL_USER_TEST_JDBC_URL', providers.environmentVariable('POOL_USER_TEST_JDBC_URL').orElse(''))
+}
