@@ -37,7 +37,16 @@ class TeamMembershipIntegrationTest implements TestPropertyProvider {
     @MockBean(EmailSendService.class) EmailSendService mail(){return mock(EmailSendService.class);}
     final List<UUID> createdUsers=new ArrayList<>();
     UUID user(){var u=new UserEntity();u.setEmail(UUID.randomUUID()+"@example.invalid");u.setPasswordHash("unused-test-only");u=users.save(u);createdUsers.add(u.getId());return u.getId();}
-    @AfterEach void cleanup() throws Exception {notices.deleteAll();for(var id:createdUsers){for(var m:members.findByUserId(id))members.deleteById(m.getId());for(var p:pools.findAllByOwnerIdOrderByCreatedAtAsc(id))pools.deleteById(p.getId());}clearInventory();for(var id:createdUsers)users.deleteById(id);createdUsers.clear();}
+    @AfterEach void cleanup() throws Exception {
+        notices.deleteAll();
+        // The production FK deliberately rejects cascade deletion. Remove every fixture
+        // membership first, including members whose users follow the pool owner in this list.
+        for(var id:createdUsers)for(var member:members.findByUserId(id))members.deleteById(member.getId());
+        for(var id:createdUsers)for(var pool:pools.findAllByOwnerIdOrderByCreatedAtAsc(id))pools.deleteById(pool.getId());
+        clearInventory();
+        for(var id:createdUsers)users.deleteById(id);
+        createdUsers.clear();
+    }
     void concurrently(Runnable first,Runnable second) throws Exception {
         var start=new CountDownLatch(1);var executor=Executors.newFixedThreadPool(2);
         try {

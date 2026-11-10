@@ -14,7 +14,7 @@ FROM eclipse-temurin:21-jre-jammy AS runtime
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y curl ca-certificates libssl3 \
+    && apt-get install --no-install-recommends -y curl ca-certificates libssl3 apt libapt-pkg6.0 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 1001 appuser
 

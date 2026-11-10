@@ -205,13 +205,23 @@ Die Backend-Distributionen werden mit den `assemble`-Tasks gebaut.
 * Deployment-Werkzeuge: 149 Tests erfolgreich, drei Compose-Renderingtests mangels funktionsfähiger Docker-/WSL-Anbindung übersprungen. Der erste Lauf traf bei diesen drei Tests auf den nicht funktionsfähigen Windows-Docker-Platzhalter; der abschließende Lauf schloss ihn aus dem Test-PATH aus und erkannte die fehlende Fähigkeit korrekt.
 * `git diff --check`: erfolgreich. SMTP und Stripe wurden ausschließlich über Test-Fixtures angesprochen; keine echten Auflösungen, Mails, Live-Zahlungen oder produktiven Datenbankänderungen.
 
+== Ergänzende Prüfung vor dem Merge
+
+Der separate CI-PostgreSQL-Lauf zeigte einen Fehler ausschließlich in der Testbereinigung:
+Mit dem neuen RESTRICT-Fremdschlüssel müssen sämtliche Test-Mitgliedschaften vor den
+Test-Pools entfernt werden. Diese Reihenfolge wurde korrigiert. Alle 15 Tests des
+separaten `registrationPostgresTest` laufen anschließend auch lokal mit echten
+Liquibase-Migrationen erfolgreich durch. Der Container-Sicherheitsscan meldete
+veraltete `apt`-/`libapt-pkg6.0`-Pakete aus dem Basisimage; die Runtime-Dockerfiles
+fordern jetzt auch deren aktuelle Paketversionen beim bestehenden apt-Update an.
+
 == Geänderte Dateien
 
-Die folgende Liste umfasst alle Commits dieses Feature-Branches, einschließlich der
-vorher angeforderten Dashboard-/Mehrfachrollen-Korrekturen als Voraussetzung:
+Die folgende Liste umfasst alle Commits dieses Feature-Branches:
 
 ----
 .github/workflows/002_unit_tests.yml
+backend/payment-service/Dockerfile
 backend/payment-service/build.gradle
 backend/payment-service/src/main/java/com/gratilo/payment/config/StripeTestAccessRule.java
 backend/payment-service/src/main/java/com/gratilo/payment/controller/PoolDissolutionController.java
@@ -227,6 +237,7 @@ backend/payment-service/src/test/java/com/gratilo/payment/ProductionPaymentTest.
 backend/payment-service/src/test/java/com/gratilo/payment/controller/PoolDissolutionDatabaseTest.java
 backend/payment-service/src/test/java/com/gratilo/payment/service/PoolCheckoutCoordinatorTest.java
 backend/payment-service/src/test/java/com/gratilo/payment/service/PoolCheckoutTest.java
+backend/user-service/Dockerfile
 backend/user-service/build.gradle
 backend/user-service/src/main/java/com/gratilo/user/api/PoolResponses.java
 backend/user-service/src/main/java/com/gratilo/user/api/UserResponses.java
@@ -254,6 +265,7 @@ backend/user-service/src/test/java/com/gratilo/user/service/PoolDissolutionMaile
 backend/user-service/src/test/java/com/gratilo/user/service/PoolDissolutionOutboxDatabaseTest.java
 backend/user-service/src/test/java/com/gratilo/user/service/TeamDashboardTest.java
 backend/user-service/src/test/java/com/gratilo/user/service/TeamMembershipIntegrationTest.java
+docker-compose/Dockerfile.local-runtime
 docker-compose/compose.stripe-test.yml
 docker-compose/docker-compose.services.yml
 docs/pool-dissolution.adoc
