@@ -215,9 +215,28 @@ Liquibase-Migrationen erfolgreich durch. Der Container-Sicherheitsscan meldete
 veraltete `apt`-/`libapt-pkg6.0`-Pakete aus dem Basisimage; die Runtime-Dockerfiles
 fordern jetzt auch deren aktuelle Paketversionen beim bestehenden apt-Update an.
 
-== Geänderte Dateien
+== Interne Finanzprüfung bei deaktivierten Zahlungen
 
-Die folgende Liste umfasst alle Commits dieses Feature-Branches:
+Der globale Payment-Filter lässt den exakten internen POST-Endpunkt zur Pool-Auflösung
+auch bei `PAYMENTS_ENABLED=false` durch. Der Controller verlangt weiterhin das gültige
+interne Service-Secret. Die Prüfung friert ausschließlich die Checkout-Zulassung ein
+und prüft gespeicherte Verpflichtungen; sie erzeugt keine Stripe-Aufrufe. Checkout,
+Transfers und sonstige Zahlungsaktionen werden durch diese Ausnahme nicht freigegeben.
+HTTP-Tests mit dem `prd`-Profil sichern erlaubte und fehlende/falsche interne Secrets,
+leere und blockierte Pools sowie weiterhin gesperrte Checkouts ab.
+
+Der User-Service sendet den JSON-Medientyp ausdrücklich und unterscheidet sichere
+Fehlerkategorien: Verbindungsfehler, Timeout, ungültige Antwort, Konfigurationsfehler
+und HTTP-Fehler inklusive Status. Ein älterer Payment-Service, dessen globaler Filter
+die Prüfung noch als `PAYMENTS_DISABLED` abweist, erhält eine konkrete Diagnose.
+Antwortinhalte und Secrets erscheinen weder in der Meldung noch im Fehlerlog.
+Ein technischer Fehler wird weiterhin niemals als Nachweis eines leeren Pools gewertet.
+Eine erfolgreiche Prüfung ohne offene Vorgänge beendet die Auflösung im selben Aufruf;
+es gibt für einen leeren Pool keine zusätzliche Wartezeit.
+
+== Geänderte Dateien der ursprünglichen Pool-Auflösung
+
+Die folgende Liste umfasst die Commits des ursprünglichen Feature-Branches:
 
 ----
 .github/workflows/002_unit_tests.yml
@@ -285,4 +304,28 @@ frontend/src/features.tsx
 frontend/src/poolPercentages.test.ts
 frontend/src/poolPercentages.ts
 frontend/src/test/setup.ts
+----
+
+== Validierung der Finanzprüfungs-Korrektur
+
+101 User-Service-Tests und 289 Payment-Service-Tests erfolgreich, einschließlich
+der isolierten PostgreSQL-Tests; beide Backend-Distributionen erfolgreich gebaut.
+Die HTTP-Regression wurde zuvor mit `PAYMENTS_ENABLED=false` reproduziert: Der
+unveränderte Filter lieferte 503 `PAYMENTS_DISABLED` für den internen Auflösungsaufruf.
+Mit der gezielten Ausnahme liefert ein authentifizierter Aufruf die Finanzentscheidung,
+während ein Aufruf ohne/falschem Secret 401 und ein öffentlicher Checkout weiterhin
+503 erhält. Client-Tests sichern gültige/leere Entscheidungen, ungültige Antworten
+und sichere HTTP-Fehlerdiagnosen ab.
+
+Zusätzliche Dateien dieser Korrektur:
+
+----
+backend/payment-service/src/main/java/com/gratilo/payment/config/PaymentsFilter.java
+backend/payment-service/src/test/java/com/gratilo/payment/PaymentsDisabledTest.java
+backend/payment-service/src/test/java/com/gratilo/payment/controller/PoolDissolutionHttpTest.java
+backend/user-service/src/main/java/com/gratilo/user/service/PoolDissolutionService.java
+backend/user-service/src/main/java/com/gratilo/user/service/PoolPaymentClosureClient.java
+backend/user-service/src/test/java/com/gratilo/user/service/PoolDissolutionServiceTest.java
+backend/user-service/src/test/java/com/gratilo/user/service/PoolPaymentClosureClientTest.java
+docs/pool-dissolution.adoc
 ----

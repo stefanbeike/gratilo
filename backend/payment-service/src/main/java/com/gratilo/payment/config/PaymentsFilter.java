@@ -30,7 +30,12 @@ public class PaymentsFilter {
         if (enabled && request.getMethod() != HttpMethod.GET && path.startsWith("/payment-service/transactions"))
             return HttpResponse.status(HttpStatus.METHOD_NOT_ALLOWED)
                     .body(Map.of("message", "Transaktionen werden ausschließlich durch Stripe verarbeitet."));
-        if (enabled || readOnly) return null;
+        // Closing a pool only freezes admission and checks persisted financial obligations.
+        // It must remain available when payment processing is disabled; the controller
+        // still requires the shared internal secret before accessing the database.
+        boolean poolClosureCheck = request.getMethod() == HttpMethod.POST
+                && path.matches("/payment-service/internal/pools/[0-9a-fA-F-]{36}/freeze");
+        if (enabled || readOnly || poolClosureCheck) return null;
         return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(Map.of("message", "Zahlungen sind derzeit deaktiviert.", "code", "PAYMENTS_DISABLED"));
     }
