@@ -263,6 +263,7 @@ public class StripeCheckoutService {
             var pricing = TipPricingSnapshot.metadata(quote,request.feeCovered());
             pricing.put("chargeModel","POOL");pricing.put("feesCollector","application");
             pricing.put("poolId",pool.poolId().toString()); pricing.put("poolName",pool.poolName());
+            pricing.put("poolCheckoutKey",request.idempotencyKey());
             tx.setMetadata(io.micronaut.json.JsonMapper.createDefault().writeValueAsString(pricing));
             tx = transactions.save(tx);
             if (feeAudit != null) feeAudit.snapshot(tx, quote);
@@ -280,11 +281,14 @@ public class StripeCheckoutService {
             }
         }
         String group = "gratilo_" + tx.getId();
+        // Old incomplete sessions must retain their original Stripe idempotent POST payload.
+        String checkoutKey = Objects.toString(json(tx.getMetadata()).get("poolCheckoutKey"),null);
         String metadata = param("transaction_id", tx.getId().toString()) + param("pool_id", pool.poolId().toString());
         String form = param("mode", "payment") + param("line_items[0][price_data][currency]", "eur")
                 + param("line_items[0][price_data][unit_amount]", Long.toString(total))
                 + param("line_items[0][price_data][product_data][name]", "Trinkgeld für " + Objects.toString(json(tx.getMetadata()).get("poolName"),pool.poolName()))
                 + param("line_items[0][quantity]", "1") + param("metadata[transaction_id]", tx.getId().toString())
+                + (checkoutKey==null?"":param("metadata[checkout_key]", checkoutKey))
                 + param("metadata[pool_id]", pool.poolId().toString()) + param("metadata[fee_covered]", Boolean.toString(request.feeCovered()))
                 + param("metadata[fee_surcharge_minor]", Long.toString(fee))
                 + param("metadata[recipient_amount_minor]",Long.toString(quote.recipientAmountMinor()))
@@ -292,6 +296,7 @@ public class StripeCheckoutService {
                 + param("payment_intent_data[metadata][transaction_id]", tx.getId().toString())
                 + param("payment_intent_data[metadata][recipient_amount_minor]",Long.toString(quote.recipientAmountMinor()))
                 + param("payment_intent_data[metadata][estimated_stripe_fee_minor]",Long.toString(quote.estimatedStripeFeeMinor()))
+                + (checkoutKey==null?"":param("payment_intent_data[metadata][checkout_key]", checkoutKey))
                 + param("payment_intent_data[metadata][pool_id]", pool.poolId().toString())
                 + commissionMetadata(tx,quote,"POOL")
                 + param("success_url", successUrl) + param("cancel_url", cancelUrl);

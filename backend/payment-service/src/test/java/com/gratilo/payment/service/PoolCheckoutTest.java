@@ -149,6 +149,8 @@ class PoolCheckoutTest {
                 new TipPaymentRequest(tip,"Team danke","pool-key",covered,null,null,UUID.randomUUID())));
         assertEquals("https://checkout.stripe.com/test", response.checkoutUrl());
         var form = calls.getFirst();
+        assertTrue(form.contains("metadata%5Bcheckout_key%5D=pool-key"));
+        assertTrue(form.contains("payment_intent_data%5Bmetadata%5D%5Bcheckout_key%5D=pool-key"));
         assertTrue(form.contains("line_items%5B0%5D%5Bprice_data%5D%5Bunit_amount%5D="+expected.totalAmountMinor()));
         assertTrue(form.contains("payment_intent_data%5Btransfer_group%5D=gratilo_"));
         assertFalse(form.contains("transfer_data%5Bdestination%5D"));

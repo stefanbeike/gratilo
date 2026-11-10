@@ -12,11 +12,12 @@ public class PoolCheckoutCoordinator {
     private final StripeCheckoutService checkout;
     public PoolCheckoutCoordinator(PoolDistributionClient pools,PoolCheckoutGate gate,StripeCheckoutService checkout){this.pools=pools;this.gate=gate;this.checkout=checkout;}
     public Optional<CheckoutResponse> create(UUID poolRef,TipPaymentRequest request) throws Exception {
+        if(request==null)throw new StripeCheckoutService.InvalidCheckoutRequestException();
         PoolDistributionClient.Distribution pool;
         try {pool=pools.find(poolRef).orElseThrow(StripeCheckoutService.PoolNotReadyException::new);}
         catch(StripeCheckoutService.PoolNotReadyException missing){throw missing;}
         catch(Exception unavailable){throw new StripeCheckoutService.PoolEligibilityUnavailableException(unavailable);}
-        var reservation=gate.admit(pool.poolId());
+        var reservation=gate.admit(pool.poolId(),request.idempotencyKey());
         try {
             var result=checkout.createPool(pool.poolId(),request);
             gate.finish(reservation);

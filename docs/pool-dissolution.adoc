@@ -50,10 +50,14 @@ physisch löschen: eigene nicht gelöschte Pools müssen zuerst aufgelöst werde
 == Zahlungsintegrität
 
 Der öffentliche Pool-Checkout verwendet `PoolCheckoutCoordinator`. Vor dem Aufruf
-des transaktionalen Stripe-Checkout-Service speichert er eine dauerhafte Reservierung
+des transaktionalen Stripe-Checkout-Service speichert er eine dauerhafte Reservierung inklusive Checkout-Idempotenzschlüssel
 unter Sperre derselben Payment-Torzeile, die die Auflösung sperrt. Nach erfolgreichem
 Checkout-Commit wird die Reservierung abgeschlossen. Bekannte Validierungs- und
-Bereitschaftsfehler geben sie ebenfalls frei. Unklare Provider-/Commit-Ergebnisse
+Bereitschaftsfehler geben sie ebenfalls frei. Neue Sessions und PaymentIntents erhalten denselben `checkout_key` als Metadatum; damit
+kann eine Reservierung auch bei einem nicht gespeicherten Transaktions-Commit dem
+Provider-Vorgang zugeordnet werden. Bestehende unvollständige Sessions behalten
+ihren ursprünglichen Stripe-Request ohne neue Metadaten, damit ein idempotenter
+Wiederholungsaufruf weiterhin dieselben Parameter verwendet. Unklare Provider-/Commit-Ergebnisse
 bleiben gesperrt, bis ihr tatsächlicher Ausgang geklärt ist.
 
 Ein vor der Auflösung zugelassener Checkout blockiert damit die finale Auflösung;
@@ -203,7 +207,7 @@ Die Backend-Distributionen werden mit den `assemble`-Tasks gebaut.
 
 == Geänderte Dateien
 
-Die folgende Liste umfasst beide Commits dieses Feature-Branches, einschließlich der
+Die folgende Liste umfasst alle Commits dieses Feature-Branches, einschließlich der
 vorher angeforderten Dashboard-/Mehrfachrollen-Korrekturen als Voraussetzung:
 
 ----
@@ -214,6 +218,7 @@ backend/payment-service/src/main/java/com/gratilo/payment/controller/PoolDissolu
 backend/payment-service/src/main/java/com/gratilo/payment/controller/TipController.java
 backend/payment-service/src/main/java/com/gratilo/payment/service/PoolCheckoutCoordinator.java
 backend/payment-service/src/main/java/com/gratilo/payment/service/PoolCheckoutGate.java
+backend/payment-service/src/main/java/com/gratilo/payment/service/StripeCheckoutService.java
 backend/payment-service/src/main/resources/application.yml
 backend/payment-service/src/main/resources/db/changelog/changelog-master.xml
 backend/payment-service/src/main/resources/db/changelog/payment_mgmt/020_pool_dissolution.sql

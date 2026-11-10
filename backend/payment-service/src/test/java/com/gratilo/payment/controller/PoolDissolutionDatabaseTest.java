@@ -27,11 +27,11 @@ class PoolDissolutionDatabaseTest {
             var props=new HashMap<String,Object>();props.put("datasources.default.url",url);props.put("datasources.default.username","postgres");props.put("datasources.default.password","");props.put("liquibase.enabled",false);props.put("liquibase.datasources.default.enabled",false);props.put("stripe.secret-key","");props.put("notifications.tip-payments-enabled",false);
             try(var context=ApplicationContext.run(props,"test")){
                 var gate=context.getBean(PoolCheckoutGate.class);
-                UUID pool=UUID.randomUUID();var reservation=gate.admit(pool);assertFalse(gate.freeze(pool));assertThrows(PoolCheckoutGate.PoolClosedException.class,()->gate.admit(pool));gate.finish(reservation);assertTrue(gate.freeze(pool));assertTrue(gate.freeze(pool));
+                UUID pool=UUID.randomUUID();var reservation=gate.admit(pool,"fixture");assertEquals("fixture",one(db,"SELECT checkout_key FROM payment_mgmt.pool_checkout_reservations WHERE id='"+reservation+"'"));assertFalse(gate.freeze(pool));assertThrows(PoolCheckoutGate.PoolClosedException.class,()->gate.admit(pool,"fixture"));gate.finish(reservation);assertTrue(gate.freeze(pool));assertTrue(gate.freeze(pool));
                 UUID racePool=UUID.randomUUID();
                 try(var executor=Executors.newFixedThreadPool(2)){
                     var start=new CountDownLatch(1);
-                    var admission=executor.submit(()->{start.await();try{return gate.admit(racePool);}catch(PoolCheckoutGate.PoolClosedException denied){return null;}});
+                    var admission=executor.submit(()->{start.await();try{return gate.admit(racePool,"fixture");}catch(PoolCheckoutGate.PoolClosedException denied){return null;}});
                     var close=executor.submit(()->{start.await();return gate.freeze(racePool);});start.countDown();
                     UUID admitted=admission.get();boolean safe=close.get();assertEquals(admitted==null,safe);if(admitted!=null){gate.finish(admitted);assertTrue(gate.freeze(racePool));}
                 }
@@ -46,7 +46,7 @@ class PoolDissolutionDatabaseTest {
                 webhook.processVerified(paid,false);webhook.processVerified(paid,false);
                 assertEquals("BOOKED",one(db,"SELECT status FROM payment_mgmt.transactions WHERE id='"+tx+"'"));assertFalse(gate.freeze(financial));
                 db.createStatement().executeUpdate("UPDATE payment_mgmt.pool_transfers SET status='TRANSFERRED',stripe_transfer_id='tr_fixture' WHERE transaction_id='"+tx+"'");
-                assertTrue(gate.freeze(financial));assertThrows(PoolCheckoutGate.PoolClosedException.class,()->gate.admit(financial));
+                assertTrue(gate.freeze(financial));assertThrows(PoolCheckoutGate.PoolClosedException.class,()->gate.admit(financial,"fixture"));
                 // Late refunds use the frozen allocation even after closure; no current User-Service pool lookup.
                 String refund="{\"livemode\":false,\"type\":\"charge.refunded\",\"data\":{\"object\":{\"id\":\"ch_fixture\",\"amount\":500,\"amount_refunded\":500,\"refunded\":true,\"metadata\":{\"transaction_id\":\""+tx+"\"}}}}";
                 webhook.processVerified(refund,false);webhook.processVerified(refund,false);

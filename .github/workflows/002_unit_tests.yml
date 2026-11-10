@@ -33,10 +33,12 @@ jobs:
       run: |
         docker exec "$POSTGRES_CONTAINER" createdb -U postgres payment_dissolution_test
         docker exec "$POSTGRES_CONTAINER" createdb -U postgres user_dissolution_test
+        docker exec "$POSTGRES_CONTAINER" createdb -U postgres audit_test
     - name: Backend tests and frontend tests/build
       env:
         POOL_PAYMENT_TEST_JDBC_URL: jdbc:postgresql://127.0.0.1:55441/payment_dissolution_test
         POOL_USER_TEST_JDBC_URL: jdbc:postgresql://127.0.0.1:55441/user_dissolution_test
+        AUDIT_TEST_JDBC_URL: jdbc:postgresql://127.0.0.1:55441/audit_test
       run: bash ./gradlew :backend:user-service:test :backend:payment-service:test :frontend:check :frontend:build --no-daemon
     - name: Registration regression with isolated PostgreSQL 15 and mocked SMTP
       run: python3 deployment/scripts/test_registration_postgres.py

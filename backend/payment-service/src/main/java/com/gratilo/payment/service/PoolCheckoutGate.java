@@ -14,10 +14,11 @@ public class PoolCheckoutGate {
         entities.createNativeQuery("INSERT INTO payment_mgmt.pool_checkout_gates(pool_id) VALUES (:pool) ON CONFLICT DO NOTHING").setParameter("pool",poolId).executeUpdate();
         return Boolean.TRUE.equals(entities.createNativeQuery("SELECT closed FROM payment_mgmt.pool_checkout_gates WHERE pool_id=:pool FOR UPDATE").setParameter("pool",poolId).getSingleResult());
     }
-    @Transactional public UUID admit(UUID poolId){
+    @Transactional public UUID admit(UUID poolId,String checkoutKey){
+        if(checkoutKey==null||!checkoutKey.matches("[A-Za-z0-9_-]{1,100}"))throw new StripeCheckoutService.InvalidCheckoutRequestException();
         if(lock(poolId))throw new PoolClosedException();
         UUID id=UUID.randomUUID();
-        entities.createNativeQuery("INSERT INTO payment_mgmt.pool_checkout_reservations(id,pool_id) VALUES (:id,:pool)").setParameter("id",id).setParameter("pool",poolId).executeUpdate();
+        entities.createNativeQuery("INSERT INTO payment_mgmt.pool_checkout_reservations(id,pool_id,checkout_key) VALUES (:id,:pool,:key)").setParameter("id",id).setParameter("pool",poolId).setParameter("key",checkoutKey).executeUpdate();
         return id;
     }
     @Transactional public void finish(UUID reservation){
