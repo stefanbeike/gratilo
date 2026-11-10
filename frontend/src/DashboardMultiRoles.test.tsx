@@ -143,3 +143,22 @@ it('pauses only the personal payment link while the selected pool stays availabl
   await openPools()
   expect(await screen.findByTitle('Team-Trinkgeld QR-Code')).toBeInTheDocument()
 })
+
+it('shows dissolution outside collapsed settings only for the selected owned pool', async () => {
+  mount(); await openPools()
+  const settings = screen.getByText('Pool-Einstellungen und Mitglieder verwalten').closest('details')!
+  expect(settings).not.toHaveAttribute('open')
+  expect(screen.getByRole('button', { name: 'Pool auflösen' })).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: 'Pool auflösen' }))
+  expect(screen.getByRole('dialog')).toBeVisible()
+  expect(within(screen.getByRole('dialog')).getByLabelText(/Gib zur Bestätigung/)).toHaveAccessibleName(/Eigener Pool A/)
+  fireEvent.click(screen.getByRole('button', { name: 'Abbrechen' }))
+  fireEvent.click(screen.getByRole('button', { name: /Eigener Pool B/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Pool auflösen' }))
+  expect(within(screen.getByRole('dialog')).getByLabelText(/Gib zur Bestätigung/)).toHaveAccessibleName(/Eigener Pool B/)
+  fireEvent.click(screen.getByRole('button', { name: 'Abbrechen' }))
+  fireEvent.click(screen.getByRole('button', { name: /Fremder Pool A/ }))
+  expect(screen.queryByRole('button', { name: 'Pool auflösen' })).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Teamansicht und Historie'), { target: { value: 'all' } })
+  expect(screen.queryByRole('button', { name: 'Pool auflösen' })).not.toBeInTheDocument()
+})
