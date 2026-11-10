@@ -9,8 +9,9 @@ import java.util.UUID;
         boolean safe;
         try{safe=payments.freeze(id);}catch(Exception failure){
             if(failure instanceof InterruptedException)Thread.currentThread().interrupt();
-            org.slf4j.LoggerFactory.getLogger(getClass()).warn("Pool dissolution payment check unavailable pool={} category={}",id,failure.getClass().getSimpleName());
-            throw new PoolDissolutionState.Failure(503,"POOL_FINANCE_UNAVAILABLE","Der Pool ist für neue Zahlungen gesperrt. Die Finanzprüfung ist vorübergehend nicht erreichbar. Bitte versuche die Auflösung erneut.");
+            var finance=failure instanceof PoolPaymentClosureClient.FinanceCheckException known?known:null;
+            org.slf4j.LoggerFactory.getLogger(getClass()).warn("Pool dissolution payment check unavailable pool={} category={} upstreamStatus={}",id,finance==null?failure.getClass().getSimpleName():finance.category(),finance==null?null:finance.upstreamStatus());
+            throw new PoolDissolutionState.Failure(503,"POOL_FINANCE_UNAVAILABLE","Der Pool ist für neue Zahlungen gesperrt. "+(finance==null?"Die Finanzprüfung ist vorübergehend nicht erreichbar.":finance.explanation())+" Nach Behebung der Ursache kannst du die Auflösung erneut ausführen.");
         }
         if(!safe)throw new PoolDissolutionState.Failure(409,"POOL_FINANCE_PENDING","Der Pool ist für neue Zahlungen gesperrt. Offene oder ungeklärte Zahlungen, Checkout-Sessions, Transfers oder Rückerstattungen müssen zuerst abgeschlossen werden. Bitte versuche die Auflösung danach erneut.");
         state.complete(owner,id);

@@ -26,4 +26,11 @@ class PaymentsDisabledTest {
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, filter.filter(HttpRequest.POST(
                 "/payment-service/transactions/summary", "{}")).getStatus());
     }
+    @Test void onlyExactInternalPoolClosurePostBypassesTheDisabledPaymentFilter() {
+        var filter = new PaymentsFilter(false);
+        String path="/payment-service/internal/pools/"+java.util.UUID.randomUUID()+"/freeze";
+        assertNull(filter.filter(HttpRequest.POST(path,"")));
+        for(var request:java.util.List.of(HttpRequest.GET(path),HttpRequest.DELETE(path),HttpRequest.POST(path+"/extra",""),HttpRequest.POST("/payment-service/internal/pools/invalid/freeze","")))
+            assertEquals(HttpStatus.SERVICE_UNAVAILABLE,filter.filter(request).getStatus());
+    }
 }
