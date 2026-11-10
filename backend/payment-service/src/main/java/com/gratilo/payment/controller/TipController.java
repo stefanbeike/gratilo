@@ -15,9 +15,11 @@ public class TipController {
     private final StripeCheckoutService checkoutService;
     private final BigDecimal feePercent;
     private final long fixedFeeMinor;
-    public TipController(StripeCheckoutService checkoutService, @Value("${stripe.fee-percent:3.15}") BigDecimal feePercent,
+    private final jakarta.inject.Provider<com.gratilo.payment.service.PoolCheckoutCoordinator> poolCheckout;
+    @jakarta.inject.Inject
+    public TipController(jakarta.inject.Provider<com.gratilo.payment.service.PoolCheckoutCoordinator> poolCheckout, StripeCheckoutService checkoutService, @Value("${stripe.fee-percent:3.15}") BigDecimal feePercent,
                          @Value("${stripe.fee-fixed-minor:25}") long fixedFeeMinor) {
-        this.checkoutService = checkoutService; this.feePercent = feePercent; this.fixedFeeMinor = fixedFeeMinor;
+        this.poolCheckout=poolCheckout; this.checkoutService = checkoutService; this.feePercent = feePercent; this.fixedFeeMinor = fixedFeeMinor;
     }
     @Get("/{recipientUserId}/eligibility") public HttpResponse<?> eligibility(UUID recipientUserId) {
         return HttpResponse.ok(java.util.Map.of("canReceiveTips", checkoutService.canReceiveTips(recipientUserId)))
@@ -85,7 +87,7 @@ public class TipController {
     @Post("/pools/{ownerUserId}/checkout") public HttpResponse<?> poolCheckout(UUID ownerUserId, @QueryValue(value = "demo", defaultValue = "false") String demo, @Body @Valid TipPaymentRequest request) {
         if ("1".equals(demo) || "true".equalsIgnoreCase(demo)) return HttpResponse.badRequest(java.util.Map.of("message", "Demo-Zahlungen sind deaktiviert."));
         try {
-            var checkout = checkoutService.createPool(ownerUserId, request);
+            var checkout = poolCheckout.get().create(ownerUserId, request);
             if (checkout.isPresent()) return HttpResponse.ok(checkout.get());
             return HttpResponse.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("message", "Stripe Checkout ist noch nicht verfügbar."));
         } catch (StripeCheckoutService.PricingNotReleasedException blocked) {
@@ -98,6 +100,8 @@ public class TipController {
             return HttpResponse.status(HttpStatus.CONFLICT).body(conflict.response());
         } catch (StripeCheckoutService.QuoteChangedException changed) {
             return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code","QUOTE_CHANGED","message",changed.getMessage()));
+        } catch (com.gratilo.payment.service.PoolCheckoutGate.PoolClosedException closed) {
+            return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code","POOL_CLOSING","message",closed.getMessage()));
         } catch (com.gratilo.payment.service.PoolPaymentLimits.InvalidPoolAmount invalid) {
             return poolAmountInvalid(invalid);
         } catch (StripeCheckoutService.PoolEligibilityUnavailableException unavailable) {

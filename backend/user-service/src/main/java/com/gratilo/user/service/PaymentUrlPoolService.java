@@ -82,7 +82,7 @@ public class PaymentUrlPoolService {
     }
     public Optional<PoolEntity> poolForPath(String path) {
         return slot(path).filter(x->x.getAssignedPoolId()!=null && x.getAssignedUserId()==null)
-                .flatMap(x->pools.findById(x.getAssignedPoolId()));
+                .flatMap(x->pools.findById(x.getAssignedPoolId())).filter(PoolEntity::isAvailable);
     }
     public Optional<PaymentUrlEntity> slot(String path) {
         if(path==null || !path.matches("[A-Za-z0-9_-]{1,120}")) return Optional.empty();

@@ -2,7 +2,8 @@ package com.gratilo.user.api;
 import com.gratilo.user.domain.*; import io.micronaut.serde.annotation.Serdeable; import java.util.*; import java.time.OffsetDateTime;
 public final class PoolResponses { private PoolResponses() {}
  @Serdeable public record Member(UUID id,UUID userId,String email,String name,double sharePercent,String status,boolean active,OffsetDateTime invitationExpiresAt,String invitationToken,double effectiveSharePercent,String deactivationReason) {}
- @Serdeable public record Pool(UUID id,String name,UUID ownerId,List<Member> members,String profileImage,String paymentUrl,int memberCount,int activeMemberCount,boolean membersComplete) {
+ @Serdeable public record Pool(UUID id,String name,UUID ownerId,List<Member> members,String profileImage,String paymentUrl,int memberCount,int activeMemberCount,boolean membersComplete,String status) {
+  public Pool(UUID id,String name,UUID ownerId,List<Member> members,String profileImage,String paymentUrl,int memberCount,int activeMemberCount,boolean membersComplete){this(id,name,ownerId,members,profileImage,paymentUrl,memberCount,activeMemberCount,membersComplete,"ACTIVE");}
   public Pool(UUID id,String name,UUID ownerId,List<Member> members,String profileImage,String paymentUrl){this(id,name,ownerId,members,profileImage,paymentUrl,members.size(),(int)members.stream().filter(m->m.active()&&"ACTIVE".equals(m.status())).count(),true);}
   public Pool(UUID id,String name,UUID ownerId,List<Member> members,String profileImage){this(id,name,ownerId,members,profileImage,null);}
   public Pool(UUID id,String name,UUID ownerId,List<Member> members){this(id,name,ownerId,members,null);}

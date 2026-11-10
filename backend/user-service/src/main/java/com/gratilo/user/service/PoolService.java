@@ -4,25 +4,26 @@ import com.gratilo.user.api.*; import com.gratilo.user.domain.*; import com.grat
  @jakarta.inject.Inject PaymentUrlPoolService paymentLinks;
  private final PoolRepository pools; private final PoolMemberRepository members; private final UserRepository users; private final EmailSendService mail; private final String baseUrl; private final boolean tipPoolsEnabled;
  public PoolService(PoolRepository pools,PoolMemberRepository members,UserRepository users,EmailSendService mail,@Value("${frontend.base-url:`http://localhost:3000`}") String baseUrl,@Value("${features.tip-pools-enabled:false}") boolean tipPoolsEnabled){this.pools=pools;this.members=members;this.users=users;this.mail=mail;this.baseUrl=baseUrl;this.tipPoolsEnabled=tipPoolsEnabled;}
- public String publicPoolName(UUID owner){if(!tipPoolsEnabled)return null;return pools.findFirstByOwnerIdOrderByCreatedAtAsc(owner).map(PoolEntity::getName).orElse(null);}
- public PoolResponses.PublicPool publicDetails(UUID owner){if(!tipPoolsEnabled)return null;var p=pools.findFirstByOwnerIdOrderByCreatedAtAsc(owner).orElse(null);return p==null?null:new PoolResponses.PublicPool(owner,p.getName(),List.of(),p.getProfileImage(),p.getId(),"POOL");}
- @Transactional public PoolResponses.Pool mine(UUID owner){ return pools.findFirstByOwnerIdOrderByCreatedAtAsc(owner).map(this::toResponse).orElse(null); }
+ public String publicPoolName(UUID owner){if(!tipPoolsEnabled)return null;return firstVisiblePool(owner).map(PoolEntity::getName).orElse(null);}
+ public PoolResponses.PublicPool publicDetails(UUID owner){if(!tipPoolsEnabled)return null;var p=firstVisiblePool(owner).orElse(null);return p==null||!p.isAvailable()?null:new PoolResponses.PublicPool(owner,p.getName(),List.of(),p.getProfileImage(),p.getId(),"POOL");}
+ @Transactional public PoolResponses.Pool mine(UUID owner){ return firstVisiblePool(owner).map(this::toResponse).orElse(null); }
  @Transactional public List<PoolResponses.Pool> memberships(UUID userId){
   var result=new LinkedHashMap<UUID,PoolResponses.Pool>();
-  for(var m:members.findByUserId(userId))if(!Set.of("DECLINED","LEFT").contains(m.getStatus())){
-   pools.findById(m.getPoolId()).filter(p->!p.getOwnerId().equals(userId)).map(p->memberResponse(p,userId)).ifPresent(p->result.putIfAbsent(p.id(),p));
+  for(var m:members.findByUserId(userId))if(!Set.of("DECLINED","LEFT","ENDED").contains(m.getStatus())){
+   pools.findById(m.getPoolId()).filter(p->!p.isDeleted()&&!p.getOwnerId().equals(userId)).map(p->memberResponse(p,userId)).ifPresent(p->result.putIfAbsent(p.id(),p));
   }
   return List.copyOf(result.values());
  }
  @Transactional public List<PoolResponses.Pool> allPools(UUID userId){
   var result=new LinkedHashMap<UUID,PoolResponses.Pool>();
-  for(var p:pools.findAllByOwnerIdOrderByCreatedAtAsc(userId))result.put(p.getId(),toResponse(p));
+  for(var p:pools.findAllByOwnerIdOrderByCreatedAtAsc(userId))if(!p.isDeleted())result.put(p.getId(),toResponse(p));
   for(var p:memberships(userId))result.putIfAbsent(p.id(),p);
   return List.copyOf(result.values());
  }
- @Transactional public PoolResponses.Pool details(UUID userId,UUID poolId){var p=pools.findById(poolId).orElseThrow(()->new IllegalArgumentException("Pool nicht gefunden."));if(p.getOwnerId().equals(userId))return toResponse(p);var membership=members.findByPoolIdAndUserId(poolId,userId).orElseThrow(()->new PoolPermissionException("Keine Berechtigung für diesen Pool."));if(Set.of("DECLINED","LEFT").contains(membership.getStatus()))throw new PoolPermissionException("Keine aktive oder offene Mitgliedschaft für diesen Pool.");return memberResponse(p,userId);}
- @Transactional public PoolResponses.Distribution distribution(UUID poolRef){var p=resolvePool(poolRef);if(p==null)return null;var result=new ArrayList<PoolResponses.DistributionMember>();for(var m:members.findByPoolId(p.getId())){var u=users.findById(m.getUserId()).orElse(null);if(u!=null)result.add(new PoolResponses.DistributionMember(u.getId(),((u.getFirstName()==null?"":u.getFirstName())+" "+(u.getLastName()==null?"":u.getLastName())).trim(),u.getEmail(),m.getSharePercent(),m.isActive()&&"ACTIVE".equals(m.getStatus()),u.isStripeOnboardingCompleted()));}return new PoolResponses.Distribution(p.getId(),p.getName(),result,p.getOwnerId());}
- @Transactional public PoolResponses.Pool create(UUID owner,String name){ users.findByIdForUpdate(owner).orElseThrow(()->new IllegalArgumentException("Benutzer nicht gefunden."));
+ @Transactional public PoolResponses.Pool details(UUID userId,UUID poolId){var p=pools.findById(poolId).orElseThrow(()->new IllegalArgumentException("Pool nicht gefunden."));if(p.isDeleted())throw new IllegalArgumentException("Dieser Pool wurde aufgelöst.");if(p.getOwnerId().equals(userId))return toResponse(p);var membership=members.findByPoolIdAndUserId(poolId,userId).orElseThrow(()->new PoolPermissionException("Keine Berechtigung für diesen Pool."));if(Set.of("DECLINED","LEFT","ENDED").contains(membership.getStatus()))throw new PoolPermissionException("Keine aktive oder offene Mitgliedschaft für diesen Pool.");return memberResponse(p,userId);}
+ @Transactional public PoolResponses.Distribution distribution(UUID poolRef){var p=resolvePool(poolRef);if(p==null||!p.isAvailable())return null;var result=new ArrayList<PoolResponses.DistributionMember>();for(var m:members.findByPoolId(p.getId())){var u=users.findById(m.getUserId()).orElse(null);if(u!=null)result.add(new PoolResponses.DistributionMember(u.getId(),((u.getFirstName()==null?"":u.getFirstName())+" "+(u.getLastName()==null?"":u.getLastName())).trim(),u.getEmail(),m.getSharePercent(),m.isActive()&&"ACTIVE".equals(m.getStatus()),u.isStripeOnboardingCompleted()));}return new PoolResponses.Distribution(p.getId(),p.getName(),result,p.getOwnerId());}
+ @Transactional public PoolResponses.Pool create(UUID owner,String name){ users.findByIdForUpdate(owner).filter(user->user.getDeletedAt()==null).orElseThrow(()->new IllegalArgumentException("Benutzer nicht gefunden."));
+ if(pools.findAllByOwnerIdOrderByCreatedAtAsc(owner).stream().anyMatch(p->!p.isDeleted()))throw new IllegalArgumentException("Du besitzt bereits einen Pool. Löse ihn zuerst vollständig auf, bevor du einen neuen Pool erstellst.");
  var clean=name==null?"":name.trim();if(clean.isBlank()||clean.length()>120)throw new IllegalArgumentException("Der Poolname muss zwischen 1 und 120 Zeichen lang sein.");
  var p=new PoolEntity();p.setId(UUID.randomUUID());p.setOwnerId(owner);p.setName(clean);p.setPublicPath("team-"+p.getId().toString().replace("-",""));p.setCreatedAt(OffsetDateTime.now());p=pools.save(p);ensureOwnerMember(p);
  // Keep using the prefabricated URL inventory when one is available. Generated pool paths
@@ -30,7 +31,7 @@ import com.gratilo.user.api.*; import com.gratilo.user.domain.*; import com.grat
  if(paymentLinks!=null)paymentLinks.assignPoolIfAvailable(p.getId());
  return toResponse(p); }
  @Transactional public PoolResponses.Pool rename(UUID owner,UUID poolId,String name){var p=owned(owner,poolId);var clean=name==null?"":name.trim();if(clean.isBlank()||clean.length()>120)throw new IllegalArgumentException("Der Poolname muss zwischen 1 und 120 Zeichen lang sein.");p.setName(clean);return toResponse(pools.update(p));}
- @Transactional public PoolResponses.Pool invite(UUID owner,UUID poolId,String email){var p=owned(owner,poolId);ensureOwnerMember(p);var u=users.findByEmail(email.trim().toLowerCase(Locale.ROOT)).orElseThrow(()->new IllegalArgumentException("Kein Benutzer mit dieser E-Mail-Adresse gefunden.")); if(u.getId().equals(owner))throw new IllegalArgumentException("Der Pool-Besitzer kann nicht eingeladen werden."); var existing=members.findByPoolIdAndUserId(poolId,u.getId()).orElse(null);if(existing!=null){requireNotOwnerBlocked(existing);if(Set.of("INVITED","ACTIVE").contains(existing.getStatus()))throw new IllegalArgumentException("Für diesen Benutzer besteht bereits eine offene Einladung oder Mitgliedschaft.");if(!Set.of("DECLINED","LEFT").contains(existing.getStatus()))throw new IllegalArgumentException("Diese Mitgliedschaft kann nicht erneut eingeladen werden.");sendInvitation(p,existing);return toResponse(p);} var m=new PoolMemberEntity();m.setId(UUID.randomUUID());m.setPoolId(poolId);m.setUserId(u.getId());m.setSharePercent(members.findByPoolId(poolId).stream().noneMatch(existingMember->!"DECLINED".equals(existingMember.getStatus()))?100:0);m.setStatus("INVITED");m.setActive(true);m.setInvitationToken(UUID.randomUUID().toString()+UUID.randomUUID());m.setInvitationExpiresAt(OffsetDateTime.now().plusDays(1));m.setCreatedAt(OffsetDateTime.now());members.save(m);mail.sendText(u.getEmail(),"Pool-Einladung bei Gratilo", "Du wurdest zu einem Trinkgeld-Pool eingeladen. Öffne diesen Link, um die Einladung anzunehmen oder abzulehnen:\n\n"+baseUrl+"/pool/invitations/"+m.getInvitationToken());return toResponse(p); }
+ @Transactional public PoolResponses.Pool invite(UUID owner,UUID poolId,String email){var p=owned(owner,poolId);ensureOwnerMember(p);var u=users.findByEmail(email.trim().toLowerCase(Locale.ROOT)).orElseThrow(()->new IllegalArgumentException("Kein Benutzer mit dieser E-Mail-Adresse gefunden.")); if(u.getId().equals(owner))throw new IllegalArgumentException("Der Pool-Besitzer kann nicht eingeladen werden."); var existing=members.findByPoolIdAndUserId(poolId,u.getId()).orElse(null);if(existing!=null){requireNotOwnerBlocked(existing);if(Set.of("INVITED","ACTIVE").contains(existing.getStatus()))throw new IllegalArgumentException("Für diesen Benutzer besteht bereits eine offene Einladung oder Mitgliedschaft.");if(!Set.of("DECLINED","LEFT","ENDED").contains(existing.getStatus()))throw new IllegalArgumentException("Diese Mitgliedschaft kann nicht erneut eingeladen werden.");sendInvitation(p,existing);return toResponse(p);} var m=new PoolMemberEntity();m.setId(UUID.randomUUID());m.setPoolId(poolId);m.setUserId(u.getId());m.setSharePercent(members.findByPoolId(poolId).stream().noneMatch(existingMember->!"DECLINED".equals(existingMember.getStatus()))?100:0);m.setStatus("INVITED");m.setActive(true);m.setInvitationToken(UUID.randomUUID().toString()+UUID.randomUUID());m.setInvitationExpiresAt(OffsetDateTime.now().plusDays(1));m.setCreatedAt(OffsetDateTime.now());members.save(m);mail.sendText(u.getEmail(),"Pool-Einladung bei Gratilo", "Du wurdest zu einem Trinkgeld-Pool eingeladen. Öffne diesen Link, um die Einladung anzunehmen oder abzulehnen:\n\n"+baseUrl+"/pool/invitations/"+m.getInvitationToken());return toResponse(p); }
  @Transactional public PoolResponses.Pool respond(String token,UUID userId,boolean accept){
   // A scalar lookup avoids caching a stale membership before the shared pool-row lock.
   var poolId=members.findPoolIdByInvitationToken(token).orElseThrow(()->new IllegalArgumentException("Einladung ist ungültig."));
@@ -100,15 +101,20 @@ import com.gratilo.user.api.*; import com.gratilo.user.domain.*; import com.grat
   }else members.deleteById(memberId);
   notifyOwner(p,userId,"verlassen");return memberResponse(p,userId);
  }
- @Transactional public void removeUser(UUID userId){
+ @Transactional(dontRollbackOn=PoolAccountClosureBlockedException.class) public void removeUser(UUID userId){
+  users.findByIdForUpdate(userId).orElseThrow(()->new IllegalArgumentException("Benutzer nicht gefunden."));
+  if(pools.findAllByOwnerIdOrderByCreatedAtAsc(userId).stream().anyMatch(p->!p.isDeleted()))throw new PoolAccountClosureBlockedException();
   for(var membership:new ArrayList<>(members.findByUserId(userId))){
-   var p=pools.findById(membership.getPoolId()).orElse(null); if(p==null) continue;
+   var p=pools.findById(membership.getPoolId()).orElse(null); if(p==null||p.isDeleted()) continue;
    if(!p.getOwnerId().equals(userId)){ notifyOwner(p,userId,"gelöscht"); members.deleteById(membership.getId()); }
   }
-  for(var ownedPool:pools.findAllByOwnerIdOrderByCreatedAtAsc(userId)){for(var m:members.findByPoolId(ownedPool.getId())){users.findById(m.getUserId()).ifPresent(u->mail.sendText(u.getEmail(),"Pool gelöscht", "Der Pool '"+ownedPool.getName()+"' wurde gelöscht, weil der Besitzer sein Gratilo-Konto geschlossen hat."));}pools.deleteById(ownedPool.getId());}
+
  }
- @Transactional public void delete(UUID owner,UUID poolId){var p=owned(owner,poolId);for(var m:members.findByPoolId(poolId)){users.findById(m.getUserId()).ifPresent(u->mail.sendText(u.getEmail(),"Pool gelöscht", "Der Pool '"+p.getName()+"' wurde vom Besitzer gelöscht."));}pools.deleteById(poolId);}
+ @Transactional public void delete(UUID owner,UUID poolId){owned(owner,poolId);throw new IllegalArgumentException("Bitte verwende die Aktion Pool auflösen und bestätige den Poolnamen.");}
  @Transactional public PoolResponses.Pool setImage(UUID owner,UUID poolId,String image){var p=owned(owner,poolId);if(!ProfileImageValidator.isValid(image))throw new IllegalArgumentException("Bitte verwende ein gültiges quadratisches JPEG-Bild (256 × 256, maximal 140 KB).");p.setProfileImage(image);return toResponse(pools.update(p));}
+ public static class PoolAccountClosureBlockedException extends IllegalArgumentException {
+  public PoolAccountClosureBlockedException(){super("Bitte löse zuerst deine eigenen Pools über die Pool-Verwaltung auf. Offene Finanzvorgänge müssen abgeschlossen sein.");}
+ }
  public static class PoolPermissionException extends IllegalArgumentException {
   public PoolPermissionException(String message){super(message);}
  }
@@ -116,7 +122,7 @@ import com.gratilo.user.api.*; import com.gratilo.user.domain.*; import com.grat
   public OwnerReactivationRequiredException(){super("Du wurdest vom Pool-Besitzer deaktiviert. Nur der Pool-Besitzer kann dich wieder aktivieren.");}
  }
  private void requireNotOwnerBlocked(PoolMemberEntity m){if(m.requiresOwnerReactivation())throw new OwnerReactivationRequiredException();}
- private PoolEntity lockedPool(UUID id){return pools.findByIdForUpdate(id).orElseThrow(()->new IllegalArgumentException("Pool nicht gefunden."));}
+ private PoolEntity lockedPool(UUID id){var p=pools.findByIdForUpdate(id).orElseThrow(()->new IllegalArgumentException("Pool nicht gefunden."));if(!p.isAvailable())throw new IllegalArgumentException("Dieser Pool wird aufgelöst und kann nicht mehr geändert werden.");return p;}
  private PoolMemberEntity memberOf(UUID poolId,UUID memberId){var m=members.findById(memberId).orElseThrow(()->new IllegalArgumentException("Mitgliedschaft nicht gefunden."));if(!m.getPoolId().equals(poolId))throw new IllegalArgumentException("Mitglied gehört nicht zu diesem Pool.");return m;}
  private PoolMemberEntity lockedMember(UUID memberId){
   var poolId=members.findPoolIdByMemberId(memberId).orElseThrow(()->new IllegalArgumentException("Mitgliedschaft nicht gefunden."));
@@ -137,11 +143,12 @@ import com.gratilo.user.api.*; import com.gratilo.user.domain.*; import com.grat
   if(path==null)return null;
   var slot=paymentLinks==null?Optional.<PaymentUrlEntity>empty():paymentLinks.slot(path);
   var p=slot.isPresent()?paymentLinks.poolForPath(path).orElse(null):pools.findByPublicPath(path).orElseGet(()->path.matches("[0-9a-fA-F-]{36}")?legacyPool(path):null);
-  return p==null?null:new PoolResponses.PublicPool(p.getOwnerId(),p.getName(),List.of(),p.getProfileImage(),p.getId(),"POOL");
+  return p==null||!p.isAvailable()?null:new PoolResponses.PublicPool(p.getOwnerId(),p.getName(),List.of(),p.getProfileImage(),p.getId(),"POOL");
  }
  private PoolEntity legacyPool(String path){try{return pools.findByLegacyOwnerId(UUID.fromString(path)).orElse(null);}catch(IllegalArgumentException e){return null;}}
- private PoolEntity resolvePool(UUID idOrOwner){var byId=pools.findById(idOrOwner).orElse(null);if(byId!=null)return byId;var owned=pools.findAllByOwnerIdOrderByCreatedAtAsc(idOrOwner);return owned.size()==1?owned.get(0):null;}
+ private Optional<PoolEntity> firstVisiblePool(UUID owner){return pools.findAllByOwnerIdOrderByCreatedAtAsc(owner).stream().filter(p->!p.isDeleted()).findFirst();}
+ private PoolEntity resolvePool(UUID idOrOwner){var byId=pools.findById(idOrOwner).orElse(null);if(byId!=null)return byId;var legacy=pools.findByLegacyOwnerId(idOrOwner).orElse(null);if(legacy!=null)return legacy;var owned=pools.findAllByOwnerIdOrderByCreatedAtAsc(idOrOwner);return owned.size()==1?owned.get(0):null;}
  private PoolEntity owned(UUID owner,UUID id){var p=lockedPool(id);if(!p.getOwnerId().equals(owner))throw new PoolPermissionException("Keine Berechtigung für diesen Pool.");return p;} private PoolEntity pool(UUID id){return pools.findById(id).orElseThrow(()->new IllegalArgumentException("Pool nicht gefunden."));}
- private PoolResponses.Pool memberResponse(PoolEntity p,UUID viewer){var response=toResponse(p);if(p.getOwnerId().equals(viewer))return response;return new PoolResponses.Pool(response.id(),response.name(),response.ownerId(),response.members().stream().filter(row->row.userId().equals(viewer)).toList(),response.profileImage(),response.paymentUrl(),response.memberCount(),response.activeMemberCount(),false);}
- private PoolResponses.Pool toResponse(PoolEntity p){if(p==null)return null;var poolMembers=members.findByPoolId(p.getId());var effective=PoolWeights.effectiveShares(poolMembers);var list=new ArrayList<PoolResponses.Member>();for(var m:poolMembers){var u=users.findById(m.getUserId()).orElse(null);list.add(new PoolResponses.Member(m.getId(),m.getUserId(),u==null?"":u.getEmail(),u==null?"":((u.getFirstName()==null?"":u.getFirstName())+" "+(u.getLastName()==null?"":u.getLastName())).trim(),m.getSharePercent(),m.getStatus(),m.isActive(),m.getInvitationExpiresAt(),m.getInvitationToken(),effective.getOrDefault(m.getId(),0d),m.getDeactivationReason()));}return new PoolResponses.Pool(p.getId(),p.getName(),p.getOwnerId(),list,p.getProfileImage(),paymentLinksUrl(p));}
+ private PoolResponses.Pool memberResponse(PoolEntity p,UUID viewer){var response=toResponse(p);if(p.getOwnerId().equals(viewer))return response;return new PoolResponses.Pool(response.id(),response.name(),response.ownerId(),response.members().stream().filter(row->row.userId().equals(viewer)).toList(),response.profileImage(),response.paymentUrl(),response.memberCount(),response.activeMemberCount(),false,p.getStatus());}
+ private PoolResponses.Pool toResponse(PoolEntity p){if(p==null)return null;var poolMembers=members.findByPoolId(p.getId());var effective=PoolWeights.effectiveShares(poolMembers);var list=new ArrayList<PoolResponses.Member>();for(var m:poolMembers){var u=users.findById(m.getUserId()).orElse(null);list.add(new PoolResponses.Member(m.getId(),m.getUserId(),u==null?"":u.getEmail(),u==null?"":((u.getFirstName()==null?"":u.getFirstName())+" "+(u.getLastName()==null?"":u.getLastName())).trim(),m.getSharePercent(),m.getStatus(),m.isActive(),m.getInvitationExpiresAt(),m.getInvitationToken(),effective.getOrDefault(m.getId(),0d),m.getDeactivationReason()));}return new PoolResponses.Pool(p.getId(),p.getName(),p.getOwnerId(),list,p.getProfileImage(),paymentLinksUrl(p),list.size(),(int)list.stream().filter(m->m.active()&&"ACTIVE".equals(m.status())).count(),true,p.getStatus());}
 }

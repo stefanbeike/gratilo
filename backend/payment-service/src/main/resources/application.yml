@@ -33,6 +33,8 @@ micronaut:
         access: isAnonymous()
       - pattern: /payment-service/webhooks/stripe
         access: isAnonymous()
+      - pattern: /payment-service/internal/pools/*/freeze
+        access: [isAnonymous()]
       - pattern: /**
         access: isAuthenticated()
     token:

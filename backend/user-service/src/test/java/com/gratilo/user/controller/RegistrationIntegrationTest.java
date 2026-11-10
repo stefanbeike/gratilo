@@ -100,13 +100,13 @@ class RegistrationIntegrationTest implements TestPropertyProvider {
         assertTrue(users.findById(owner).orElseThrow().isPaymentEnabled());
         assertTrue(urls.findById(1L).orElseThrow().getAssignedPoolId()==null);
         PaymentUrlEntity free=new PaymentUrlEntity();free.setId(2L);free.setPublicPath("gratilo-002");free.setPaymentUrl("http://localhost:3000/pay/gratilo-002");urls.save(free);
-        var team=poolService.create(owner,"Second Team");
+        UserEntity secondOwner=new UserEntity();secondOwner.setEmail("second-owner-local@example.invalid");secondOwner.setPasswordHash("test-hash");secondOwner=users.save(secondOwner);
+        var team=poolService.create(secondOwner.getId(),"Second Team");
         assertEquals("http://localhost:3000/pay/gratilo-002",team.paymentUrl());
         assertEquals(team.id(),urls.findById(2L).orElseThrow().getAssignedPoolId());
         assertEquals(owner,urls.findById(1L).orElseThrow().getAssignedUserId());
-        var third=poolService.create(owner,"Third Team");
-        assertNotEquals(team.id(),third.id());assertTrue(third.paymentUrl().contains(third.id().toString().replace("-","")));
-        assertEquals(3,pools.findAllByOwnerIdOrderByCreatedAtAsc(owner).size());assertEquals(2,urls.countByAssignedAtIsNotNull());
+        assertThrows(IllegalArgumentException.class,()->poolService.create(owner,"Third Team"));
+        assertEquals(1,pools.findAllByOwnerIdOrderByCreatedAtAsc(owner).size());assertEquals(2,urls.countByAssignedAtIsNotNull());
         assertTrue(com.gratilo.user.api.UserResponses.PublicProfile.from(users.findById(owner).orElseThrow(),"Team").paymentEnabled());
     }
 

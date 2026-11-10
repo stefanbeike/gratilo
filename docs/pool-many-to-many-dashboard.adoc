@@ -53,3 +53,10 @@ Die persönliche Zahlungsseite verwendet weiterhin `paymentEnabled`. Diese pers�
 Persönliche Transaktionen und Pool-Transfers werden unabhängig geladen. Lade- und Fehlerzustände gehören jeweils zur betroffenen Ansicht; ein Fehler der Pool-Historie unterdrückt keine erfolgreich geladenen persönlichen Transaktionen. Eine fehlgeschlagene Feature-Konfiguration bleibt von einer bestätigten Deaktivierung unterscheidbar und kann über die UI oder einen Fensterfokus erneut abgefragt werden. Bereits bestätigte Einstellungen bleiben bei einem technischen Abfragefehler erhalten.
 
 Regressionen prüfen zwei eigene Pools mit drei fremden Mitgliedschaften, Wechsel und aggregierte Ansicht, Austritt aus genau einem Pool, verspätete Verwaltungsantworten, eingeschränkte Mitgliederantworten, getrennte Historienfehler und die persönliche Zahlungspause. Die Mitgliedschafts-Integrationstests können mit H2 laufen; eine PostgreSQL-Migrationsprüfung ist davon getrennt.
+
+== Neuanlagen nach Einführung der Pool-Auflösung
+
+Die neuere Vorgabe für Pool-Auflösungen begrenzt neue Inhaberschaften auf einen
+nicht gelöschten eigenen Pool. Vorhandene Mehrfach-Inhaberschaften aus Migration 019
+bleiben erhalten und werden weiterhin korrekt dargestellt. Fremde Mitgliedschaften
+bleiben unbegrenzt. Details und Betriebsverfahren stehen in `pool-dissolution.adoc`.

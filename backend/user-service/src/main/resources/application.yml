@@ -66,6 +66,9 @@ security:
     secret: ${JWT_SECRET:local-dev-secret-key-please-change-me-1234567890}
     expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}
 
+pool:
+  payment-service-url: ${PAYMENT_SERVICE_URL:http://localhost:8082}
+
 internal:
   api-key: ${INTERNAL_API_KEY:local-internal-secret-change-me}
 

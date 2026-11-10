@@ -50,6 +50,8 @@ public class StripeTestAccessRule implements SecurityRule<HttpRequest<?>> {
         if ((path.equals("/payment-service/webhooks/stripe") || path.equals("/payment-service/webhooks/stripe-connect") || path.equals("/payment-service/webhooks/stripe-direct"))) return SecurityRuleResult.UNKNOWN;
         if(path.startsWith("/payment-service/admin/stripe-payment-audits"))
             return authentication!=null&&authentication.getRoles().contains("ROLE_ADMIN")?SecurityRuleResult.UNKNOWN:SecurityRuleResult.REJECTED;
+        // Internal lifecycle calls authenticate with the shared service secret in the controller.
+        if(request.getMethod()==HttpMethod.POST && path.matches("/payment-service/internal/pools/[0-9a-fA-F-]{36}/freeze"))return SecurityRuleResult.UNKNOWN;
         boolean storedRead = request.getMethod() == HttpMethod.GET &&
                 (path.equals("/payment-service/connect-account") || path.equals("/payment-service/transactions")
                         || path.startsWith("/payment-service/transactions/"));

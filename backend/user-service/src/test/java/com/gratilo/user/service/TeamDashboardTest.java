@@ -76,7 +76,7 @@ class TeamDashboardTest {
         assertTrue(ownerResponse.membersComplete());assertEquals(4,ownerResponse.members().size());
     }
     @Test void publicTeamDoesNotExposeNamesEmailsOrMemberIds(){
-        var p=pool();p.setProfileImage("saved-image");when(pools.findFirstByOwnerIdOrderByCreatedAtAsc(other)).thenReturn(Optional.of(p));
+        var p=pool();p.setProfileImage("saved-image");when(pools.findAllByOwnerIdOrderByCreatedAtAsc(other)).thenReturn(List.of(p));
         var result=service.publicDetails(other);assertEquals("saved-image",result.profileImage());assertTrue(result.memberNames().isEmpty());verifyNoInteractions(members,users);
     }
     @Test void teamImageRequiresOwnershipAndRejectsInvalidImage(){

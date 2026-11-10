@@ -29,7 +29,8 @@ class PersonalPoolLinkTest {
         var paused=(UserResponses.PublicProfile)controller.publicProfile(owner).body();
         assertTrue(paused.paymentEnabled()); assertFalse(paused.personalLinkPaused()); assertTrue(paused.poolParticipationEnabled());
         assertEquals("/pay/unchanged",paused.paymentUrl()); assertTrue(user.isPaymentEnabled());
-        service.delete(owner,created.id());
+        assertThrows(IllegalArgumentException.class,()->service.delete(owner,created.id()));
+        verify(pools,never()).deleteById(any());
         var restored=(UserResponses.PublicProfile)controller.publicProfile(owner).body();
         assertTrue(restored.paymentEnabled()); assertFalse(restored.personalLinkPaused()); assertEquals(paused.paymentUrl(),restored.paymentUrl());
     }

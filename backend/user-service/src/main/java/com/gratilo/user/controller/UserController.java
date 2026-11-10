@@ -161,7 +161,7 @@ public class UserController {
         var maybeUser = authenticatedUser(authentication);
         if (maybeUser.isEmpty()) return HttpResponse.notFound(new UserResponses.Message("Benutzer wurde nicht gefunden"));
         UserEntity user = maybeUser.get();
-        if (poolService != null) poolService.removeUser(user.getId());
+        try { if (poolService != null) poolService.removeUser(user.getId()); } catch (PoolService.PoolAccountClosureBlockedException blocked) { return HttpResponse.status(io.micronaut.http.HttpStatus.CONFLICT).body(new UserResponses.Message(blocked.getMessage())); }
         user.setDeletedAt(java.time.OffsetDateTime.now());
         user.setPaymentEnabled(false);
         user.setProfileImage(null);
