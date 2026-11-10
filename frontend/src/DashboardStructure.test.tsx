@@ -6,11 +6,13 @@ import { Dashboard } from './Dashboard'
 const session={userId:'member',email:'member@example.test',accessToken:'token'}
 afterEach(()=>{cleanup();vi.unstubAllGlobals();window.history.replaceState({},'','/account')})
 function mount({team=true,admin=false,reason='STRIPE_INSUFFICIENT_FUNDS',status='PENDING',failure=false,pricingVersion,actualFees}:{team?:boolean;admin?:boolean;reason?:string;status?:string;failure?:boolean;pricingVersion?:number;actualFees?:{actualRecipientAmountMinor:number;actualFeeMinor:number}}={}){
+ let createdPool:{id:string;name:string;ownerId:string;members:{id:string;userId:string;active:boolean;status:string;sharePercent:number;effectiveSharePercent:number}[]}|null=null
  const calls=vi.fn(async(url:string)=>{if(failure&&url==='/payment-service/pool-transfers')throw Error('offline');return {ok:true,json:async()=>{
   if(url==='/payment-service/transactions')return [{id:'personal',amountMinor:2500,recipientAmountMinor:pricingVersion?(pricingVersion===4?2226:2271):2396,type:'TIP',status:'BOOKED',createdAt:new Date().toISOString(),metadata:pricingVersion?JSON.stringify({pricingVersion,platformFeeMinor:pricingVersion===4?170:125,estimatedStripeFeeMinor:104,feeCovered:false}):undefined}]
   if(url==='/payment-service/transactions/personal/fees')return actualFees || {}
   if(url==='/payment-service/pool-transfers')return [{id:'allocation',transactionId:'payment',poolId:'team',poolName:'Team Sonnenseite',amountMinor:1198,reversedAmountMinor:0,status,settlementReason:reason,createdAt:new Date().toISOString(),historicalSharePercent:50,poolDistributionAmountMinor:2396,selectedTipAmountMinor:2500,personalGrossAmountMinor:1250,personalFeeAmountMinor:52,guestPaymentStatus:'BOOKED'}]
-  if(url==='/user-service/pools/all')return [...(admin?[{id:'owned-team',name:'Eigenes Team',ownerId:'member',profileImage:'https://example.test/saved-team.jpg',paymentUrl:'https://gratilo.eu/pay/owned-team',members:[{id:'owner-member',userId:'member',active:true,status:'ACTIVE',sharePercent:100,effectiveSharePercent:100}]}]:[]),...(team?[{id:'team',name:'Team Sonnenseite',ownerId:'owner',members:[{id:'membership',userId:'member',active:true,status:'ACTIVE',sharePercent:50,effectiveSharePercent:50}]}]:[])]
+  if(url==='/user-service/pools'){createdPool={id:'owned-second',name:'Neuer Pool',ownerId:'member',members:[{id:'owner-member-second',userId:'member',active:true,status:'ACTIVE',sharePercent:100,effectiveSharePercent:100}]};return createdPool}
+  if(url==='/user-service/pools/all')return [...(admin?[{id:'owned-team',name:'Eigenes Team',ownerId:'member',profileImage:'https://example.test/saved-team.jpg',paymentUrl:'https://gratilo.eu/pay/owned-team',members:[{id:'owner-member',userId:'member',active:true,status:'ACTIVE',sharePercent:100,effectiveSharePercent:100}]}]:[]),...(team?[{id:'team',name:'Team Sonnenseite',ownerId:'owner',members:[{id:'membership',userId:'member',active:true,status:'ACTIVE',sharePercent:50,effectiveSharePercent:50}]}]:[]),...(createdPool?[createdPool]:[])]
   return {}
  }}});vi.stubGlobal('fetch',calls)
  render(<Dashboard session={session} profile={{email:session.email,firstName:'Alex'}} onProfile={vi.fn()} onLogout={vi.fn()}/>);return calls
@@ -43,10 +45,12 @@ it('keeps the personal account section mounted across views and hides team motif
  for (const image of screen.getAllByAltText('Team-Profilbild von Eigenes Team')) expect(image).toHaveAttribute('src','https://example.test/saved-team.jpg');
  expect(screen.getByLabelText('Poolname bearbeiten')).toBeInTheDocument();
 })
-it('keeps memberships and pool administration independent without offering a second own pool',async()=>{
+it('keeps memberships independent and allows creating multiple own pools',async()=>{
  mount({admin:true,team:true});await screen.findByRole('button',{name:'Transaktion personal ansehen'});fireEvent.click(screen.getByRole('button',{name:'Meine Pools'}));
  expect(await screen.findByRole('button',{name:/Eigenes Team/})).toBeInTheDocument();expect(screen.getByRole('button',{name:/Team Sonnenseite/})).toBeInTheDocument();
- expect(screen.queryByRole('button',{name:'+ Neuen Pool erstellen'})).not.toBeInTheDocument();expect(screen.queryByText(/mehrere aktive Team-Zuordnungen/)).not.toBeInTheDocument();
+ expect(screen.getByRole('button',{name:'+ Neuen Pool erstellen'})).toBeDisabled();expect(screen.queryByText(/mehrere aktive Team-Zuordnungen/)).not.toBeInTheDocument();
+ fireEvent.change(screen.getByLabelText('Poolname'),{target:{value:'Neuer Pool'}});fireEvent.click(screen.getByRole('button',{name:'+ Neuen Pool erstellen'}));
+ expect(await screen.findByText('Pool wurde angelegt.')).toBeInTheDocument();expect(await screen.findByRole('button',{name:/Neuer Pool/})).toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:/Team Sonnenseite/}));expect(screen.queryByText('Pool-Einstellungen und Mitglieder verwalten')).not.toBeInTheDocument();
  expect(screen.getByRole('button',{name:'Pool verlassen'})).toBeEnabled();
 })
