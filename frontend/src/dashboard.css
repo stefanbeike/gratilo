@@ -93,3 +93,8 @@
 .pool-dissolve-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: flex-end; margin-top: 24px; }
 .pool-mutation-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 @media (max-width: 480px) { .pool-dissolve-dialog { padding: 18px; } .pool-dissolve-actions button { width: 100%; } }
+
+.team-overview-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.team-overview-heading .team-identity { min-width: 0; }
+.team-overview-heading .pool-delete { min-height: 44px; flex-shrink: 0; }
+@media (max-width: 600px) { .team-overview-heading .pool-delete { width: 100%; } }
