@@ -1,0 +1,17 @@
+:root {
+  --gratilo-primary: #245a88;
+  --gratilo-secondary: #123f46;
+  --gratilo-mint: #43e5ce;
+  --gratilo-accent: #f326a5;
+  --gratilo-background: #f5f8fb;
+  --gratilo-surface: #fff;
+  --gratilo-error: #a54545;
+  --gratilo-success: #197365;
+  --gratilo-space-sm: 8px;
+  --gratilo-space-md: 16px;
+  --gratilo-space-lg: 24px;
+  --gratilo-radius-sm: 8px;
+  --gratilo-radius-md: 16px;
+  --gratilo-radius-lg: 24px;
+  --gratilo-touch-target: 44px;
+}
