@@ -55,3 +55,6 @@ __pycache__/
 
 # Local read-only cloud audit and proposed task artifacts
 .local/
+
+frontend/playwright-report/
+frontend/test-results/
