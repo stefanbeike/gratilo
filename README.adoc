@@ -220,3 +220,9 @@ http://localhost:8082/health
 NOTE: Stand der geprüften Dateien: GitHub-Branch `main` bei Erstellung.
 Nicht sämtliche Controller, Tabellen und die live ausgerollte AWS-Konfiguration
 wurden unabhängig verifiziert.
+
+== Native Android-App
+
+Das eigenständige Kotlin-/Compose-Projekt liegt unter `android/` und gehört nicht zum Root-Gradle-Build. Lokaler Emulatorstart, API-Konfiguration, Tests und bekannte Unterschiede zum Web sind in link:android/README.md[android/README.md] dokumentiert. Das Funktionsinventar steht unter link:docs/android-feature-inventory.md[docs/android-feature-inventory.md].
+
+Responsive Web-Prüfung: im Ordner `frontend/` nach `npm ci` und `npx playwright install chromium` den Befehl `npm run test:responsive` ausführen.
