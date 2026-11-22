@@ -19,6 +19,7 @@ public class StripeStatusSync {
     public StripeStatusSync(ConnectedAccountRepository accounts, StripeConnectService stripe) {
         this.accounts = accounts; this.stripe = stripe;
     }
+    @com.gratilo.observability.ObservedOperation("stripe_status_sync")
     public Status refresh(UUID user) {
         var account = accounts.findByUserId(user).orElse(null);
         if (account == null) return new Status(user, "NOT_STARTED", "NOT_STARTED", false, false, OffsetDateTime.now());
@@ -41,6 +42,7 @@ public class StripeStatusSync {
         status.applyTo(account); accounts.update(account);
         return new Status(user, status.displayStatus(), status.onboardingStatus(), status.canReceiveTransfers(), status.canPayout(), account.getStatusCheckedAt());
     }
+    @com.gratilo.observability.ObservedOperation("stripe_status_sync")
     public boolean refreshAccount(String accountId) {
         var account = accounts.findByStripeAccountId(accountId).orElse(null);
         if(account==null)return true;

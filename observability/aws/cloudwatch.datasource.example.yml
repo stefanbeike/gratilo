@@ -1,0 +1,10 @@
+# AWS-only template. Install in an authorized staging workspace with its IAM role.
+apiVersion: 1
+datasources:
+  - name: Gratilo · AWS CloudWatch
+    uid: gratilo-cloudwatch
+    type: cloudwatch
+    editable: false
+    jsonData:
+      authType: default
+      defaultRegion: eu-central-1

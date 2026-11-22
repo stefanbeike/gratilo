@@ -1,0 +1,40 @@
+local.file_match "application" {
+  path_targets = [
+    {"__path__" = "/logs/user-service/events.jsonl", "service" = "user-service", "environment" = sys.env("OBS_ENVIRONMENT")},
+    {"__path__" = "/logs/payment-service/events.jsonl", "service" = "payment-service", "environment" = sys.env("OBS_ENVIRONMENT")},
+  ]
+}
+
+loki.source.file "application" {
+  targets    = local.file_match.application.targets
+  forward_to = [loki.process.safe_events.receiver]
+}
+
+loki.process "safe_events" {
+  forward_to = [loki.write.local.receiver]
+
+  // Keep only the application's fixed JSON event shape. No Docker socket or generic stdout.
+  stage.match {
+    selector = "{service=~\".+\"} !~ \"^[{]\\\"timestamp\\\":\\\"[0-9TZ.:-]+\\\",\\\"service\\\":\\\"(user-service|payment-service)\\\",\\\"event\\\":\\\"[a-z0-9_]+\\\",\\\"outcome\\\":\\\"[a-z0-9_]+\\\"[}]$\""
+    action = "drop"
+  }
+
+  stage.json {
+    expressions = { time = "timestamp" }
+  }
+
+  stage.timestamp {
+    source = "time"
+    format = "RFC3339Nano"
+  }
+
+  stage.label_drop {
+    values = ["filename"]
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

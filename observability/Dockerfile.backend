@@ -1,0 +1,29 @@
+# Build a demo runtime from the same Gradle distributions used by the application.
+FROM gradle:8.10-jdk21@sha256:963d59f7f22767da4efbcf46b661361b61af5fb88b0309da1071c4234c647eba AS builder
+WORKDIR /home/gradle/project
+COPY settings.gradle build.gradle gradle.properties ./
+COPY backend/user-service/build.gradle backend/user-service/
+COPY backend/payment-service/build.gradle backend/payment-service/
+COPY backend/observability backend/observability
+COPY backend/user-service/src backend/user-service/src
+COPY backend/payment-service/src backend/payment-service/src
+ARG BACKEND
+RUN gradle --no-daemon --max-workers=2 ":backend:${BACKEND}:installDist" \
+    && mv "backend/${BACKEND}/build/install/${BACKEND}/lib" /distribution
+
+FROM eclipse-temurin:21-jre-jammy@sha256:affcab5356e1270ac35d2361ee83135af2f03e8d580eca78a6d5d6fdbf048db0 AS runtime
+ARG MAIN_CLASS
+ARG SERVICE_PORT
+ENV GRATILO_MAIN_CLASS=${MAIN_CLASS} GRATILO_SERVICE_PORT=${SERVICE_PORT}
+RUN useradd --create-home --uid 1001 appuser && install -d -o appuser -g appuser /var/log/gratilo
+WORKDIR /app
+USER appuser
+HEALTHCHECK --interval=5s --timeout=3s --retries=10 \
+  CMD curl --fail --silent "http://localhost:${GRATILO_SERVICE_PORT}/health" || exit 1
+ENTRYPOINT ["sh", "-c", "exec java -cp '/app/lib/*' \"$GRATILO_MAIN_CLASS\""]
+
+FROM runtime AS demo
+COPY --from=builder --chown=1001:1001 /distribution/ /app/lib/
+
+FROM runtime AS installed
+COPY --from=distribution --chown=1001:1001 /lib/ /app/lib/

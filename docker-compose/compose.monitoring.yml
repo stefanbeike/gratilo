@@ -1,0 +1,207 @@
+name: gratilo-observability
+
+x-backend: &backend
+  profiles: [demo]
+  restart: unless-stopped
+  networks: [targets]
+  depends_on:
+    postgres:
+      condition: service_healthy
+  environment: &backend-env
+    DATASOURCES_DEFAULT_URL: jdbc:postgresql://postgres:5432/gratilodb
+    DATASOURCES_DEFAULT_USERNAME: postgres
+    DATASOURCES_DEFAULT_PASSWORD: ${OBS_DEMO_DB_PASSWORD:-disabled}
+    JWT_SECRET: ${OBS_DEMO_JWT_SECRET:-disabled}
+    INTERNAL_API_KEY: ${OBS_DEMO_INTERNAL_KEY:-disabled}
+    PAYMENTS_ENABLED: "false"
+    STRIPE_SECRET_KEY: ""
+    STRIPE_TEST_ONLY: "true"
+    OBSERVABILITY_ENABLED: "true"
+    OBSERVABILITY_ENVIRONMENT: demo
+    OBSERVABILITY_BUILD: ${OBS_BUILD_VERSION:-local}
+    OBSERVABILITY_SCRAPE_TOKEN: ${OBS_SCRAPE_TOKEN:?Run observability/scripts/init-env.py}
+    OBSERVABILITY_EVENT_LOG: /var/log/gratilo/events.jsonl
+
+services:
+  grafana:
+    image: grafana/grafana:12.3.6
+    ports: ["127.0.0.1:${OBS_GRAFANA_PORT:-3002}:3000"]
+    restart: unless-stopped
+    networks: [targets, telemetry, ui]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${OBS_GRAFANA_ADMIN_PASSWORD:?Run observability/scripts/init-env.py}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_USERS_DEFAULT_THEME: dark
+      GF_DATABASE_WAL: "true"
+      GF_DATABASE_QUERY_RETRIES: "5"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
+      GF_UNIFIED_ALERTING_ENABLED: "true"
+      GF_UNIFIED_ALERTING_HA_PEERS: ""
+      OBS_DB_HOST: ${OBS_DB_HOST:-postgres}
+      OBS_DB_NAME: ${OBS_DB_NAME:-gratilodb}
+      OBS_DB_PASSWORD: ${OBS_GRAFANA_DB_PASSWORD:?Run observability/scripts/init-env.py}
+    volumes:
+      - grafana:/var/lib/grafana
+      - ../observability/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
+      - ../observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ../observability/grafana/dashboards:/etc/grafana/dashboards:ro
+
+  prometheus:
+    image: prom/prometheus:v3.5.2
+    ports: ["127.0.0.1:${OBS_PROMETHEUS_PORT:-9090}:9090"]
+    restart: unless-stopped
+    networks: [targets, telemetry, ui]
+    command: [--config.file=/etc/prometheus/config.yml, --storage.tsdb.path=/prometheus, --storage.tsdb.retention.time=30d, --storage.tsdb.retention.size=4GB]
+    secrets: [scrape_token]
+    volumes:
+      - prometheus:/prometheus
+      - ../observability/prometheus/prometheus.yml:/etc/prometheus/config.yml:ro
+      - ../observability/prometheus/deployment-demo.json:/etc/prometheus/deployment.json:ro
+      - ../observability/prometheus/demo-targets.json:/etc/prometheus/demo-targets.json:ro
+      - ../observability/alerts:/etc/prometheus/rules:ro
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.18.1
+    restart: unless-stopped
+    networks: [targets]
+    command: [--extend.query-path=/etc/postgres-exporter/queries.yml, --disable-settings-metrics, --no-collector.roles, --no-collector.stat_user_tables, --no-collector.statio_user_tables]
+    environment:
+      DATA_SOURCE_URI: ${OBS_DB_HOST:-postgres}:5432/${OBS_DB_NAME:-gratilodb}?sslmode=disable
+      DATA_SOURCE_USER: gratilo_pg_metrics
+      DATA_SOURCE_PASS: ${OBS_EXPORTER_DB_PASSWORD:?Run observability/scripts/init-env.py}
+    volumes:
+      - ../observability/prometheus/postgres-queries.yml:/etc/postgres-exporter/queries.yml:ro
+
+  blackbox:
+    image: prom/blackbox-exporter:v0.27.0
+    restart: unless-stopped
+    networks: [targets]
+    command: [--config.file=/etc/blackbox/config.yml]
+    volumes:
+      - ../observability/blackbox/config.yml:/etc/blackbox/config.yml:ro
+
+  loki:
+    image: grafana/loki:3.6.7
+    restart: unless-stopped
+    networks: [telemetry]
+    command: [-config.file=/etc/loki/config.yml]
+    volumes:
+      - loki:/loki
+      - ../observability/loki/config.yml:/etc/loki/config.yml:ro
+
+  alloy:
+    image: grafana/alloy:v1.13.2
+    restart: unless-stopped
+    networks: [telemetry]
+    command: [run, --storage.path=/var/lib/alloy, --server.http.listen-addr=0.0.0.0:12345, /etc/alloy/config.alloy]
+    environment:
+      OBS_ENVIRONMENT: ${OBS_ENVIRONMENT:-demo}
+    volumes:
+      - alloy:/var/lib/alloy
+      - user-events:/logs/user-service:ro
+      - payment-events:/logs/payment-service:ro
+      - ../observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+
+  postgres:
+    profiles: [demo]
+    image: postgres:15.18-alpine
+    networks: [targets]
+    environment:
+      POSTGRES_DB: gratilodb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${OBS_DEMO_DB_PASSWORD:-disabled}
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d gratilodb"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    volumes:
+      - demo-db:/var/lib/postgresql/data
+      - ./postgres/init-schemas.sql:/docker-entrypoint-initdb.d/01-schemas.sql:ro
+
+  user-service:
+    <<: *backend
+    build:
+      context: ..
+      dockerfile: observability/Dockerfile.backend
+      target: demo
+      args: {BACKEND: user-service, MAIN_CLASS: com.gratilo.user.Application, SERVICE_PORT: "8081"}
+    environment:
+      <<: *backend-env
+      PAYMENT_SERVICE_URL: http://payment-service:8082
+    volumes:
+      - user-events:/var/log/gratilo
+
+  payment-service:
+    <<: *backend
+    build:
+      context: ..
+      dockerfile: observability/Dockerfile.backend
+      target: demo
+      args: {BACKEND: payment-service, MAIN_CLASS: com.gratilo.payment.Application, SERVICE_PORT: "8082"}
+    environment:
+      <<: *backend-env
+      USER_SERVICE_URL: http://user-service:8081
+    volumes:
+      - payment-events:/var/log/gratilo
+
+  seed:
+    profiles: [demo]
+    image: postgres:15.18-alpine
+    networks: [targets]
+    depends_on:
+      user-service: {condition: service_healthy}
+      payment-service: {condition: service_healthy}
+    environment:
+      OBS_ENVIRONMENT: demo
+      PGHOST: postgres
+      PGDATABASE: gratilodb
+      PGUSER: postgres
+      PGPASSWORD: ${OBS_DEMO_DB_PASSWORD:-disabled}
+      OBS_GRAFANA_DB_PASSWORD: ${OBS_GRAFANA_DB_PASSWORD:?Run observability/scripts/init-env.py}
+      OBS_EXPORTER_DB_PASSWORD: ${OBS_EXPORTER_DB_PASSWORD:?Run observability/scripts/init-env.py}
+    command: [sh, /obs/bootstrap.sh, --demo]
+    volumes:
+      - ../observability/sql:/sql:ro
+      - ../observability/scripts/bootstrap.sh:/obs/bootstrap.sh:ro
+
+  demo-traffic:
+    profiles: [demo]
+    image: python:3.13.13-alpine
+    restart: unless-stopped
+    networks: [targets]
+    depends_on:
+      seed: {condition: service_completed_successfully}
+    command: [python, -u, /obs/demo-traffic.py]
+    volumes:
+      - ../observability/scripts/demo-traffic.py:/obs/demo-traffic.py:ro
+
+networks:
+  targets:
+    internal: true
+  ui: {}
+  telemetry:
+    internal: true
+
+volumes:
+  grafana: {}
+  prometheus: {}
+  loki: {}
+  alloy: {}
+  demo-db: {}
+  user-events: {}
+  payment-events: {}
+
+secrets:
+  scrape_token:
+    file: ${OBS_SCRAPE_TOKEN_FILE:?Run observability/scripts/init-env.py}

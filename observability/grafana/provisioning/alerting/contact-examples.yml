@@ -1,0 +1,18 @@
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: Gratilo · lokales Beispiel
+    receivers:
+      - uid: gratilo-example-mail
+        type: email
+        settings:
+          addresses: alert-example@example.invalid
+muteTimes:
+  - orgId: 1
+    name: Gratilo · Beispiel für ein Wartungsfenster
+    time_intervals:
+      - times:
+          - start_time: "02:00"
+            end_time: "03:00"
+        weekdays: [sunday]
+        location: Europe/Berlin

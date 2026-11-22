@@ -1,5 +1,7 @@
 package com.gratilo.payment.service;
 
+import com.gratilo.observability.ObservationEvents;
+
 import io.micronaut.context.annotation.Value;
 import io.micronaut.json.JsonMapper;
 import jakarta.inject.Singleton;
@@ -10,6 +12,7 @@ import java.util.*;
 
 @Singleton
 public class PoolDistributionClient {
+    @jakarta.inject.Inject ObservationEvents observationEvents;
     public record Member(UUID userId, String name, double sharePercent, boolean active) {}
     public record Distribution(UUID poolId, String poolName, List<Member> members, UUID ownerId) { public Distribution(UUID poolId,String poolName,List<Member> members){this(poolId,poolName,members,null);} }
     private final String base, key;
@@ -25,7 +28,7 @@ public class PoolDistributionClient {
         if (!enabled) return Optional.empty();
         var request = HttpRequest.newBuilder(URI.create(base + "/user-service/internal/pools/" + owner))
                 .timeout(Duration.ofSeconds(10)).header("X-Internal-Secret", key).GET().build();
-        var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        var response = ObservationEvents.send(observationEvents, "user-service", request);
         if (response.statusCode() == 404) return Optional.empty();
         if (response.statusCode() != 200) throw new IllegalStateException("Pool configuration could not be verified");
         Map<?, ?> json = JsonMapper.createDefault().readValue(response.body(), Map.class);

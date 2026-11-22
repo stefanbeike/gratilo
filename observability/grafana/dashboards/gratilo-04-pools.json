@@ -1,0 +1,1404 @@
+{
+  "uid": "gratilo-04-pools",
+  "title": "04 · Pools und Teams",
+  "description": "Teams und Verteilung ohne Mitglieder- oder Poolkennungen.",
+  "tags": [
+    "gratilo",
+    "observability"
+  ],
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "style": "dark",
+  "timezone": "utc",
+  "refresh": "1m",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "links": [
+    {
+      "title": "Gratilo-Dashboards",
+      "type": "dashboards",
+      "asDropdown": true,
+      "tags": [
+        "gratilo"
+      ],
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Umgebung",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "gratilo-prometheus"
+        },
+        "definition": "label_values(up{job=\"prometheus\"}, environment)",
+        "query": {
+          "query": "label_values(up{job=\"prometheus\"}, environment)",
+          "refId": "scope"
+        },
+        "refresh": 1,
+        "current": {
+          "text": "demo",
+          "value": "demo"
+        },
+        "options": []
+      },
+      {
+        "name": "stripe_mode",
+        "label": "Stripe-Modus",
+        "type": "custom",
+        "query": "test,live",
+        "includeAll": false,
+        "allValue": null,
+        "current": {
+          "text": "test",
+          "value": "test"
+        },
+        "options": [
+          {
+            "text": "test",
+            "value": "test",
+            "selected": true
+          },
+          {
+            "text": "live",
+            "value": "live",
+            "selected": false
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Teams und Mitgliedschaften",
+      "description": "",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "title": "Pools insgesamt",
+      "description": "Aktueller Bestand einschließlich aufgelöster Pools. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'pools_all' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Aktive Pools",
+      "description": "Aktueller Lifecycle-Status ACTIVE. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'pools_active' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Neu angelegte Pools",
+      "description": "Pool-Erstellung im Zeitraum. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'pools_new' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Aufgelöste Pools im Bestand",
+      "description": "Aktueller Lifecycle-Status DELETED. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'pools_deleted' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Aktive Mitgliedschaften",
+      "description": "Aktive, nicht beendete Mitgliedschaften in aktiven Pools. Eine Person kann mehrfach zählen. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'memberships' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Offene Einladungen",
+      "description": "Aktive und noch nicht abgelaufene Einladungen. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 6,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'invitations' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Mitglieder je aktivem Pool",
+      "description": "Größenklassen der Zahl aktiver Mitglieder je Pool. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "barchart",
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT dimension AS \"Kategorie\", value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'members_distribution' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "Kategorie",
+        "legend": {
+          "showLegend": false
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Poolzahlungen und Settlement",
+      "description": "",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 10,
+      "title": "Pool-Checkout-Erfolgsquote",
+      "description": "Bestätigte Buchung innerhalb der beobachteten Session-Kohorte.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'checkout_rate' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Pool-Trinkgeldvolumen",
+      "description": "Ursprünglicher Betrag bestätigter Poolzahlungen.",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 15,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value/100::numeric AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'tip_volume' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Durchschnittliches Pool-Trinkgeld",
+      "description": "Arithmetisches Mittel bestätigter Poolzahlungen.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value/100::numeric AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'tip_mean' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "title": "Erzeugte Allokationen gebuchter Zahlungen",
+      "description": "Im Zeitraum eingefrorene Verteilungszeilen mit bestätigter Parent-Zahlung.",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 15,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'allocations' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Bestätigte Stripe-Transfers im Bestand",
+      "description": "Allokationen mit gespeicherter Transfer-ID inklusive späterer Reversals.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'transfer_confirmed' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Ausstehende Transfers",
+      "description": "Gebuchte Zahlungen mit PENDING-Allokationen ohne bestätigte Stripe-Transfer-ID.",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 20,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'transfer_pending' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "Zurückgehaltene Transfers",
+      "description": "Offene Allokationen mit explizitem Warte- oder Freigabegrund.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'transfer_held' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "title": "Ausstehende Transfers mit Fehler- oder Prüfgrund",
+      "description": "Gespeicherter Fehlergrund außerhalb bekannter Haltegründe.",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 20,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'transfer_retry_review' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Durchschnittliche Settlement-Dauer",
+      "description": "Von Allokation bis belegter Stripe-Transfer-Erstellung bei vollständigem Audit.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'settlement_seconds' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 19,
+      "title": "Ältester ausstehender Transfer",
+      "description": "Alter der ältesten noch ausstehenden Allokation.",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 25,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'transfer_oldest' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 20,
+      "title": "Offene Empfängeransprüche laut Allokation",
+      "description": "Ausstehende eingefrorene EUR-Beträge abzüglich vorgesehener Reversals.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 25,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value/100::numeric AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'transfer_pending_minor' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "title": "Noch ausstehende Reversals",
+      "description": "Differenz zwischen erforderlicher und bestätigter Rückbuchung von Transfers.",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 25,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value/100::numeric AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'reversal_pending_minor' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "Stripe-Readiness-Blockaden",
+      "description": "Ausstehende Allokationen mit gespeichertem RECIPIENT_NOT_READY.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'pool_readiness_blocks' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "title": "Pool-Reconciliation-Status",
+      "description": "Aktuelle Audit-Statusverteilung für Poolzahlungen.",
+      "type": "barchart",
+      "gridPos": {
+        "x": 6,
+        "y": 30,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT dimension AS \"Kategorie\", value AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'POOL') WHERE metric = 'audit_status' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "Kategorie",
+        "legend": {
+          "showLegend": false
+        }
+      }
+    },
+    {
+      "id": 24,
+      "title": "Erneute Transfer-POST-Versuche",
+      "description": "Instrumentierte erneute Transfer-Anforderung nach gespeichertem Erstversuch.",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 30,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum(increase(gratilo_observation_events_total{environment=~\"${environment:regex}\",event=\"transfer_retry\"}[$__range]))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 25,
+      "title": "Datenstand",
+      "description": "Grenzen der Messung.",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 5
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Terminal fehlgeschlagene Pool-Transfers: unbekannt.** Der gegenwärtige Scheduler speichert Warte- und Retry-Gründe. Allokation, Stripe-Transfer und Bankauszahlung haben eigene Zustände."
+      }
+    }
+  ]
+}

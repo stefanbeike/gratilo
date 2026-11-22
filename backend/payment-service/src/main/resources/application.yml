@@ -12,7 +12,21 @@ features:
 frontend:
   base-url: ${FRONTEND_BASE_URL:`http://localhost:3000`}
 
+observability:
+  enabled: ${OBSERVABILITY_ENABLED:false}
+  environment: ${OBSERVABILITY_ENVIRONMENT:local}
+  build: ${OBSERVABILITY_BUILD:unknown}
+  scrape-token: ${OBSERVABILITY_SCRAPE_TOKEN:}
+  event-log: ${OBSERVABILITY_EVENT_LOG:}
+
 micronaut:
+  metrics:
+    enabled: ${OBSERVABILITY_ENABLED:false}
+    binders:
+      web:
+        enabled: false
+      jdbc:
+        enabled: true
   application:
     name: payment-service
   server:
@@ -71,6 +85,8 @@ stripe:
   fee-fixed-minor: ${STRIPE_FEE_FIXED_MINOR:25}
 
 endpoints:
+  prometheus:
+    enabled: false
   health:
     enabled: true
     sensitive: false

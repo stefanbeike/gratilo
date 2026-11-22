@@ -1,0 +1,55 @@
+rule_files: [rules.yml]
+evaluation_interval: 30s
+tests:
+  - interval: 30s
+    input_series:
+      - series: 'probe_success{job="blackbox",instance="test-api"}'
+        values: '1 0+0x14'
+      - series: 'pg_up{job="postgres"}'
+        values: '1+0x15'
+      - series: 'gratilo_postgres_audit_overdue{livemode="test"}'
+        values: '0+0x15'
+      - series: 'gratilo_postgres_pool_overdue{livemode="test"}'
+        values: '0+0x15'
+      - series: 'gratilo_postgres_payout_failed{livemode="test"}'
+        values: '0+0x15'
+    alert_rule_test:
+      - eval_time: 1m30s
+        alertname: ServiceUnreachable
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: ServiceUnreachable
+        exp_alerts:
+          - exp_labels: {job: blackbox, instance: test-api, severity: critical}
+            exp_annotations: {summary: Dienst nicht erreichbar}
+      - eval_time: 7m
+        alertname: MonitoringDataStale
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: AuditPastDue
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: PoolTransfersOverdue
+        exp_alerts: []
+  - interval: 30s
+    input_series:
+      - series: 'pg_up{job="postgres"}'
+        values: '1+0x16'
+      - series: 'gratilo_http_server_requests_seconds_count{job="backend",service="payment-service",status_class="5xx"}'
+        values: '0+1x16'
+      - series: 'gratilo_postgres_audit_review{livemode="test"}'
+        values: '1+0x16'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: HighHttp5xx
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: MonitoringDataStale
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations: {summary: Business-Datenquelle liefert keine frischen Samples}
+      - eval_time: 4m
+        alertname: AuditEvidenceConflicts
+        exp_alerts:
+          - exp_labels: {severity: critical, livemode: test}
+            exp_annotations: {summary: Kritische Audit-Konflikte}

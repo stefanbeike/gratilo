@@ -226,3 +226,7 @@ wurden unabhängig verifiziert.
 Das eigenständige Kotlin-/Compose-Projekt liegt unter `android/` und gehört nicht zum Root-Gradle-Build. Lokaler Emulatorstart, API-Konfiguration, Tests und bekannte Unterschiede zum Web sind in link:android/README.md[android/README.md] dokumentiert. Das Funktionsinventar steht unter link:docs/android-feature-inventory.md[docs/android-feature-inventory.md].
 
 Responsive Web-Prüfung: im Ordner `frontend/` nach `npm ci` und `npx playwright install chromium` den Befehl `npm run test:responsive` ausführen.
+
+== Lokale Observability
+
+Der isolierte Demo-Stack startet Grafana, Prometheus, Loki und beide Backend-Dienste mit synthetischen PostgreSQL-Daten ohne Stripe-Zugang. Start, Business-KPIs, Alerting und die AWS-Migration stehen in link:docs/observability/README.md[Gratilo Observability].

@@ -1,5 +1,7 @@
 package com.gratilo.payment.service;
 
+import com.gratilo.observability.ObservationEvents;
+
 import com.gratilo.payment.repository.ConnectedAccountRepository;
 import io.micronaut.context.annotation.Value;
 import io.micronaut.json.JsonMapper;
@@ -13,6 +15,7 @@ import java.util.*;
 /** Connected-account GET only. Neither the request URL nor the caller selects a Stripe account. */
 @Singleton
 public class StripeBalanceService {
+    @jakarta.inject.Inject ObservationEvents observationEvents;
     private final ConnectedAccountRepository accounts;private final String secret;
     public StripeBalanceService(ConnectedAccountRepository accounts,@Value("${stripe.secret-key:}") String secret){this.accounts=accounts;StripeConnectService.requireTestKey(secret);this.secret=secret;}
     @Serdeable public record Balance(long availableMinor,long pendingMinor,String currency,OffsetDateTime checkedAt){}
@@ -39,7 +42,7 @@ public class StripeBalanceService {
     protected String get(String account)throws Exception{
         var request=HttpRequest.newBuilder(URI.create("https://api.stripe.com/v1/balance")).timeout(Duration.ofSeconds(10))
             .header("Authorization","Bearer "+secret).header("Stripe-Account",account).header("Stripe-Version","2026-09-30.endive").GET().build();
-        var response=HttpClient.newHttpClient().send(request,HttpResponse.BodyHandlers.ofString());
+        var response=ObservationEvents.send(observationEvents, "stripe", request);
         if(response.statusCode()!=200)throw new IllegalStateException("Stripe balance unavailable");return response.body();
     }
 }

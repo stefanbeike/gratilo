@@ -1,0 +1,1674 @@
+{
+  "uid": "gratilo-07-backend",
+  "title": "07 · Backend und API-Performance",
+  "description": "HTTP-, JVM-, Datenbank- und Operationsmetriken beider Micronaut-Dienste.",
+  "tags": [
+    "gratilo",
+    "observability"
+  ],
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "style": "dark",
+  "timezone": "utc",
+  "refresh": "1m",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "links": [
+    {
+      "title": "Gratilo-Dashboards",
+      "type": "dashboards",
+      "asDropdown": true,
+      "tags": [
+        "gratilo"
+      ],
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Umgebung",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "gratilo-prometheus"
+        },
+        "definition": "label_values(up{job=\"prometheus\"}, environment)",
+        "query": {
+          "query": "label_values(up{job=\"prometheus\"}, environment)",
+          "refId": "scope"
+        },
+        "refresh": 1,
+        "current": {
+          "text": "demo",
+          "value": "demo"
+        },
+        "options": []
+      },
+      {
+        "name": "service",
+        "label": "Dienst",
+        "type": "custom",
+        "query": "user-service,payment-service",
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [
+          {
+            "text": "user-service",
+            "value": "user-service",
+            "selected": false
+          },
+          {
+            "text": "payment-service",
+            "value": "payment-service",
+            "selected": false
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP und Verfügbarkeit",
+      "description": "",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "title": "Anfragen je Sekunde",
+      "description": "HTTP-Rate einschließlich interner Requests, ohne Scrape-Route.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum by (service)(rate(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}[$__rate_interval]))",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "HTTP-5xx-Fehlerrate je Dienst",
+      "description": "HTTP-5xx geteilt durch alle beobachteten Requests je Dienst.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "((sum by (service)(rate(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",service=~\"${service:regex}\",status_class=\"5xx\"}[$__rate_interval]))) or 0 * (sum by (service)(rate(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}[$__rate_interval])))) / (sum by (service)(rate(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}[$__rate_interval])))",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "HTTP-Statusklassen",
+      "description": "Anfragerate nach Dienst und Statusklasse.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum by (service,status_class)(rate(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}[$__rate_interval]))",
+          "editorMode": "code",
+          "legendFormat": "{{service}} · {{status_class}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "HTTP-Antwortzeit p50",
+      "description": "Histogramm-Quantil nach Dienst.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "histogram_quantile(0.5,sum by (service,le)(rate(gratilo_http_server_requests_seconds_bucket{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}[$__rate_interval])))",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "HTTP-Antwortzeit p95",
+      "description": "Histogramm-Quantil nach Dienst.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by (service,le)(rate(gratilo_http_server_requests_seconds_bucket{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}[$__rate_interval])))",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "HTTP-Antwortzeit p99",
+      "description": "Histogramm-Quantil nach Dienst.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "histogram_quantile(0.99,sum by (service,le)(rate(gratilo_http_server_requests_seconds_bucket{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}[$__rate_interval])))",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "API-Latenz p95 nach Route",
+      "description": "Ausschließlich statische Routentemplates und UNMATCHED.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by (service,endpoint_template,le)(rate(gratilo_http_server_requests_seconds_bucket{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}[$__rate_interval])))",
+          "editorMode": "code",
+          "legendFormat": "{{service}} · {{endpoint_template}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Aktive HTTP-Anfragen",
+      "description": "Zeitgleich bearbeitete Anfragen aus dem Serverfilter.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 25,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum by(service) (gratilo_http_server_active{environment=~\"${environment:regex}\",service=~\"${service:regex}\"})",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "HTTP-Health-Status",
+      "description": "Blackbox-Ergebnis der Dienst-Health-Endpunkte. 1 erreichbar, 0 fehlgeschlagen.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "probe_success{job=\"blackbox\",instance=~\"http://${service:regex}:[0-9]+/health\"}",
+          "editorMode": "code",
+          "legendFormat": "{{instance}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Build-Version",
+      "description": "Konfiguriertes Build-Label des laufenden Artefakts mit zuletzt beobachtetem Scrape.",
+      "type": "table",
+      "gridPos": {
+        "x": 6,
+        "y": 33,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "gratilo_build_info{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 12,
+      "title": "JVM und Prozess",
+      "description": "",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 41,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 13,
+      "title": "JVM Heap Used",
+      "description": "Micrometer- oder Linux-Prozessmessung je aktiver Serviceinstanz.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum by(service) (jvm_memory_used_bytes{environment=~\"${environment:regex}\",service=~\"${service:regex}\",area=\"heap\"})",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "JVM Heap Max",
+      "description": "Micrometer- oder Linux-Prozessmessung je aktiver Serviceinstanz.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 42,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum by(service) (jvm_memory_max_bytes{environment=~\"${environment:regex}\",service=~\"${service:regex}\",area=\"heap\"} >= 0)",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "GC-Pausen je Sekunde",
+      "description": "Micrometer- oder Linux-Prozessmessung je aktiver Serviceinstanz.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum by(service) (rate(jvm_gc_pause_seconds_sum{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}[$__rate_interval]))",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "JVM-Threads",
+      "description": "Micrometer- oder Linux-Prozessmessung je aktiver Serviceinstanz.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 50,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum by(service) (jvm_threads_live_threads{environment=~\"${environment:regex}\",service=~\"${service:regex}\"})",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "title": "Prozess-CPU-Auslastung",
+      "description": "Micrometer- oder Linux-Prozessmessung je aktiver Serviceinstanz.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 58,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "avg by(service) (process_cpu_usage{environment=~\"${environment:regex}\",service=~\"${service:regex}\"})",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Residenter Prozessspeicher",
+      "description": "Micrometer- oder Linux-Prozessmessung je aktiver Serviceinstanz.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 58,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum by(service) (gratilo_process_resident_bytes{environment=~\"${environment:regex}\",service=~\"${service:regex}\"})",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 19,
+      "title": "Beobachtete Dienstneustarts",
+      "description": "Änderungen des Prozess-Startzeitpunkts für dieselbe Scrape-Identität. Neue Instanzadresse kann Neustarts verdecken.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 66,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum by(service) (changes(process_start_time_seconds{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}[$__range]))",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 20,
+      "title": "Hikari und fachliche Laufzeiten",
+      "description": "",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 71,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 21,
+      "title": "Hikari-Verbindungen",
+      "description": "Aktueller Poolbestand.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 72,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "hikaricp_connections{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "Aktive DB-Verbindungen",
+      "description": "Aktuell ausgeliehene Verbindungen.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 72,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "hikaricp_connections_active{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "title": "Wartende DB-Verbindungen",
+      "description": "Threads, die auf eine DB-Verbindung warten.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 80,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "hikaricp_connections_pending{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 24,
+      "title": "DB-Connection-Timeouts",
+      "description": "Im Zeitraum beobachtete Connection-Acquisition-Timeouts.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 80,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum by(service) (increase(hikaricp_connections_timeout_total{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}[$__range]))",
+          "editorMode": "code",
+          "legendFormat": "{{service}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 25,
+      "title": "Checkout-Session-Erstellung",
+      "description": "p95 der instrumentierten Methode oder Scheduler-Ausführung. No-op-Läufe können enthalten sein.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 88,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by (operation,le)(rate(gratilo_operation_duration_seconds_bucket{environment=~\"${environment:regex}\",service=~\"${service:regex}\",operation=~\"checkout_single|checkout_pool\"}[$__rate_interval])))",
+          "editorMode": "code",
+          "legendFormat": "{{operation}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 26,
+      "title": "Stripe-Webhook-Verarbeitung",
+      "description": "p95 der instrumentierten Methode oder Scheduler-Ausführung. No-op-Läufe können enthalten sein.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 88,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by (operation,le)(rate(gratilo_operation_duration_seconds_bucket{environment=~\"${environment:regex}\",service=~\"${service:regex}\",operation=~\"stripe_webhook\"}[$__rate_interval])))",
+          "editorMode": "code",
+          "legendFormat": "{{operation}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 27,
+      "title": "Stripe-Statussynchronisierung",
+      "description": "p95 der instrumentierten Methode oder Scheduler-Ausführung. No-op-Läufe können enthalten sein.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 96,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by (operation,le)(rate(gratilo_operation_duration_seconds_bucket{environment=~\"${environment:regex}\",service=~\"${service:regex}\",operation=~\"stripe_status_sync\"}[$__rate_interval])))",
+          "editorMode": "code",
+          "legendFormat": "{{operation}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 28,
+      "title": "Pool-Settlement-Lauf",
+      "description": "p95 der instrumentierten Methode oder Scheduler-Ausführung. No-op-Läufe können enthalten sein.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 96,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by (operation,le)(rate(gratilo_operation_duration_seconds_bucket{environment=~\"${environment:regex}\",service=~\"${service:regex}\",operation=~\"pool_settlement\"}[$__rate_interval])))",
+          "editorMode": "code",
+          "legendFormat": "{{operation}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 29,
+      "title": "Stripe-Payout-Abgleich",
+      "description": "p95 der instrumentierten Methode oder Scheduler-Ausführung. No-op-Läufe können enthalten sein.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 104,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by (operation,le)(rate(gratilo_operation_duration_seconds_bucket{environment=~\"${environment:regex}\",service=~\"${service:regex}\",operation=~\"payout_reconciliation\"}[$__rate_interval])))",
+          "editorMode": "code",
+          "legendFormat": "{{operation}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 30,
+      "title": "Stripe-Payment-Audit-Lauf",
+      "description": "p95 der instrumentierten Methode oder Scheduler-Ausführung. No-op-Läufe können enthalten sein.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 104,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by (operation,le)(rate(gratilo_operation_duration_seconds_bucket{environment=~\"${environment:regex}\",service=~\"${service:regex}\",operation=~\"payment_audit\"}[$__rate_interval])))",
+          "editorMode": "code",
+          "legendFormat": "{{operation}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 31,
+      "title": "Gebühren-Reconciliation-Lauf",
+      "description": "p95 der instrumentierten Methode oder Scheduler-Ausführung. No-op-Läufe können enthalten sein.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 112,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by (operation,le)(rate(gratilo_operation_duration_seconds_bucket{environment=~\"${environment:regex}\",service=~\"${service:regex}\",operation=~\"fee_reconciliation\"}[$__rate_interval])))",
+          "editorMode": "code",
+          "legendFormat": "{{operation}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ]
+}

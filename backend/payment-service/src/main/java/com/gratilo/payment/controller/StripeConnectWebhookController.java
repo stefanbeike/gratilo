@@ -1,5 +1,7 @@
 package com.gratilo.payment.controller;
 
+import com.gratilo.observability.ObservationEvents;
+
 import com.gratilo.payment.service.*;
 import io.micronaut.context.annotation.Value;
 import io.micronaut.core.annotation.Nullable;
@@ -15,21 +17,30 @@ import java.util.*;
 @Secured(SecurityRule.IS_ANONYMOUS)
 @io.micronaut.scheduling.annotation.ExecuteOn(io.micronaut.scheduling.TaskExecutors.BLOCKING)
 public class StripeConnectWebhookController {
+    @jakarta.inject.Inject ObservationEvents observationEvents;
     private final String secret;
     private final StripeConnectService stripe;
     private final StripeStatusSync sync;
     public StripeConnectWebhookController(@Value("${stripe.connect-webhook-secret:}") String secret, StripeConnectService stripe, StripeStatusSync sync) {
         this.secret=secret; this.stripe=stripe; this.sync=sync;
     }
-    @Post public HttpResponse<?> receive(@Body String payload, @Header("Stripe-Signature") @Nullable String signature) {
-        if (secret.isBlank() || !StripeWebhookSignature.valid(secret, payload, signature)) return HttpResponse.unauthorized();
+    @Post @com.gratilo.observability.ObservedOperation("stripe_webhook")
+    public HttpResponse<?> receive(@Body String payload, @Header("Stripe-Signature") @Nullable String signature) {
+        if (secret.isBlank() || !StripeWebhookSignature.valid(secret, payload, signature)) {
+            ObservationEvents.record(observationEvents, ObservationEvents.Event.WEBHOOK_SIGNATURE_INVALID);
+            return HttpResponse.unauthorized();
+        }
         try {
             var mapper=JsonMapper.createDefault();
             Map<?,?> notification=mapper.readValue(payload, Map.class);
             String id=Objects.toString(notification.get("id"), "");
             if (!id.matches("evt_[A-Za-z0-9_]+")) return HttpResponse.badRequest();
             Map<?,?> event=mapper.readValue(stripe.retrieveEvent(id), Map.class);
-            if (!id.equals(event.get("id")) || !Boolean.FALSE.equals(event.get("livemode"))) return HttpResponse.unauthorized();
+            if (!Boolean.FALSE.equals(event.get("livemode"))) {
+                ObservationEvents.record(observationEvents, ObservationEvents.Event.STRIPE_MODE_MISMATCH);
+                return HttpResponse.unauthorized();
+            }
+            if (!id.equals(event.get("id"))) return HttpResponse.unauthorized();
             if (!Objects.toString(event.get("type"), "").startsWith("v2.core.account")) return HttpResponse.ok();
             if (!(event.get("related_object") instanceof Map<?,?> related)
                     || !(related.get("id") instanceof String account) || !account.matches("acct_[A-Za-z0-9]+")) return HttpResponse.badRequest();

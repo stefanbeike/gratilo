@@ -1,0 +1,22 @@
+# Merge into the chosen existing Gratilo stack to enable private instrumentation.
+x-observability: &observability
+  OBSERVABILITY_ENABLED: "true"
+  OBSERVABILITY_ENVIRONMENT: local
+  OBSERVABILITY_BUILD: ${OBS_BUILD_VERSION:-local}
+  OBSERVABILITY_SCRAPE_TOKEN: ${OBS_SCRAPE_TOKEN:?Run observability/scripts/init-env.py --local}
+  OBSERVABILITY_EVENT_LOG: /var/log/gratilo/events.jsonl
+
+services:
+  user-service:
+    environment: *observability
+    volumes:
+      - user-events:/var/log/gratilo
+  payment-service:
+    environment: *observability
+    volumes:
+      - payment-events:/var/log/gratilo
+volumes:
+  user-events:
+    name: gratilo-observability-local-user-events
+  payment-events:
+    name: gratilo-observability-local-payment-events

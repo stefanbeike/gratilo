@@ -1,4 +1,6 @@
 package com.gratilo.payment.controller;
+
+import com.gratilo.observability.ObservationEvents;
 import com.gratilo.payment.api.*;
 import com.gratilo.payment.service.TipPricing;
 import io.micronaut.http.*;
@@ -11,6 +13,7 @@ import io.micronaut.context.annotation.Value;
 @Controller("/payment-service/tips")
 @io.micronaut.scheduling.annotation.ExecuteOn(io.micronaut.scheduling.TaskExecutors.BLOCKING)
 public class TipController {
+    @jakarta.inject.Inject ObservationEvents observationEvents;
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(TipController.class);
     private final StripeCheckoutService checkoutService;
     private final BigDecimal feePercent;
@@ -53,7 +56,8 @@ public class TipController {
         try { return HttpResponse.ok(checkoutService.checkoutStatus(sessionId)).header("Cache-Control", "no-store"); }
         catch (Exception e) { return HttpResponse.ok(java.util.Map.of("status", "PENDING", "confirmed", false)).header("Cache-Control", "no-store"); }
     }
-    @Post("/{recipientUserId}/checkout") public HttpResponse<?> checkout(UUID recipientUserId, @QueryValue(value = "demo", defaultValue = "false") String demo, @Body @Valid TipPaymentRequest request) {
+    @Post("/{recipientUserId}/checkout") @com.gratilo.observability.ObservedOperation("checkout_request_single")
+    public HttpResponse<?> checkout(UUID recipientUserId, @QueryValue(value = "demo", defaultValue = "false") String demo, @Body @Valid TipPaymentRequest request) {
         if (request.tipAmountMinor() < 100) return HttpResponse.badRequest(new com.gratilo.payment.api.TransactionResponse(null, recipientUserId, 0, "EUR", null, null, null, "Mindesttrinkgeld: 1,00 EUR", "DEMO", null, "card", null, null, null, null, null, "{}"));
         boolean demoRequested = "1".equals(demo) || "true".equalsIgnoreCase(demo);
         if (demoRequested) return HttpResponse.badRequest(java.util.Map.of("message", "Demo-Zahlungen sind deaktiviert."));
@@ -68,6 +72,7 @@ public class TipController {
         } catch (StripeCheckoutService.InvalidCheckoutRequestException invalid) {
             return HttpResponse.badRequest(java.util.Map.of("code","INVALID_CHECKOUT_REQUEST","message",invalid.getMessage()));
         } catch (StripeCheckoutService.CheckoutConflictException conflict) {
+            ObservationEvents.record(observationEvents, ObservationEvents.Event.CHECKOUT_IDEMPOTENCY_CONFLICT);
             return HttpResponse.status(HttpStatus.CONFLICT).body(conflict.response());
         } catch (StripeCheckoutService.QuoteChangedException changed) {
             return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code","QUOTE_CHANGED","message",changed.getMessage()));
@@ -84,7 +89,8 @@ public class TipController {
             return HttpResponse.status(HttpStatus.BAD_GATEWAY).body(java.util.Map.of("message", "Stripe Checkout konnte nicht erstellt werden."));
         }
     }
-    @Post("/pools/{ownerUserId}/checkout") public HttpResponse<?> poolCheckout(UUID ownerUserId, @QueryValue(value = "demo", defaultValue = "false") String demo, @Body @Valid TipPaymentRequest request) {
+    @Post("/pools/{ownerUserId}/checkout") @com.gratilo.observability.ObservedOperation("checkout_request_pool")
+    public HttpResponse<?> poolCheckout(UUID ownerUserId, @QueryValue(value = "demo", defaultValue = "false") String demo, @Body @Valid TipPaymentRequest request) {
         if ("1".equals(demo) || "true".equalsIgnoreCase(demo)) return HttpResponse.badRequest(java.util.Map.of("message", "Demo-Zahlungen sind deaktiviert."));
         try {
             var checkout = poolCheckout.get().create(ownerUserId, request);
@@ -97,6 +103,7 @@ public class TipController {
         } catch (StripeCheckoutService.InvalidCheckoutRequestException invalid) {
             return HttpResponse.badRequest(java.util.Map.of("code","INVALID_CHECKOUT_REQUEST","message",invalid.getMessage()));
         } catch (StripeCheckoutService.CheckoutConflictException conflict) {
+            ObservationEvents.record(observationEvents, ObservationEvents.Event.CHECKOUT_IDEMPOTENCY_CONFLICT);
             return HttpResponse.status(HttpStatus.CONFLICT).body(conflict.response());
         } catch (StripeCheckoutService.QuoteChangedException changed) {
             return HttpResponse.status(HttpStatus.CONFLICT).body(java.util.Map.of("code","QUOTE_CHANGED","message",changed.getMessage()));

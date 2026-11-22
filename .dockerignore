@@ -27,3 +27,6 @@ aws/
 # CI scanner databases must not enter backend build contexts.
 .cache/
 .trivy-cache/
+
+# Keep local observability credentials and generated state out of build contexts.
+.local/

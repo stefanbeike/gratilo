@@ -1,5 +1,7 @@
 package com.gratilo.payment.controller;
 
+import com.gratilo.observability.ObservationEvents;
+
 import com.gratilo.payment.domain.TransactionStatus;
 import com.gratilo.payment.repository.TransactionRepository;
 import io.micronaut.context.annotation.Value;
@@ -18,6 +20,7 @@ import javax.crypto.spec.SecretKeySpec;
 @Controller("/payment-service/webhooks/stripe")
 @io.micronaut.scheduling.annotation.ExecuteOn(io.micronaut.scheduling.TaskExecutors.BLOCKING)
 public class StripeWebhookController {
+    @jakarta.inject.Inject ObservationEvents observationEvents;
     @jakarta.inject.Inject @Nullable
     com.gratilo.payment.service.TipNotificationOutbox tipNotifications;
     @jakarta.inject.Inject @Nullable
@@ -38,8 +41,12 @@ public class StripeWebhookController {
 
     @Post
     @Transactional
+    @com.gratilo.observability.ObservedOperation("stripe_webhook")
     public HttpResponse<?> receive(@Body String payload, @Header("Stripe-Signature") @Nullable String signature) {
-        if (secret.isBlank() || !com.gratilo.payment.service.StripeWebhookSignature.valid(secret, payload, signature)) return HttpResponse.unauthorized();
+        if (secret.isBlank() || !com.gratilo.payment.service.StripeWebhookSignature.valid(secret, payload, signature)) {
+            ObservationEvents.record(observationEvents, ObservationEvents.Event.WEBHOOK_SIGNATURE_INVALID);
+            return HttpResponse.unauthorized();
+        }
         return processVerified(payload,false);
     }
 
@@ -48,7 +55,10 @@ public class StripeWebhookController {
         java.util.Map<?, ?> body;
         try {
             body = jsonMapper.readValue(payload, java.util.Map.class);
-            if (testOnly && !Boolean.FALSE.equals(body.get("livemode"))) return HttpResponse.unauthorized();
+            if (testOnly && !Boolean.FALSE.equals(body.get("livemode"))) {
+                ObservationEvents.record(observationEvents, ObservationEvents.Event.STRIPE_MODE_MISMATCH);
+                return HttpResponse.unauthorized();
+            }
         } catch (java.io.IOException exception) { return HttpResponse.badRequest(); }
         try { return processPaymentEvent(body,directEndpoint); }
         finally {

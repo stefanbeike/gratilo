@@ -1,0 +1,1245 @@
+{
+  "uid": "gratilo-05-growth",
+  "title": "05 · Registrierung, Aktivierung und Wachstum",
+  "description": "Registrierungs- und Zahlungsdaten mit neuer aggregierter API-Telemetrie.",
+  "tags": [
+    "gratilo",
+    "observability"
+  ],
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "style": "dark",
+  "timezone": "utc",
+  "refresh": "1m",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "links": [
+    {
+      "title": "Gratilo-Dashboards",
+      "type": "dashboards",
+      "asDropdown": true,
+      "tags": [
+        "gratilo"
+      ],
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Umgebung",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "gratilo-prometheus"
+        },
+        "definition": "label_values(up{job=\"prometheus\"}, environment)",
+        "query": {
+          "query": "label_values(up{job=\"prometheus\"}, environment)",
+          "refId": "scope"
+        },
+        "refresh": 1,
+        "current": {
+          "text": "demo",
+          "value": "demo"
+        },
+        "options": []
+      },
+      {
+        "name": "stripe_mode",
+        "label": "Stripe-Modus",
+        "type": "custom",
+        "query": "test,live",
+        "includeAll": false,
+        "allValue": null,
+        "current": {
+          "text": "test",
+          "value": "test"
+        },
+        "options": [
+          {
+            "text": "test",
+            "value": "test",
+            "selected": true
+          },
+          {
+            "text": "live",
+            "value": "live",
+            "selected": false
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Registrierung und Verifikation",
+      "description": "",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "title": "Registrierungen je Tag",
+      "description": "Erstellungszeit neuer Konten in UTC.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT \"time\", registrations AS \"Wert\" FROM gratilo_monitor.registrations(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), 'day') WHERE ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY \"time\"",
+          "rawQuery": true,
+          "format": "time_series",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Registrierungen je Woche",
+      "description": "Erstellungszeit neuer Konten in UTC.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT \"time\", registrations AS \"Wert\" FROM gratilo_monitor.registrations(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), 'week') WHERE ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY \"time\"",
+          "rawQuery": true,
+          "format": "time_series",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Registrierungen je Monat",
+      "description": "Erstellungszeit neuer Konten in UTC.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT \"time\", registrations AS \"Wert\" FROM gratilo_monitor.registrations(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), 'month') WHERE ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY \"time\"",
+          "rawQuery": true,
+          "format": "time_series",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "E-Mail-verifizierte Konten",
+      "description": "Aktueller Bestand bestätigter und nicht gelöschter Nutzer. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'verified_users' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Registrierungs-Erfolgsquote",
+      "description": "HTTP 2xx geteilt durch alle beobachteten Aufrufe der Route.",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 9,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "((sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/users/register\",status_class=\"2xx\"}[$__range]))) or 0 * (sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/users/register\"}[$__range])))) / (sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/users/register\"}[$__range])))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Login-Erfolgsquote",
+      "description": "HTTP 2xx geteilt durch alle beobachteten Aufrufe der Route.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "((sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/auth/login\",status_class=\"2xx\"}[$__range]))) or 0 * (sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/auth/login\"}[$__range])))) / (sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/auth/login\"}[$__range])))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Registrierungsfehler",
+      "description": "HTTP-Antworten der angegebenen Route und Statusklasse im Zeitraum. Wiederholte Aufrufe können enthalten sein.",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 17,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=~\"/user-service/users/register\",status_class=~\"4xx|5xx\"}[$__range]))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Login-Authentifizierungsfehler",
+      "description": "HTTP-Antworten der angegebenen Route und Statusklasse im Zeitraum. Wiederholte Aufrufe können enthalten sein.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=~\"/user-service/auth/login\",status_class=~\"4xx\"}[$__range]))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Erfolgreiche Onboarding-Startantworten",
+      "description": "HTTP-Antworten der angegebenen Route und Statusklasse im Zeitraum. Wiederholte Aufrufe können enthalten sein.",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 17,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=~\".*/onboarding/start\",status_class=~\"2xx\"}[$__range]))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Erfolgreiche E-Mail-Verifikationsantworten",
+      "description": "HTTP-Antworten der angegebenen Route und Statusklasse im Zeitraum. Wiederholte Aufrufe können enthalten sein.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=~\"/user-service/auth/verify\",status_class=~\"2xx\"}[$__range]))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Account-Readiness und Zahlungseingänge",
+      "description": "",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 13,
+      "title": "Stripe-Onboarding abgeschlossen",
+      "description": "Aktueller Onboarding-Status COMPLETE. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'onboarded' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Connected Accounts mit Handlungsbedarf",
+      "description": "Gespeicherter Status ACTION_REQUIRED. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 28,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'needs_action' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Connected Accounts in Prüfung",
+      "description": "Gespeicherter Status UNDER_REVIEW. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'under_review' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "title": "Geprüfte Accounts mit eingeschränkten Auszahlungen",
+      "description": "Payouts disabled bei vorhandenem Prüfzeitpunkt. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 28,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'payout_restricted' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 17,
+      "title": "Vollständig aktivierte Connected Accounts",
+      "description": "Onboarding COMPLETE, charges, transfers und payouts enabled. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'fully_ready' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Neue Pool-Administratoren",
+      "description": "Eindeutige Besitzer, deren erster gespeicherter Pool im Zeitraum entstand. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 33,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'admins_new' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 19,
+      "title": "Aktive Pool-Mitglieder",
+      "description": "Eindeutige Nutzer mit aktiver Mitgliedschaft in einem aktiven Pool. Nutzer und Pools gelten für die Umgebung. Der Stripe-Modus gilt für Connect.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 33,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.users(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live')) WHERE metric = 'members' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 20,
+      "title": "Empfänger mit erstem bestätigten Zahlungseingang",
+      "description": "Erste Single-Buchung oder Audit-belegter Pool-Empfängertransfer je Nutzer.",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 33,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'ALL') WHERE metric = 'first_receipt' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "title": "Empfänger mit wiederholten Zahlungseingängen",
+      "description": "Mindestens zwei belegte Eingänge je Empfänger im Zeitraum.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT value AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'ALL') WHERE metric = 'repeat_receipts' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": "/^Wert$/"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "title": "Datenstand",
+      "description": "Grenzen der Messung.",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 24,
+        "h": 5
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Zeit bis Aktivierung, MAU, WAU, Retention und nutzerbezogene Conversion: unbekannt.** API-Zähler messen aggregierte Antworten ohne Personenbezug. Historische Aktivierungszeitpunkte fehlen."
+      }
+    }
+  ]
+}

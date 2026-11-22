@@ -1,0 +1,1153 @@
+{
+  "apiVersion": 1,
+  "groups": [
+    {
+      "orgId": 1,
+      "name": "Gratilo Betrieb",
+      "folder": "Gratilo Observability",
+      "interval": "30s",
+      "rules": [
+        {
+          "uid": "ServiceUnreachable",
+          "title": "Dienst nicht erreichbar",
+          "condition": "B",
+          "for": "2m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "Dienst nicht erreichbar",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "critical",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "(probe_success{job=\"blackbox\"} == bool 0)",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "HighHttp5xx",
+          "title": "HTTP-5xx-Quote erhöht",
+          "condition": "B",
+          "for": "5m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "HTTP-5xx-Quote erhöht",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "critical",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "((sum by (service) (increase(gratilo_http_server_requests_seconds_count{job=\"backend\",endpoint_template!~\"/health.*|/api/status\",status_class=\"5xx\"}[5m])) / sum by (service) (increase(gratilo_http_server_requests_seconds_count{job=\"backend\",endpoint_template!~\"/health.*|/api/status\"}[5m]))) > bool 0.05) and on (service) (sum by (service) (increase(gratilo_http_server_requests_seconds_count{job=\"backend\",endpoint_template!~\"/health.*|/api/status\"}[5m])) >= 50)",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "HighP95",
+          "title": "HTTP-p95 erhöht",
+          "condition": "B",
+          "for": "5m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "HTTP-p95 erhöht",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "warning",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "(histogram_quantile(0.95,sum by (service,le)(rate(gratilo_http_server_requests_seconds_bucket{job=\"backend\",endpoint_template!~\"/health.*|/api/status\"}[5m]))) > bool 1) and on(service) (sum by(service)(increase(gratilo_http_server_requests_seconds_count{job=\"backend\",endpoint_template!~\"/health.*|/api/status\"}[5m])) >= 50)",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "PostgresUnavailable",
+          "title": "PostgreSQL nicht erreichbar",
+          "condition": "B",
+          "for": "2m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "PostgreSQL nicht erreichbar",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "critical",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "(pg_up{job=\"postgres\"} == bool 0) or absent(pg_up{job=\"postgres\"})",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "ConnectionPoolPressure",
+          "title": "Datenbank-Pool erschöpft",
+          "condition": "B",
+          "for": "3m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "Datenbank-Pool erschöpft",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "critical",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "(hikaricp_connections_pending > bool 0) * (hikaricp_connections_active >= bool hikaricp_connections_max)",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "WebhookFailures",
+          "title": "Webhook-Verarbeitungsfehler",
+          "condition": "B",
+          "for": "3m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "Webhook-Verarbeitungsfehler",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "critical",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "sum(increase(gratilo_operation_duration_seconds_count{job=\"backend\",operation=\"stripe_webhook\",outcome=~\"5xx|exception\"}[5m])) >= bool 5",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "AuditPastDue",
+          "title": "Stripe-Reconciliation überfällig",
+          "condition": "B",
+          "for": "5m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "Stripe-Reconciliation überfällig",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "warning",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "gratilo_postgres_audit_overdue > bool 0",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "AuditEvidenceConflicts",
+          "title": "Kritische Audit-Konflikte",
+          "condition": "B",
+          "for": "3m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "Kritische Audit-Konflikte",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "critical",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "gratilo_postgres_audit_review > bool 0",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "AuditEvidenceConflictIncrease",
+          "title": "Neue Konflikte in Audit-Nachweisen",
+          "condition": "B",
+          "for": "2m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "Neue Konflikte in Audit-Nachweisen",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "warning",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "sum(increase(gratilo_observation_events_total{job=\"backend\",event=\"audit_review_required\"}[15m])) >= bool 3",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "PoolTransfersOverdue",
+          "title": "Freigegebene Pool-Transfers überfällig",
+          "condition": "B",
+          "for": "10m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "Freigegebene Pool-Transfers überfällig",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "warning",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "gratilo_postgres_pool_overdue > bool 0",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "StripePayoutFailed",
+          "title": "Stripe-Testauszahlung fehlgeschlagen",
+          "condition": "B",
+          "for": "3m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "Stripe-Testauszahlung fehlgeschlagen",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "warning",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "gratilo_postgres_payout_failed > bool 0",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "WebhookSignatureSpike",
+          "title": "Anstieg ungültiger Webhook-Signaturen",
+          "condition": "B",
+          "for": "2m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "Anstieg ungültiger Webhook-Signaturen",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "warning",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "sum(increase(gratilo_observation_events_total{job=\"backend\",event=\"webhook_signature_invalid\"}[5m])) >= bool 10",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "ScrapeTargetUnavailable",
+          "title": "Monitoring-Ziel nicht erreichbar",
+          "condition": "B",
+          "for": "3m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "Monitoring-Ziel nicht erreichbar",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "critical",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "(up{job=~\"backend|postgres|blackbox|pipeline|prometheus\"} == bool 0) or absent(up{job=\"backend\",service=\"payment-service\"}) or absent(up{job=\"backend\",service=\"user-service\"})",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "MonitoringDataStale",
+          "title": "Business-Datenquelle liefert keine frischen Samples",
+          "condition": "B",
+          "for": "5m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "Business-Datenquelle liefert keine frischen Samples",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "critical",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "(pg_exporter_last_scrape_error{job=\"postgres\"} == bool 1) or absent_over_time(gratilo_postgres_audit_overdue[2m])",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "uid": "StructuredLogWriteError",
+          "title": "Strukturierte Ereignisse nicht geschrieben",
+          "condition": "B",
+          "for": "3m",
+          "keepFiringFor": "2m",
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "annotations": {
+            "summary": "Strukturierte Ereignisse nicht geschrieben",
+            "__dashboardUid__": "gratilo-10-operations",
+            "__panelId__": "2"
+          },
+          "labels": {
+            "severity": "warning",
+            "team": "gratilo",
+            "stack": "observability"
+          },
+          "isPaused": false,
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "gratilo-prometheus",
+              "relativeTimeRange": {
+                "from": 300,
+                "to": 0
+              },
+              "model": {
+                "expr": "sum by(service)(increase(gratilo_observation_log_failures_total[5m])) > bool 0",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "A",
+                "refId": "B",
+                "type": "threshold",
+                "conditions": [
+                  {
+                    "evaluator": {
+                      "params": [
+                        0.5
+                      ],
+                      "type": "gt"
+                    },
+                    "operator": {
+                      "type": "and"
+                    },
+                    "query": {
+                      "params": [
+                        "B"
+                      ]
+                    },
+                    "reducer": {
+                      "type": "last",
+                      "params": []
+                    },
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

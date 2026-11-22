@@ -58,3 +58,7 @@ __pycache__/
 
 frontend/playwright-report/
 frontend/test-results/
+
+# Local observability credentials
+.env.observability-*
+/.local/observability/

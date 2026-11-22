@@ -1,4 +1,6 @@
 package com.gratilo.payment.service;
+
+import com.gratilo.observability.ObservationEvents;
 import io.micronaut.context.annotation.Value;
 import jakarta.inject.Singleton;
 import java.net.URI;
@@ -9,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
 @Singleton
 public class StripeConnectService {
+    @jakarta.inject.Inject ObservationEvents observationEvents;
     public static final String STABLE_VERSION = "2026-09-30.endive";
     public static final String STRIPE_PRICING_VERSION = "2026-06-24.preview";
     private final boolean stripePricingEnabled;
@@ -136,7 +139,7 @@ public class StripeConnectService {
     }
     /** Test seam: all tests replace this transport, never contact Stripe. */
     protected String request(HttpRequest request) throws Exception {
-        var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        var response = ObservationEvents.send(observationEvents, "stripe", request);
         if (response.statusCode() >= 300) {
             long retryAfter=response.headers().firstValue("Retry-After").flatMap(value->{try{return java.util.Optional.of(Math.max(0,Long.parseLong(value))*1000L);}catch(NumberFormatException ignored){return java.util.Optional.empty();}}).orElse(0L);
             throw new StripeApiException(response.statusCode(),retryAfter,response.headers().firstValue("Request-Id").orElse(""));

@@ -16,7 +16,8 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install --no-install-recommends -y curl ca-certificates libssl3 apt libapt-pkg6.0 \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --create-home --uid 1001 appuser
+    && useradd --create-home --uid 1001 appuser \
+    && install -d -o appuser -g appuser /var/log/gratilo
 
 ARG INCLUDE_RDS_CA=true
 RUN if [ "$INCLUDE_RDS_CA" = "true" ]; then curl --fail --silent --show-error --location \

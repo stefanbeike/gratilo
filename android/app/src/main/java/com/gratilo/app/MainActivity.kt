@@ -25,7 +25,13 @@ class MainActivity: ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         incoming.value = intent.dataString
-        setContent { GratiloTheme { GratiloApp(model, incoming) { incoming.value = null } } }
+        setContent {
+            GratiloTheme {
+                GratiloLaunch {
+                    GratiloApp(model, incoming) { incoming.value = null }
+                }
+            }
+        }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); incoming.value = intent.dataString }
 }

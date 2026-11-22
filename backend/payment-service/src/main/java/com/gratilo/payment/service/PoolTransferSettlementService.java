@@ -1,5 +1,7 @@
 package com.gratilo.payment.service;
 
+import com.gratilo.observability.ObservationEvents;
+
 import com.gratilo.payment.domain.*;
 import com.gratilo.payment.repository.*;
 import io.micronaut.context.annotation.Value;
@@ -19,6 +21,7 @@ import java.util.*;
 /** Settles frozen, approved allocations from their confirmed source charge (never unbacked balance transfers). */
 @Singleton
 public class PoolTransferSettlementService {
+    @jakarta.inject.Inject ObservationEvents observationEvents;
     private static final Logger LOG = LoggerFactory.getLogger(PoolTransferSettlementService.class);
     @Inject @io.micronaut.core.annotation.Nullable StripePaymentAuditor paymentAuditor;
     private final PoolTransferRepository transfers;
@@ -41,6 +44,7 @@ public class PoolTransferSettlementService {
     }
 
     @Scheduled(fixedDelay = "PT60S")
+    @com.gratilo.observability.ObservedOperation("pool_settlement")
     public void settle() {
         if (!enabled || secret.isBlank()) return;
         var pending = new LinkedHashMap<UUID, PoolTransferEntity>();
@@ -52,7 +56,7 @@ public class PoolTransferSettlementService {
                 else lock.execute(row.getId(), this::process);
             } catch (Exception exception) {
                 // A database failure must roll back. A later pass reconciles any remote success.
-                LOG.warn("Pool settlement transaction failed allocation={} category={}", row.getId(), exception.getClass().getSimpleName());
+                LOG.warn("Pool settlement transaction failed category={}", exception.getClass().getSimpleName());
             }
         }
     }
@@ -111,6 +115,7 @@ public class PoolTransferSettlementService {
             } else if (!recipientReady(allocation)) {
                 record(allocation, "RECIPIENT_NOT_READY"); return;
             }
+            if (allocation.getFirstAttemptAt() != null) ObservationEvents.record(observationEvents, ObservationEvents.Event.TRANSFER_RETRY);
             allocation.setAttemptedAmountMinor(amount);
             if (allocation.getFirstAttemptAt() == null) allocation.setFirstAttemptAt(OffsetDateTime.now());
             record(allocation, "TRANSFER_SUBMITTING");
@@ -287,8 +292,7 @@ public class PoolTransferSettlementService {
 
     private void record(PoolTransferEntity allocation, String reason) {
         if (!Objects.equals(allocation.getFailureCode(), reason))
-            LOG.info("Pool settlement state allocation={} transaction={} status={} reason={} availableAt={}",
-                    allocation.getId(), allocation.getTransactionId(), allocation.getStatus(), reason, allocation.getFundsAvailableAt());
+            LOG.info("Pool settlement state status={}", allocation.getStatus());
         allocation.setFailureCode(reason); allocation.setLastAttemptAt(OffsetDateTime.now()); allocation.setUpdatedAt(OffsetDateTime.now());
         transfers.update(allocation);
     }
@@ -305,7 +309,7 @@ public class PoolTransferSettlementService {
     }
 
     protected HttpResponse<String> send(HttpRequest request) throws Exception {
-        return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        return ObservationEvents.send(observationEvents, "stripe", request);
     }
 
     private static long number(Object value) { return value instanceof Number n ? n.longValue() : 0; }

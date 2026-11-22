@@ -1,5 +1,7 @@
 package com.gratilo.payment.service;
 
+import com.gratilo.observability.ObservationEvents;
+
 import com.gratilo.payment.domain.*;
 import com.gratilo.payment.repository.ConnectedAccountRepository;
 import io.micronaut.context.annotation.Value;
@@ -15,6 +17,7 @@ import java.util.*;
 @Singleton
 @io.micronaut.context.annotation.Requires(beans=PayoutStore.class)
 public class StripePayoutService {
+    @jakarta.inject.Inject ObservationEvents observationEvents;
     private final PayoutStore store;
     private final ConnectedAccountRepository accounts;
     private final StripeBalanceService balances;
@@ -94,6 +97,7 @@ public class StripePayoutService {
         }catch(Exception persistenceFailure){throw new IllegalStateException("Auszahlung wird abgeglichen. Bitte keine neue Auszahlung anfordern.");}
     }
     public List<TransactionEntity> history(UUID user){return store.history(user);}
+    @com.gratilo.observability.ObservedOperation("payout_reconciliation")
     public TransactionEntity reconcile(UUID user,UUID id)throws Exception {
         var tx=store.own(user,id);var meta=PayoutState.metadata(tx);String account=Objects.toString(meta.get("stripeAccountId"),"");
         if(Boolean.TRUE.equals(meta.get("simulation"))){
@@ -126,15 +130,17 @@ public class StripePayoutService {
             account=accounts.findByUserId(user).map(ConnectedAccountEntity::getStripeAccountId).orElse("");
             var result=setup.inspect(user,true).result();
             setupFailures.remove(account);
-            LOG.info("event=payout_setup userId={} status={} code={} schedule={}",user,result.status(),result.code(),result.schedule());
+            LOG.info("event=payout_setup status={}",result.status());
             return result;
         } catch(StripeRejected rejected){
-            LOG.warn("event=payout_setup_rejected userId={} httpStatus={} code={} requestId={}",user,rejected.status,rejected.code,rejected.requestId);
+            ObservationEvents.record(observationEvents, ObservationEvents.Event.PAYOUT_SETUP_FAILURE);
+            LOG.warn("event=payout_setup_rejected httpStatus={}",rejected.status);
             var result=new StripePayoutSetup.Result("STRIPE_REJECTED",false,simulation,"",rejected.code,rejected.getMessage(),rejected.requestId,OffsetDateTime.now());
             if(account!=null)setupFailures.put(account,result);return result;
         } catch(Exception unavailable){
+            ObservationEvents.record(observationEvents, ObservationEvents.Event.PAYOUT_SETUP_FAILURE);
             String code=unavailable instanceof IllegalStateException?"ACCOUNT_NOT_READY":"STRIPE_UNAVAILABLE";
-            LOG.warn("event=payout_setup_unavailable userId={} code={}",user,code);
+            LOG.warn("event=payout_setup_unavailable category={}",code);
             return new StripePayoutSetup.Result("UNAVAILABLE",false,simulation,"",code,"Die Stripe-Auszahlungseinrichtung konnte nicht bestätigt werden. Bitte den Status erneut prüfen.","",OffsetDateTime.now());
         }
     }
@@ -145,7 +151,7 @@ public class StripePayoutService {
     }
     protected Map<?,?> get(String path,String account)throws Exception{return request(path,null,account,null);}
     protected Map<?,?> request(String path,String form,String account,String idempotency)throws Exception {
-        var response=HttpClient.newHttpClient().send(httpRequest(path,form,account,idempotency),HttpResponse.BodyHandlers.ofString());
+        var response=ObservationEvents.send(observationEvents, "stripe", httpRequest(path,form,account,idempotency));
         if(response.statusCode()>=400&&response.statusCode()<500&&response.statusCode()!=409&&response.statusCode()!=429){
             Map<?,?> body;
             try{body=JsonMapper.createDefault().readValue(response.body(),Map.class);}catch(Exception malformed){body=Map.of();}

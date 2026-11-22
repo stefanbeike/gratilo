@@ -12,7 +12,21 @@ frontend:
 notifications:
   tip-payments-enabled: ${TIP_PAYMENT_EMAILS_ENABLED:false}
 
+observability:
+  enabled: ${OBSERVABILITY_ENABLED:false}
+  environment: ${OBSERVABILITY_ENVIRONMENT:local}
+  build: ${OBSERVABILITY_BUILD:unknown}
+  scrape-token: ${OBSERVABILITY_SCRAPE_TOKEN:}
+  event-log: ${OBSERVABILITY_EVENT_LOG:}
+
 micronaut:
+  metrics:
+    enabled: ${OBSERVABILITY_ENABLED:false}
+    binders:
+      web:
+        enabled: false
+      jdbc:
+        enabled: true
   application:
     name: user-service
   server:
@@ -57,6 +71,8 @@ micronaut:
               secret: ${JWT_SECRET:local-dev-secret-key-please-change-me-1234567890}
 
 endpoints:
+  prometheus:
+    enabled: false
   health:
     enabled: true
     sensitive: false

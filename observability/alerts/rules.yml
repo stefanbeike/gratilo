@@ -1,0 +1,189 @@
+{
+  "groups": [
+    {
+      "name": "gratilo-observability-state",
+      "rules": [
+        {
+          "alert": "ServiceUnreachable",
+          "expr": "((probe_success{job=\"blackbox\"} == bool 0)) == 1",
+          "for": "2m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Dienst nicht erreichbar"
+          }
+        },
+        {
+          "alert": "HighHttp5xx",
+          "expr": "(((sum by (service) (increase(gratilo_http_server_requests_seconds_count{job=\"backend\",endpoint_template!~\"/health.*|/api/status\",status_class=\"5xx\"}[5m])) / sum by (service) (increase(gratilo_http_server_requests_seconds_count{job=\"backend\",endpoint_template!~\"/health.*|/api/status\"}[5m]))) > bool 0.05) and on (service) (sum by (service) (increase(gratilo_http_server_requests_seconds_count{job=\"backend\",endpoint_template!~\"/health.*|/api/status\"}[5m])) >= 50)) == 1",
+          "for": "5m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "HTTP-5xx-Quote erhöht"
+          }
+        },
+        {
+          "alert": "HighP95",
+          "expr": "((histogram_quantile(0.95,sum by (service,le)(rate(gratilo_http_server_requests_seconds_bucket{job=\"backend\",endpoint_template!~\"/health.*|/api/status\"}[5m]))) > bool 1) and on(service) (sum by(service)(increase(gratilo_http_server_requests_seconds_count{job=\"backend\",endpoint_template!~\"/health.*|/api/status\"}[5m])) >= 50)) == 1",
+          "for": "5m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "HTTP-p95 erhöht"
+          }
+        },
+        {
+          "alert": "PostgresUnavailable",
+          "expr": "((pg_up{job=\"postgres\"} == bool 0) or absent(pg_up{job=\"postgres\"})) == 1",
+          "for": "2m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "PostgreSQL nicht erreichbar"
+          }
+        },
+        {
+          "alert": "ConnectionPoolPressure",
+          "expr": "((hikaricp_connections_pending > bool 0) * (hikaricp_connections_active >= bool hikaricp_connections_max)) == 1",
+          "for": "3m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Datenbank-Pool erschöpft"
+          }
+        },
+        {
+          "alert": "WebhookFailures",
+          "expr": "(sum(increase(gratilo_operation_duration_seconds_count{job=\"backend\",operation=\"stripe_webhook\",outcome=~\"5xx|exception\"}[5m])) >= bool 5) == 1",
+          "for": "3m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Webhook-Verarbeitungsfehler"
+          }
+        },
+        {
+          "alert": "AuditPastDue",
+          "expr": "(gratilo_postgres_audit_overdue > bool 0) == 1",
+          "for": "5m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Stripe-Reconciliation überfällig"
+          }
+        },
+        {
+          "alert": "AuditEvidenceConflicts",
+          "expr": "(gratilo_postgres_audit_review > bool 0) == 1",
+          "for": "3m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Kritische Audit-Konflikte"
+          }
+        },
+        {
+          "alert": "AuditEvidenceConflictIncrease",
+          "expr": "(sum(increase(gratilo_observation_events_total{job=\"backend\",event=\"audit_review_required\"}[15m])) >= bool 3) == 1",
+          "for": "2m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Neue Konflikte in Audit-Nachweisen"
+          }
+        },
+        {
+          "alert": "PoolTransfersOverdue",
+          "expr": "(gratilo_postgres_pool_overdue > bool 0) == 1",
+          "for": "10m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Freigegebene Pool-Transfers überfällig"
+          }
+        },
+        {
+          "alert": "StripePayoutFailed",
+          "expr": "(gratilo_postgres_payout_failed > bool 0) == 1",
+          "for": "3m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Stripe-Testauszahlung fehlgeschlagen"
+          }
+        },
+        {
+          "alert": "WebhookSignatureSpike",
+          "expr": "(sum(increase(gratilo_observation_events_total{job=\"backend\",event=\"webhook_signature_invalid\"}[5m])) >= bool 10) == 1",
+          "for": "2m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Anstieg ungültiger Webhook-Signaturen"
+          }
+        },
+        {
+          "alert": "ScrapeTargetUnavailable",
+          "expr": "((up{job=~\"backend|postgres|blackbox|pipeline|prometheus\"} == bool 0) or absent(up{job=\"backend\",service=\"payment-service\"}) or absent(up{job=\"backend\",service=\"user-service\"})) == 1",
+          "for": "3m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Monitoring-Ziel nicht erreichbar"
+          }
+        },
+        {
+          "alert": "MonitoringDataStale",
+          "expr": "((pg_exporter_last_scrape_error{job=\"postgres\"} == bool 1) or absent_over_time(gratilo_postgres_audit_overdue[2m])) == 1",
+          "for": "5m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "critical"
+          },
+          "annotations": {
+            "summary": "Business-Datenquelle liefert keine frischen Samples"
+          }
+        },
+        {
+          "alert": "StructuredLogWriteError",
+          "expr": "(sum by(service)(increase(gratilo_observation_log_failures_total[5m])) > bool 0) == 1",
+          "for": "3m",
+          "keep_firing_for": "2m",
+          "labels": {
+            "severity": "warning"
+          },
+          "annotations": {
+            "summary": "Strukturierte Ereignisse nicht geschrieben"
+          }
+        }
+      ]
+    }
+  ]
+}

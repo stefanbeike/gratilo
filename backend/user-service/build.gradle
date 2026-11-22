@@ -25,6 +25,8 @@ dependencies {
     implementation 'io.micronaut.sql:micronaut-jdbc-hikari'
     implementation 'io.micronaut.liquibase:micronaut-liquibase'
     implementation 'io.micronaut:micronaut-management'
+    implementation 'io.micronaut.micrometer:micronaut-micrometer-registry-prometheus'
+    implementation 'io.projectreactor:reactor-core'
     implementation 'org.mindrot:jbcrypt:0.4'
     implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
 
@@ -45,6 +47,8 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+sourceSets.main.java.srcDir '../observability/src/main/java'
+
 application {
     mainClass = 'com.gratilo.user.Application'
 }
@@ -60,7 +64,7 @@ micronaut {
     testRuntime 'junit5'
     processing {
         incremental true
-        annotations 'com.gratilo.user.*', 'io.micronaut.liquibase.*'
+        annotations 'com.gratilo.user.*', 'com.gratilo.observability.*', 'io.micronaut.liquibase.*'
     }
 }
 

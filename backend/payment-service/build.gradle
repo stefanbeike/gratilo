@@ -23,6 +23,8 @@ dependencies {
     implementation 'io.micronaut.sql:micronaut-jdbc-hikari'
     implementation 'io.micronaut.liquibase:micronaut-liquibase'
     implementation 'io.micronaut:micronaut-management'
+    implementation 'io.micronaut.micrometer:micronaut-micrometer-registry-prometheus'
+    implementation 'io.projectreactor:reactor-core'
     runtimeOnly 'ch.qos.logback:logback-classic'
     runtimeOnly 'org.yaml:snakeyaml'
     runtimeOnly 'org.postgresql:postgresql'
@@ -34,6 +36,8 @@ dependencies {
     testImplementation 'org.mockito:mockito-junit-jupiter:5.14.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
+
+sourceSets.main.java.srcDir '../observability/src/main/java'
 
 application {
     mainClass = 'com.gratilo.payment.Application'
@@ -64,7 +68,7 @@ micronaut {
     testRuntime 'junit5'
     processing {
         incremental true
-        annotations 'com.gratilo.payment.*', 'io.micronaut.liquibase.*'
+        annotations 'com.gratilo.payment.*', 'com.gratilo.observability.*', 'io.micronaut.liquibase.*'
     }
 }
 

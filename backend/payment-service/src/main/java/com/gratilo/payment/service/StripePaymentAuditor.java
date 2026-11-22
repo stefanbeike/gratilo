@@ -1,5 +1,7 @@
 package com.gratilo.payment.service;
 
+import com.gratilo.observability.ObservationEvents;
+
 import com.gratilo.payment.domain.*;
 import com.gratilo.payment.api.TipQuote;
 import com.gratilo.payment.repository.PoolTransferRepository;
@@ -11,6 +13,7 @@ import java.util.*;
 
 @Singleton @Requires(beans=StripePaymentAuditStore.class)
 public class StripePaymentAuditor {
+    @jakarta.inject.Inject ObservationEvents observationEvents;
     private final StripePaymentAuditStore store;
     private final StripePaymentAuditClient client;
     private final PoolTransferRepository allocations;
@@ -27,9 +30,10 @@ public class StripePaymentAuditor {
     }
     /** Called after an existing settlement has already proved/remembered a transfer. No financial side effects. */
     public void transferObserved(UUID id,String transferId){store.locked(id,a->{wake(a);store.event(id,"local-transfer:"+transferId,"TRANSFER_OBSERVED",StripePaymentAuditJson.write(Map.of("transferId",transferId)));store.snapshot(a,List.of(),List.of());});}
-    @Scheduled(fixedDelay="PT60S") public void reconcileDue(){
+    @Scheduled(fixedDelay="PT60S") @com.gratilo.observability.ObservedOperation("payment_audit")
+    public void reconcileDue(){
         if(!client.configured())return;
-        for(var id:store.due(client.livemode(),100))try{reconcile(id);}catch(Exception failure){org.slf4j.LoggerFactory.getLogger(getClass()).warn("Stripe payment audit database retry payment={}",id);}
+        for(var id:store.due(client.livemode(),100))try{reconcile(id);}catch(Exception failure){ObservationEvents.record(observationEvents, ObservationEvents.Event.RECONCILIATION_FAILURE);org.slf4j.LoggerFactory.getLogger(getClass()).warn("Stripe payment audit database retry");}
     }
     public void reconcile(UUID id){
         // The store acquires/refreshes this audit row under a DB write lock for the entire read/persist cycle.
@@ -50,7 +54,9 @@ public class StripePaymentAuditor {
                 store.snapshot(a,result.transfers(),result.fees());
             }catch(Exception e){
                 String error=(e instanceof StripePaymentAuditReader.EvidenceProblem||e instanceof ArithmeticException)?"STRIPE_AUDIT_EVIDENCE_MISMATCH":"STRIPE_AUDIT_RETRY_REQUIRED";
-                a.setStatus((e instanceof StripePaymentAuditReader.EvidenceProblem||e instanceof ArithmeticException)?"REVIEW_REQUIRED":"RETRY_REQUIRED");a.setLastError(error);a.setCheckedAt(OffsetDateTime.now());a.setNextCheckAt(OffsetDateTime.now().plusMinutes(1));
+                a.setStatus((e instanceof StripePaymentAuditReader.EvidenceProblem||e instanceof ArithmeticException)?"REVIEW_REQUIRED":"RETRY_REQUIRED");
+                ObservationEvents.record(observationEvents, ObservationEvents.Event.RECONCILIATION_FAILURE);
+                if ("REVIEW_REQUIRED".equals(a.getStatus())) ObservationEvents.record(observationEvents, ObservationEvents.Event.AUDIT_REVIEW_REQUIRED);a.setLastError(error);a.setCheckedAt(OffsetDateTime.now());a.setNextCheckAt(OffsetDateTime.now().plusMinutes(1));
                 store.event(id,"failure:"+a.getRevision()+":"+error,"AUDIT_ERROR",StripePaymentAuditJson.write(Map.of("code",error)));store.snapshot(a,List.of(),List.of());
             }
         });
@@ -91,6 +97,7 @@ public class StripePaymentAuditor {
             safe.put("stripeEventId",eid);safe.put("stripeAccountContext",actual==null?"platform":actual);safe.put("livemode",live);
             String eventKey="stripe:"+StripePaymentAuditJson.hash(Map.of("id",eid,"account",actual==null?"platform":actual,"livemode",live));
             if(store.event(a.getPaymentId(),eventKey,type,StripePaymentAuditJson.write(safe))){wake(a);store.snapshot(a,List.of(),List.of());}
+            else ObservationEvents.record(observationEvents, ObservationEvents.Event.AUDIT_WEBHOOK_DUPLICATE);
         });
     }
     /** Existing reviewed platform-cost report intake; no HTTP write endpoint, no historical enrollment. */

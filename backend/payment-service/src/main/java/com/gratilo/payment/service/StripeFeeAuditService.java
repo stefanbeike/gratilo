@@ -1,5 +1,7 @@
 package com.gratilo.payment.service;
 
+import com.gratilo.observability.ObservationEvents;
+
 import com.gratilo.payment.api.TipQuote;
 import com.gratilo.payment.domain.*;
 import com.gratilo.payment.repository.*;
@@ -17,6 +19,7 @@ import java.util.*;
 /** Read-only Stripe reconciliation for fee snapshots created by new Gratilo checkouts. */
 @Singleton
 public class StripeFeeAuditService {
+    @jakarta.inject.Inject ObservationEvents observationEvents;
     @jakarta.inject.Inject @io.micronaut.core.annotation.Nullable StripePaymentAuditor paymentAuditor;
     private final PaymentFeeAuditRepository audits;
     private final TransactionRepository transactions;
@@ -42,14 +45,15 @@ public class StripeFeeAuditService {
         audit.setPricingVersion(quote.pricingVersion());audit.setPlatformFeeMinor(quote.platformFeeMinor());audit.setPlatformFeeNetMinor(quote.platformFeeNetMinor());audit.setPlatformFeeTaxMinor(quote.platformFeeTaxMinor());audit.setPlatformFeeVatPercent(quote.platformFeeVatPercent());audit.setPlatformFeePercent(quote.platformFeePercent());audit.setRecipientTotalMinor(quote.recipientAmountMinor());audit.setExactEstimatePercent(quote.serviceFeePercent());
         audit.setCommissionRefundStatus(quote.pricingVersion()>=3?"POLICY_UNDECIDED":"LEGACY");audits.save(audit);
     }
-    @Scheduled(fixedDelay="PT60S") public void reconcile() {
+    @Scheduled(fixedDelay="PT60S") @com.gratilo.observability.ObservedOperation("fee_reconciliation")
+    public void reconcile() {
         if(secret.isBlank())return;
         var candidates=new LinkedHashMap<UUID,PaymentFeeAuditEntity>();
         for(String status:List.of("PENDING","POOL_SETTLEMENT_PENDING"))
             for(var audit:audits.findByStatus(status))candidates.put(audit.getTransactionId(),audit);
         for(var audit:candidates.values())try { reconcile(audit); }
-        catch(Exception failure){audit.setLastError("STRIPE_FEE_RETRY_REQUIRED");audit.setCheckedAt(OffsetDateTime.now());audits.update(audit);
-            LoggerFactory.getLogger(getClass()).warn("Fee audit retry transaction={} category={}",audit.getTransactionId(),failure.getClass().getSimpleName());}
+        catch(Exception failure){ObservationEvents.record(observationEvents, ObservationEvents.Event.RECONCILIATION_FAILURE);audit.setLastError("STRIPE_FEE_RETRY_REQUIRED");audit.setCheckedAt(OffsetDateTime.now());audits.update(audit);
+            LoggerFactory.getLogger(getClass()).warn("Fee audit retry category={}",failure.getClass().getSimpleName());}
     }
     private void reconcile(PaymentFeeAuditEntity audit)throws Exception {
         var tx=transactions.findById(audit.getTransactionId()).orElse(null);
@@ -116,11 +120,8 @@ public class StripeFeeAuditService {
                 audit.setStatus("POOL_SETTLEMENT_PENDING");audit.setLastError(settlement.reason());
             }
             audits.update(audit);
-            LoggerFactory.getLogger(getClass()).info("Pool financial audit transaction={} commissionMinor={} residualMinor={} outstandingMinor={} revenueMinor={} status={} reason={}",
-                    tx.getId(),settlement.agreedCommissionMinor(),settlement.platformResidualMinor(),settlement.outstandingRecipientsMinor(),settlement.economicNetRevenueMinor(),settlement.status(),settlement.reason());
         }
-        LoggerFactory.getLogger(getClass()).info("Stripe fee audit transaction={} chargedMinor={} surchargeMinor={} estimatedMinor={} actualMinor={} differenceMinor={} uncoveredMinor={} status={}",
-                audit.getTransactionId(),audit.getChargedMinor(),audit.getSurchargeMinor(),audit.getEstimatedFeeMinor(),actual,audit.getDifferenceMinor(),audit.getUncoveredMinor(),audit.getStatus());
+        LoggerFactory.getLogger(getClass()).info("Stripe fee audit status={}", audit.getStatus());
     }
     private void reconcileDirect(PaymentFeeAuditEntity audit,TransactionEntity tx,String intentId,Map<?,?> charge)throws Exception {
         var pricing=TipPricingSnapshot.from(tx);
@@ -252,7 +253,7 @@ public class StripeFeeAuditService {
         var builder=HttpRequest.newBuilder(URI.create("https://api.stripe.com"+path)).timeout(Duration.ofSeconds(20)).header("Authorization","Bearer "+secret).header("Stripe-Version","2026-09-30.endive");
         if(account!=null)builder.header("Stripe-Account",account);
         var request=builder.GET().build();
-        var response=HttpClient.newHttpClient().send(request,HttpResponse.BodyHandlers.ofString());
+        var response=ObservationEvents.send(observationEvents, "stripe", request);
         if(response.statusCode()!=200)throw new IllegalStateException("Stripe fee GET HTTP "+response.statusCode());return response.body();
     }
     private static Map<?,?> map(String json)throws Exception{return JsonMapper.createDefault().readValue(json,Map.class);}

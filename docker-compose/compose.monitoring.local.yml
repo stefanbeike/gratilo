@@ -1,0 +1,18 @@
+# Run with COMPOSE_PROFILES empty and a dedicated local monitoring env file.
+name: gratilo-observability-local
+networks:
+  targets: !override
+    name: ${OBS_TARGET_NETWORK:-gratilo-network}
+    external: true
+volumes:
+  user-events: !override
+    name: gratilo-observability-local-user-events
+    external: true
+  payment-events: !override
+    name: gratilo-observability-local-payment-events
+    external: true
+services:
+  prometheus:
+    volumes:
+      - ../observability/prometheus/deployment-local.json:/etc/prometheus/deployment.json:ro
+      - ../observability/prometheus/local-targets.json:/etc/prometheus/demo-targets.json:ro

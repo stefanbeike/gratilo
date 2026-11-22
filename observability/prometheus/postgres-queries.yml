@@ -1,0 +1,18 @@
+gratilo_postgres:
+  query: "SELECT livemode, audit_overdue, audit_review, pool_overdue, payout_failed FROM gratilo_monitor.operations()"
+  metrics:
+    - livemode:
+        usage: LABEL
+        description: Stripe mode
+    - audit_overdue:
+        usage: GAUGE
+        description: Booked payments with an audit due more than 15 minutes ago
+    - audit_review:
+        usage: GAUGE
+        description: Payment audit evidence conflicts
+    - pool_overdue:
+        usage: GAUGE
+        description: Approved pool transfers overdue more than 24 hours
+    - payout_failed:
+        usage: GAUGE
+        description: Non-simulated payout failures updated in the last hour

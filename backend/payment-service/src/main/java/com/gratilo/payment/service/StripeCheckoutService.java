@@ -1,4 +1,6 @@
 package com.gratilo.payment.service;
+
+import com.gratilo.observability.ObservationEvents;
 import com.gratilo.payment.api.*;
 import com.gratilo.payment.domain.*;
 import com.gratilo.payment.repository.*;
@@ -17,6 +19,7 @@ import com.gratilo.payment.repository.PoolTransferRepository;
 import jakarta.inject.Inject;
 @Singleton
 public class StripeCheckoutService {
+    @jakarta.inject.Inject ObservationEvents observationEvents;
     @Inject @io.micronaut.core.annotation.Nullable TipNotificationOutbox tipNotifications;
     @Inject PoolPaymentLimits poolLimits = new PoolPaymentLimits(200,50000);
     private final RecipientAvailability recipients; private final TransactionRepository transactions; private final ConnectedAccountRepository accounts; private final StripeConnectService connect; private final String secret, successUrl, cancelUrl; private final BigDecimal feePercent; private final long fixedFeeMinor;
@@ -123,6 +126,7 @@ public class StripeCheckoutService {
                 tx.getAccountUserId().toString(), checkoutUrl, TipPricingSnapshot.from(tx).recipientMinor(),TipPricingSnapshot.from(tx).recipientEstimated(),
                 Objects.toString(json(tx.getMetadata()).get("poolId"),null),Objects.toString(json(tx.getMetadata()).get("poolName"),null));
     }
+    @com.gratilo.observability.ObservedOperation("checkout_single")
     public Optional<CheckoutResponse> create(UUID recipient, TipPaymentRequest request) throws Exception {
         if(request.expectedPoolId()!=null) throw new InvalidCheckoutRequestException();
         if (request.tipAmountMinor() == null || request.tipAmountMinor() < 100 || request.tipAmountMinor() > 1000000
@@ -197,12 +201,14 @@ public class StripeCheckoutService {
         if (!Boolean.FALSE.equals(session.get("livemode")) || id == null || !id.startsWith("cs_test_") || url == null)
             throw new IllegalStateException("Invalid Stripe test Checkout response");
         tx.setProviderReference(id); tx.setPaymentMethod("card"); transactions.update(tx);
+        ObservationEvents.record(observationEvents, ObservationEvents.Event.STRIPE_SESSION_CREATED);
         if(paymentAuditor!=null)paymentAuditor.sessionCreated(tx.getId(),id);
         return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false, quote));
     }
 
     /** A team QR is charged once to Gratilo, then settled as separate transfers after funds are available. */
     @Transactional
+    @com.gratilo.observability.ObservedOperation("checkout_pool")
     public Optional<CheckoutResponse> createPool(UUID owner, TipPaymentRequest request) throws Exception {
         validateRequest(request);
         if (poolClient == null || poolTransfers == null) throw new PoolNotReadyException();
@@ -305,6 +311,7 @@ public class StripeCheckoutService {
         if (!Boolean.FALSE.equals(session.get("livemode")) || id == null || !id.startsWith("cs_test_") || url == null)
             throw new IllegalStateException("Invalid Stripe test Checkout response");
         tx.setProviderReference(id); tx.setPaymentMethod("card"); transactions.update(tx);
+        ObservationEvents.record(observationEvents, ObservationEvents.Event.STRIPE_SESSION_CREATED);
         if(paymentAuditor!=null)paymentAuditor.sessionCreated(tx.getId(),id);
         return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false, quote));
     }
@@ -467,9 +474,8 @@ public class StripeCheckoutService {
                 .timeout(java.time.Duration.ofSeconds(30)).header("Authorization", "Bearer " + secret).header("Stripe-Version","2026-09-30.endive");
         if(account!=null)builder.header("Stripe-Account",account);
         if (idempotency != null) builder.header("Idempotency-Key", idempotency);
-        var response = HttpClient.newHttpClient().send(form == null ? builder.GET().build()
-                : builder.header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form)).build(),
-                HttpResponse.BodyHandlers.ofString());
+        var response = ObservationEvents.send(observationEvents, "stripe", form == null ? builder.GET().build()
+                : builder.header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form)).build());
         if (response.statusCode() >= 300)
             throw StripeApiException.from(response.statusCode(), response.body(), response.headers().firstValue("Request-Id").orElse(""));
         return response.body();

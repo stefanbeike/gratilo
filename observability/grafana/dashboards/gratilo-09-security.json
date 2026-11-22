@@ -1,0 +1,770 @@
+{
+  "uid": "gratilo-09-security",
+  "title": "09 · Sicherheit und Audit",
+  "description": "Sicherheitsindikatoren ohne Identitäten oder Provider-Referenzen.",
+  "tags": [
+    "gratilo",
+    "observability"
+  ],
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "style": "dark",
+  "timezone": "utc",
+  "refresh": "1m",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "30s",
+      "1m",
+      "5m",
+      "15m"
+    ]
+  },
+  "links": [
+    {
+      "title": "Gratilo-Dashboards",
+      "type": "dashboards",
+      "asDropdown": true,
+      "tags": [
+        "gratilo"
+      ],
+      "includeVars": true,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Umgebung",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "gratilo-prometheus"
+        },
+        "definition": "label_values(up{job=\"prometheus\"}, environment)",
+        "query": {
+          "query": "label_values(up{job=\"prometheus\"}, environment)",
+          "refId": "scope"
+        },
+        "refresh": 1,
+        "current": {
+          "text": "demo",
+          "value": "demo"
+        },
+        "options": []
+      },
+      {
+        "name": "service",
+        "label": "Dienst",
+        "type": "custom",
+        "query": "user-service,payment-service",
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "options": [
+          {
+            "text": "user-service",
+            "value": "user-service",
+            "selected": false
+          },
+          {
+            "text": "payment-service",
+            "value": "payment-service",
+            "selected": false
+          }
+        ]
+      },
+      {
+        "name": "stripe_mode",
+        "label": "Stripe-Modus",
+        "type": "custom",
+        "query": "test,live",
+        "includeAll": false,
+        "allValue": null,
+        "current": {
+          "text": "test",
+          "value": "test"
+        },
+        "options": [
+          {
+            "text": "test",
+            "value": "test",
+            "selected": true
+          },
+          {
+            "text": "live",
+            "value": "live",
+            "selected": false
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Authentifizierung und Grenzen",
+      "description": "",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "title": "Authentifizierungs- und Autorisierungsfehler",
+      "description": "Feste Kategorien HTTP 401/403 einschließlich Login-Ausgang. Keine Rohpfade oder Benutzer.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum by (service,category)(rate(gratilo_http_security_responses_total{environment=~\"${environment:regex}\",service=~\"${service:regex}\",category!=\"rate_limit\"}[$__rate_interval]))",
+          "editorMode": "code",
+          "legendFormat": "{{service}} · {{category}}",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "HTTP-Rate-Limit-Verletzungen",
+      "description": "HTTP 429 an instrumentierten Diensten.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum(increase(gratilo_http_security_responses_total{environment=~\"${environment:regex}\",service=~\"${service:regex}\",category=\"rate_limit\"}[$__range]))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Ungültige Stripe-Webhook-Signaturen",
+      "description": "Abgewiesene Stripe-Webhook-Signaturen oder fehlendes Secret.",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum(increase(gratilo_observation_events_total{environment=~\"${environment:regex}\",service=~\"${service:regex}\",event=\"webhook_signature_invalid\"}[$__range]))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Stripe-Modus-Konflikte",
+      "description": "Signierte Events mit inkompatiblem Provider-Modus.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum(increase(gratilo_observation_events_total{environment=~\"${environment:regex}\",service=~\"${service:regex}\",event=\"stripe_mode_mismatch\"}[$__range]))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Fehlgeschlagene interne Aufrufe",
+      "description": "Nicht-2xx oder Transportfehler im instrumentierten Payment-zu-User-API-Pfad.",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 9,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum(increase(gratilo_dependency_duration_seconds_count{environment=~\"${environment:regex}\",service=~\"${service:regex}\",dependency=\"user-service\",outcome!=\"2xx\"}[$__range]))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Reconciliation-Ausnahmen",
+      "description": "Feste Fehlerereignisse aus Audit- und Fee-Reconciliation.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum(increase(gratilo_observation_events_total{environment=~\"${environment:regex}\",service=~\"${service:regex}\",event=\"reconciliation_failure\"}[$__range]))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Audit-Nachweis-Konflikte",
+      "description": "Stripe-Audit stellt einen Widerspruch in den Nachweisen fest.",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 9,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum(increase(gratilo_observation_events_total{environment=~\"${environment:regex}\",service=~\"${service:regex}\",event=\"audit_review_required\"}[$__range]))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Audit-Datenlücken",
+      "description": "Feste Lückencodes aktueller Audit-Snapshots.",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "gratilo-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "gratilo-postgres"
+          },
+          "rawSql": "SELECT dimension AS \"Kategorie\", value AS \"Wert\" FROM gratilo_monitor.payments(to_timestamp(${__from}/1000.0), to_timestamp(${__to}/1000.0), (${stripe_mode:sqlstring} = 'live'), 'ALL') WHERE metric = 'audit_missing' AND ${environment:sqlstring} = gratilo_monitor.environment() ORDER BY dimension",
+          "rawQuery": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 10,
+      "title": "HTTP-5xx-Raten nach Dienst",
+      "description": "Anfragerate mit Serverfehlerstatus.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "sum by (service)(rate(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",service=~\"${service:regex}\",status_class=\"5xx\"}[$__rate_interval]))",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "title": "Beobachtete Build-Versionen",
+      "description": "Build-Metadaten der instrumentierten Serviceinstanzen.",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gratilo-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gratilo-prometheus"
+          },
+          "expr": "gratilo_build_info{environment=~\"${environment:regex}\",service=~\"${service:regex}\"}",
+          "editorMode": "code",
+          "legendFormat": "",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      }
+    },
+    {
+      "id": 12,
+      "title": "Strukturierte Betriebsereignisse",
+      "description": "",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 13,
+      "title": "Bereinigte Audit- und Sicherheitsereignisse",
+      "description": "Anwendungsinterne Ereignisse mit festen Feldern. Keine generischen Containerlogs.",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "gratilo-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "gratilo-loki"
+          },
+          "expr": "{environment=~\"${environment:regex}\",service=~\"${service:regex}\"} | json",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Unbekannt",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 14,
+      "title": "Datenstand",
+      "description": "Grenzen der Messung.",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 5
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**GitHub-Scans und Deployment-Zeit: unbekannt.** Diese Daten benötigen zuverlässige separate Quellen. Dashboard und Loki zeigen ausschließlich beobachtete Ereignisse."
+      }
+    }
+  ]
+}

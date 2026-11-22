@@ -1,5 +1,7 @@
 package com.gratilo.payment.controller;
 
+import com.gratilo.observability.ObservationEvents;
+
 import com.gratilo.payment.service.StripeWebhookSignature;
 import io.micronaut.context.annotation.Value;
 import io.micronaut.core.annotation.Nullable;
@@ -14,12 +16,17 @@ import jakarta.transaction.Transactional;
 @Secured(SecurityRule.IS_ANONYMOUS)
 @io.micronaut.scheduling.annotation.ExecuteOn(io.micronaut.scheduling.TaskExecutors.BLOCKING)
 public class StripeDirectWebhookController {
+    @jakarta.inject.Inject ObservationEvents observationEvents;
     private final String secret;
     private final StripeWebhookController processor;
     public StripeDirectWebhookController(@Value("${stripe.direct-webhook-secret:}") String secret,StripeWebhookController processor){this.secret=secret;this.processor=processor;}
     @Post @Transactional
+    @com.gratilo.observability.ObservedOperation("stripe_webhook")
     public HttpResponse<?> receive(@Body String payload,@Header("Stripe-Signature") @Nullable String signature){
-        if(secret.isBlank()||!StripeWebhookSignature.valid(secret,payload,signature))return HttpResponse.unauthorized();
+        if(secret.isBlank()||!StripeWebhookSignature.valid(secret,payload,signature)) {
+            ObservationEvents.record(observationEvents, ObservationEvents.Event.WEBHOOK_SIGNATURE_INVALID);
+            return HttpResponse.unauthorized();
+        }
         return processor.processVerified(payload,true);
     }
 }
