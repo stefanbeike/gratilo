@@ -116,7 +116,7 @@ class PublicationTest(unittest.TestCase):
     def test_two_tags_share_each_digest_and_git_tag_is_last(self):
         rows = self.run_publish()
         pushes = [event for event in self.events if event[0] == "push"]
-        self.assertEqual(6, len(pushes))
+        self.assertEqual(8, len(pushes))
         self.assertEqual(("v1.2.4", COMMIT), self.github.created)
         self.assertEqual("create-git", self.events[-1][0])
         self.assertEqual(3, self.github.checks)
@@ -207,7 +207,7 @@ class PublicationTest(unittest.TestCase):
         self.github.fail_create = True
         with self.assertRaisesRegex(release.ReleaseError, "TEILVERÖFFENTLICHUNG"):
             self.run_publish()
-        self.assertEqual(6, self.ecr.pushes)
+        self.assertEqual(8, self.ecr.pushes)
         self.assertIn("HTTP 403", self.summaries[-1])
         self.assertIsNone(self.github.created)
 
@@ -215,7 +215,7 @@ class PublicationTest(unittest.TestCase):
         self.github.conflict_at = 3
         with self.assertRaisesRegex(release.ReleaseError, "TEILVERÖFFENTLICHUNG"):
             self.run_publish()
-        self.assertEqual(6, self.ecr.pushes)
+        self.assertEqual(8, self.ecr.pushes)
         self.assertIsNone(self.github.created)
 
     def test_immutable_ecr_rejects_external_race(self):

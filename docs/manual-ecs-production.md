@@ -465,3 +465,12 @@ Nur bei bestätigter Nichtnutzung und Ersatz des Zugangs wären entfernbar:
 Diese Ressourcen sind für den empfohlenen SSM-Weg weiterhin erforderlich.
 Die produktive ECS→RDS-Regel `sgr-0b1799ed8b66a265a` bleibt erhalten.
 Keine VPC-, NAT-, ALB-, ECS-, RDS- oder produktiven SG-Löschungen geplant.
+
+## Grafana im regulären Production-Release
+
+Grafana läuft als eigener privater Fargate-Service neben dem bestehenden
+App-Service. Es verwendet eine separate Grafana-Datenbank auf der vorhandenen
+RDS-Instanz und die drei vorhandenen Monitoring-Datenquellen. Der reguläre
+Release aktualisiert den Service nach erfolgreicher App-Verifikation.
+
+[Einrichtung, IAM, Netz, Secrets, Healthchecks und Rollback](observability/aws-production-release.md)

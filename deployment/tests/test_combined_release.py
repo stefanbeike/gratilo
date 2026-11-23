@@ -34,7 +34,7 @@ class CombinedReleaseTest(unittest.TestCase):
         self.github.main_commit.side_effect = [COMMIT, COMMIT, "b" * 40]
         with self.assertRaisesRegex(release.ReleaseError, "TEILVERÖFFENTLICHUNG"):
             self.publish()
-        self.assertEqual(6, self.ecr.pushes)
+        self.assertEqual(8, self.ecr.pushes)
         self.assertIsNone(self.github.created)
 
     def test_release_plan_is_read_only_and_checks_exact_main_and_confirmation(self):
@@ -67,12 +67,12 @@ class CombinedReleaseTest(unittest.TestCase):
             with patch.dict(release.os.environ, env, clear=True), patch.object(release.sys, "argv", ["script", "release-publish"]), \
                     patch.object(release, "GitHub", return_value=self.github), patch.object(release, "ECR", return_value=self.ecr):
                 release.main()
-            self.assertEqual(6, self.ecr.pushes)
+            self.assertEqual(8, self.ecr.pushes)
             self.assertEqual(("v0.0.1", COMMIT), self.github.created)
             output = Path(folder, "output").read_text()
-            for name in ("frontend", "user_service", "payment_service"):
+            for name in ("frontend", "user_service", "payment_service", "grafana"):
                 self.assertIn(name + "_image=", output)
-            self.assertEqual(3, output.count("@sha256:"))
+            self.assertEqual(4, output.count("@sha256:"))
 
     def test_annotated_ref_conflict_never_uses_update_or_delete(self):
         github = release.GitHub("test-token", "stefanbeike/gratilo")

@@ -1,0 +1,45 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UpdateOnlyGrafanaService", "Effect": "Allow", "Action": ["ecs:DescribeServices", "ecs:UpdateService"],
+      "Resource": "arn:aws:ecs:eu-central-1:070351676632:service/gratilo-prd-cluster/gratilo-prd-grafana"
+    },
+    {
+      "Sid": "RegisterGrafanaDefinitions", "Effect": "Allow",
+      "Action": ["ecs:RegisterTaskDefinition", "ecs:ListTagsForResource"],
+      "Resource": "arn:aws:ecs:eu-central-1:070351676632:task-definition/gratilo-prd-grafana:*"
+    },
+    {
+      "Sid": "TagGrafanaOnlyOnRegistration", "Effect": "Allow", "Action": "ecs:TagResource",
+      "Resource": "arn:aws:ecs:eu-central-1:070351676632:task-definition/gratilo-prd-grafana:*",
+      "Condition": {"StringEquals": {"ecs:CreateAction": "RegisterTaskDefinition"}}
+    },
+    {
+      "Sid": "PassOnlyGrafanaExecutionRole", "Effect": "Allow", "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::070351676632:role/gratilo-prd-grafana-execution-role",
+      "Condition": {"StringEquals": {"iam:PassedToService": "ecs-tasks.amazonaws.com"}}
+    },
+    {
+      "Sid": "ReadImmutableGrafanaImages", "Effect": "Allow", "Action": ["ecr:DescribeImages", "ecr:DescribeRepositories"],
+      "Resource": "arn:aws:ecr:eu-central-1:070351676632:repository/gratilo/grafana"
+    },
+    {
+      "Sid": "ValidatePrivateLoadBalancerMetadata", "Effect": "Allow",
+      "Action": ["elasticloadbalancing:DescribeRules", "elasticloadbalancing:DescribeListeners",
+                 "elasticloadbalancing:DescribeLoadBalancers", "elasticloadbalancing:DescribeTargetGroups"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ValidateLogGroupExists", "Effect": "Allow", "Action": "logs:DescribeLogGroups",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ObserveSecretMetadataOnly", "Effect": "Allow", "Action": "secretsmanager:DescribeSecret",
+      "Resource": [
+        "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/grafana-??????",
+        "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/observability-scrape-??????"
+      ]
+    }
+  ]
+}

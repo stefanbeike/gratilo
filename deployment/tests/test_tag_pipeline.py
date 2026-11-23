@@ -23,11 +23,11 @@ class TagReleaseTest(unittest.TestCase):
     def test_existing_tag_publishes_without_git_writes_and_cannot_repeat(self):
         summaries = []
         release.publish(self.github, self.ecr, self.plan, COMMIT, SHA_TAG, summaries.append, existing_tag=True)
-        self.assertEqual(6, self.ecr.pushes)
+        self.assertEqual(8, self.ecr.pushes)
         self.github.create_tag.assert_not_called()
         with self.assertRaises(release.ReleaseError):
             release.publish(self.github, self.ecr, self.plan, COMMIT, SHA_TAG, summaries.append, existing_tag=True)
-        self.assertEqual(6, self.ecr.pushes)
+        self.assertEqual(8, self.ecr.pushes)
 
     def test_invalid_or_moved_tag_never_publishes(self):
         for tag in ("v01.2.3", "v1.2.3-rc.1", "v1.2.3+meta", "1.2.3", "v1.2.3\n"):
@@ -68,9 +68,9 @@ class ReleaseSelectionTest(unittest.TestCase):
     def select(self, version="v0.0.2", account="070351676632"):
         return selection.resolve(version, account, "eu-central-1", lambda name, _: self.details[name])
 
-    def test_all_three_images_are_pinned_to_digests(self):
+    def test_all_four_images_are_pinned_to_digests(self):
         images, provenance = self.select()
-        self.assertEqual(3, len(images))
+        self.assertEqual(4, len(images))
         self.assertEqual(SHA_TAG, provenance)
         self.assertTrue(all("@sha256:" in image for image in images.values()))
 
@@ -97,7 +97,7 @@ class ReleaseSelectionTest(unittest.TestCase):
                               lambda name, _: self.details[name], expected_commit="b" * 40)
         images, _ = selection.resolve("v0.0.2", "070351676632", "eu-central-1",
                                      lambda name, _: self.details[name], expected_commit=COMMIT)
-        self.assertEqual(3, len(images))
+        self.assertEqual(4, len(images))
 
     def test_health_rejects_unhealthy_or_other_revision(self):
         response = {"tasks": [{"taskDefinitionArn": "selected", "lastStatus": "RUNNING", "containers": [

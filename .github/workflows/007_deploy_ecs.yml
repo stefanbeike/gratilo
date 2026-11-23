@@ -25,6 +25,8 @@ name: Publish Gratilo images to ECR
         value: ${{ jobs.publish.outputs.user_service_image }}
       payment_service_image:
         value: ${{ jobs.publish.outputs.payment_service_image }}
+      grafana_image:
+        value: ${{ jobs.publish.outputs.grafana_image }}
 jobs:
   publish:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
@@ -48,6 +50,7 @@ jobs:
       frontend_image: ${{ steps.publish.outputs.frontend_image }}
       user_service_image: ${{ steps.publish.outputs.user_service_image }}
       payment_service_image: ${{ steps.publish.outputs.payment_service_image }}
+      grafana_image: ${{ steps.publish.outputs.grafana_image }}
     steps:
     - uses: actions/checkout@v4
       with:

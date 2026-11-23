@@ -1,0 +1,25 @@
+{
+  "cluster": "gratilo-prd-cluster",
+  "serviceName": "gratilo-prd-grafana",
+  "taskDefinition": "<APPROVED_BASELINE_TASK_DEFINITION_ARN>",
+  "desiredCount": 0,
+  "launchType": "FARGATE",
+  "platformVersion": "1.4.0",
+  "deploymentController": {"type": "ECS"},
+  "deploymentConfiguration": {
+    "minimumHealthyPercent": 0,
+    "maximumPercent": 100,
+    "deploymentCircuitBreaker": {"enable": true, "rollback": true}
+  },
+  "healthCheckGracePeriodSeconds": 150,
+  "networkConfiguration": {
+    "awsvpcConfiguration": {
+      "subnets": ["<PRIVATE_SUBNET_A>", "<PRIVATE_SUBNET_B>"],
+      "securityGroups": ["<GRAFANA_TASK_SECURITY_GROUP>"],
+      "assignPublicIp": "DISABLED"
+    }
+  },
+  "loadBalancers": [
+    {"targetGroupArn": "<PRIVATE_GRAFANA_TARGET_GROUP_ARN>", "containerName": "grafana", "containerPort": 3000}
+  ]
+}

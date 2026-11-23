@@ -1,0 +1,64 @@
+# Example for the existing private Prometheus. Replace the approved endpoint and DNS names.
+global:
+  scrape_interval: 15s
+  scrape_timeout: 8s
+  evaluation_interval: 30s
+rule_files:
+  - /etc/prometheus/rules/rules.yml
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: [localhost:9090]
+        labels: {environment: production}
+  - job_name: backend
+    honor_labels: true
+    metrics_path: /internal/observability/metrics
+    sample_limit: 12000
+    authorization:
+      credentials_file: /run/secrets/scrape_token
+    dns_sd_configs:
+      - names: [gratilo-app.metrics.internal]
+        type: A
+        port: 8081
+      - names: [gratilo-app.metrics.internal]
+        type: A
+        port: 8082
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '.+:8081'
+        target_label: service
+        replacement: user-service
+      - source_labels: [__address__]
+        regex: '.+:8082'
+        target_label: service
+        replacement: payment-service
+  - job_name: postgres
+    static_configs:
+      - targets: [postgres-exporter.metrics.internal:9187]
+  - job_name: blackbox
+    metrics_path: /probe
+    params:
+      module: [http]
+    static_configs:
+      - targets:
+          - https://gratilo.eu/
+          - http://gratilo-app.metrics.internal:8081/health
+          - http://gratilo-app.metrics.internal:8082/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - source_labels: [__param_target]
+        regex: 'http://.+:8081/health'
+        target_label: instance
+        replacement: http://user-service:8081/health
+      - source_labels: [__param_target]
+        regex: 'http://.+:8082/health'
+        target_label: instance
+        replacement: http://payment-service:8082/health
+      - target_label: __address__
+        replacement: blackbox.metrics.internal:9115
+  - job_name: pipeline
+    static_configs:
+      - targets: [blackbox.metrics.internal:9115, loki.metrics.internal:3100]

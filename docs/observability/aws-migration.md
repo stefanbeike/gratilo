@@ -1,6 +1,6 @@
 # AWS-Migration
 
-Vorhandene Bausteine sind ECS/Fargate mit gemeinsamer App-Task, ECR für unveränderliche Versionen, ALB am Frontend, RDS PostgreSQL, CloudWatch Logs und GitHub OIDC. Die Umsetzung bleibt lokal. Diese Anleitung verwendet die vorgesehenen Ressourcen aus Deployment-Templates und setzt eine separate AWS-Freigabe voraus.
+Vorhandene Bausteine sind ECS/Fargate mit gemeinsamer App-Task, ECR für unveränderliche Versionen, ALB am Frontend, RDS PostgreSQL, CloudWatch Logs und GitHub OIDC. Für Self-hosted Grafana ist das Production-Deployment im Repository integriert. Die einmalige AWS-Einrichtung und die Production-Freigabe bleiben erforderlich. [Integrierter Release und Ersteinrichtung](aws-production-release.md)
 
 | Bereich | A · Amazon Managed Grafana | B · Selbst gehostetes Grafana auf ECS/Fargate |
 | --- | --- | --- |

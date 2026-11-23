@@ -24,7 +24,8 @@
       "Resource": [
         "arn:aws:ecr:eu-central-1:070351676632:repository/gratilo/frontend",
         "arn:aws:ecr:eu-central-1:070351676632:repository/gratilo/user-service",
-        "arn:aws:ecr:eu-central-1:070351676632:repository/gratilo/payment-service"
+        "arn:aws:ecr:eu-central-1:070351676632:repository/gratilo/payment-service",
+        "arn:aws:ecr:eu-central-1:070351676632:repository/gratilo/grafana"
       ]
     }
   ]

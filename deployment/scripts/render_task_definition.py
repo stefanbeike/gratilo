@@ -12,7 +12,7 @@ READ_ONLY = {"taskDefinitionArn", "revision", "status", "requiresAttributes",
              "compatibilities", "registeredAt", "registeredBy", "deregisteredAt"}
 SENSITIVE = {"DATASOURCES_DEFAULT_PASSWORD", "JWT_SECRET", "INTERNAL_API_KEY",
              "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_DIRECT_WEBHOOK_SECRET", "STRIPE_CONNECT_WEBHOOK_SECRET", "PAYMENTS_TEST_ACTIVATION_CODE",
-             "JAVAMAIL_AUTHENTICATION_USERNAME", "JAVAMAIL_AUTHENTICATION_PASSWORD"}
+             "OBSERVABILITY_SCRAPE_TOKEN", "JAVAMAIL_AUTHENTICATION_USERNAME", "JAVAMAIL_AUTHENTICATION_PASSWORD"}
 
 
 def require(condition, message):
@@ -72,6 +72,18 @@ def render(response, images, config):
             require(len({e["name"] for e in environment}) == len(environment), "Duplicate environment variable: " + name)
             values = {item["name"]: item["value"] for item in environment}
             values["FEATURE_TIP_POOLS_ENABLED"] = pools_enabled
+            if scrape_secret := config.get("OBS_APP_SCRAPE_SECRET_ARN"):
+                prefix = f'arn:aws:secretsmanager:{config["AWS_REGION"]}:{config["AWS_ACCOUNT_ID"]}:secret:gratilo/prd/observability-scrape-'
+                require(re.fullmatch(re.escape(prefix) + r"[A-Za-z0-9]{6}", scrape_secret), "Invalid production scrape secret")
+                version = config.get("RELEASE_VERSION", "")
+                require(re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version)
+                        and len(version) <= 80, "Invalid observability build version")
+                values.update(OBSERVABILITY_ENABLED="true", OBSERVABILITY_ENVIRONMENT="production",
+                              OBSERVABILITY_BUILD=version, OBSERVABILITY_EVENT_LOG="stdout")
+                references = container.get("secrets", [])
+                require(len({s["name"] for s in references}) == len(references), "Duplicate backend secret")
+                container["secrets"] = [s for s in references if s["name"] != "OBSERVABILITY_SCRAPE_TOKEN"] + [
+                    {"name": "OBSERVABILITY_SCRAPE_TOKEN", "valueFrom": scrape_secret + ":token::"}]
             if name == "payment-service":
                 # The selected release mode is authoritative, not the previous
                 # deployment's flags. Disabled releases must work after test runs.

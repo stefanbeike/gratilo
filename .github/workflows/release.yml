@@ -31,8 +31,12 @@ on:
         description: 'When Stripe test mode is enabled, type ENABLE STRIPE TEST PAYMENTS'
         required: false
         type: string
+      grafana_retry_version:
+        description: 'Retry Grafana only for the currently deployed stable release (leave empty for a new release)'
+        required: false
+        type: string
       confirmation:
-        description: 'Type RELEASE DEPLOY gratilo-production'
+        description: 'Type RELEASE DEPLOY gratilo-production or RETRY GRAFANA gratilo-production'
         required: true
         type: string
 permissions:
@@ -44,6 +48,7 @@ concurrency:
 jobs:
   version:
     name: Validate & Version
+    if: inputs.grafana_retry_version == ''
     uses: ./.github/workflows/006_release_tag.yml
     with:
       version_bump: ${{ inputs.version_bump }}
@@ -91,8 +96,22 @@ jobs:
       frontend_image: ${{ needs.publish.outputs.frontend_image }}
       user_service_image: ${{ needs.publish.outputs.user_service_image }}
       payment_service_image: ${{ needs.publish.outputs.payment_service_image }}
+      grafana_image: ${{ needs.publish.outputs.grafana_image }}
       stripe_test_mode: ${{ inputs.stripe_test_mode }}
       stripe_test_confirmation: ${{ inputs.stripe_test_confirmation }}
       new_pricing_enabled: ${{ inputs.new_pricing_enabled }}
       stripe_test_payouts_enabled: ${{ inputs.stripe_test_payouts_enabled }}
       stripe_test_payout_confirmation: ${{ inputs.stripe_test_payout_confirmation }}
+
+  retry-grafana:
+    name: Retry Grafana Production
+    if: inputs.grafana_retry_version != ''
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    uses: ./.github/workflows/deploy-production.yml
+    with:
+      version: ${{ inputs.grafana_retry_version }}
+      grafana_retry_only: true
+      grafana_retry_confirmation: ${{ inputs.confirmation }}

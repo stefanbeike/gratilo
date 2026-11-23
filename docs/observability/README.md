@@ -59,4 +59,5 @@ Zum Abschalten beim jeweiligen Compose-Aufruf `up -d` durch `down` ersetzen. `do
 - [Alarme](alerts.md)
 - [Sicherheitsmodell](security.md)
 - [AWS-Migration](aws-migration.md)
+- [Grafana im Production-Release](aws-production-release.md)
 - [Fehlerdiagnose](troubleshooting.md)

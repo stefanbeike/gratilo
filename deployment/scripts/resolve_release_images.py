@@ -37,6 +37,10 @@ def resolve(version, account, region, describe, expected_commit=None):
 
 
 def verify_publish_outputs(images, provenance, env):
+    if env.get("GRAFANA_RETRY_ONLY") == "true":
+        if any(env.get("EXPECTED_" + name.upper().replace("-", "_") + "_IMAGE") for name in images) or env.get("EXPECTED_BUILD_TAG"):
+            raise ValueError("Grafana retry cannot supply fresh publish outputs")
+        return
     expected_build = env.get("EXPECTED_BUILD_TAG")
     if expected_build is not None:
         if expected_build != provenance:
@@ -90,4 +94,4 @@ if __name__ == "__main__":
     try:
         main()
     except (ValueError, KeyError, OSError):
-        sys.exit("Release selection failed: check version, all three immutable images and common build provenance; provider details suppressed.")
+        sys.exit("Release selection failed: check version, all four immutable images and common build provenance; provider details suppressed.")

@@ -14,7 +14,7 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-SERVICES = ("frontend", "user-service", "payment-service")
+SERVICES = ("frontend", "user-service", "payment-service", "grafana")
 REGISTRY = "070351676632.dkr.ecr.eu-central-1.amazonaws.com"
 STABLE = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -262,12 +262,12 @@ def publish(github, ecr, plan, commit, sha_tag, write_summary, existing_tag=Fals
             if not sha_digest or sha_digest != version_digest:
                 raise ReleaseError("Image tags do not have the same confirmed digest for " + row["service"])
             row["digest"] = sha_digest
-        # All six ECR references are verified before any Git reference is written.
+        # All eight ECR references are verified before any Git reference is written.
         recheck()
         if not existing_tag:
             github.create_tag(plan["version"], commit)
         tag_confirmed = True
-        write_summary(summary(plan, commit, "ERFOLGREICH – drei Images, beide Tags und Git-Tag bestätigt", rows))
+        write_summary(summary(plan, commit, "ERFOLGREICH – vier Images, beide Tags und Git-Tag bestätigt", rows))
         return rows
     except Exception as error:
         safe = str(error) if isinstance(error, ReleaseError) else "Unexpected release failure; details suppressed"

@@ -107,6 +107,11 @@ public final class ObservationEvents {
     }
 
     private void writeLine(String line) {
+        if ("stdout".equals(log)) {
+            System.out.print(line); // Existing ECS awslogs driver collects the allowlisted event.
+            if (System.out.checkError()) logFailure();
+            return;
+        }
         try {
             Path file = Path.of(log);
             if (Files.exists(file) && Files.size(file) >= 5 * 1024 * 1024) {

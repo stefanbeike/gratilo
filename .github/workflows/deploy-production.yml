@@ -6,17 +6,26 @@ on:
         required: true
         type: string
       image_tag:
-        required: true
         type: string
+        default: ''
       frontend_image:
-        required: true
         type: string
+        default: ''
       user_service_image:
-        required: true
         type: string
+        default: ''
       payment_service_image:
-        required: true
         type: string
+        default: ''
+      grafana_image:
+        type: string
+        default: ''
+      grafana_retry_only:
+        type: boolean
+        default: false
+      grafana_retry_confirmation:
+        type: string
+        default: ''
       stripe_test_mode:
         type: boolean
         default: false
@@ -59,6 +68,16 @@ jobs:
       EXPECTED_FRONTEND_IMAGE: ${{ inputs.frontend_image }}
       EXPECTED_USER_SERVICE_IMAGE: ${{ inputs.user_service_image }}
       EXPECTED_PAYMENT_SERVICE_IMAGE: ${{ inputs.payment_service_image }}
+      EXPECTED_GRAFANA_IMAGE: ${{ inputs.grafana_image }}
+      GRAFANA_RETRY_ONLY: ${{ inputs.grafana_retry_only }}
+      GRAFANA_RETRY_CONFIRMATION: ${{ inputs.grafana_retry_confirmation }}
+      GRAFANA_ROOT_URL: ${{ vars.GRAFANA_ROOT_URL }}
+      GRAFANA_HTTPS_RULE_ARN: ${{ vars.GRAFANA_HTTPS_RULE_ARN }}
+      GRAFANA_RDS_HOST: ${{ vars.GRAFANA_RDS_HOST }}
+      GRAFANA_PROMETHEUS_URL: ${{ vars.GRAFANA_PROMETHEUS_URL }}
+      GRAFANA_LOKI_URL: ${{ vars.GRAFANA_LOKI_URL }}
+      GRAFANA_SECRET_ARN: ${{ vars.GRAFANA_SECRET_ARN }}
+      OBS_APP_SCRAPE_SECRET_ARN: ${{ vars.OBS_APP_SCRAPE_SECRET_ARN }}
       STRIPE_TEST_MODE: ${{ inputs.stripe_test_mode }}
       STRIPE_TEST_PAYOUTS_ENABLED: ${{ inputs.stripe_test_payouts_enabled }}
       STRIPE_TEST_PAYOUT_CONFIRMATION: ${{ inputs.stripe_test_payout_confirmation }}
@@ -78,6 +97,10 @@ jobs:
     - name: Validate deployment configuration
       run: |
         python3 deployment/scripts/validate_release_configuration.py production
+        python3 deployment/scripts/deploy_grafana.py validate
+        if [[ "$GRAFANA_RETRY_ONLY" == true ]]; then
+          [[ "$GRAFANA_RETRY_CONFIRMATION" == 'RETRY GRAFANA gratilo-production' ]]
+        fi
         python3 -c 'import os,re; assert re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", os.environ["RELEASE_VERSION"])'
     - name: Diagnose OIDC identity (public claims only)
       run: node deployment/scripts/oidc_claims.cjs
@@ -92,5 +115,10 @@ jobs:
       run: |
         [[ "$(aws sts get-caller-identity --query Account --output text)" == "$AWS_ACCOUNT_ID" ]]
         python3 deployment/scripts/resolve_release_images.py
+    - name: Check Grafana infrastructure before service updates
+      run: python3 deployment/scripts/deploy_grafana.py preflight
     - name: Deploy, verify and roll back on failure
+      if: ${{ !inputs.grafana_retry_only }}
       run: bash deployment/scripts/deploy_ecs.sh
+    - name: Deploy and verify Grafana independently
+      run: python3 deployment/scripts/deploy_grafana.py deploy

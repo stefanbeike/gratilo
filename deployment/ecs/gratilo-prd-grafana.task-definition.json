@@ -1,0 +1,68 @@
+{
+  "family": "gratilo-prd-grafana",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::070351676632:role/gratilo-prd-grafana-execution-role",
+  "runtimePlatform": {"cpuArchitecture": "X86_64", "operatingSystemFamily": "LINUX"},
+  "containerDefinitions": [
+    {
+      "name": "grafana",
+      "image": "<GRAFANA_IMAGE>",
+      "essential": true,
+      "user": "472:0",
+      "portMappings": [{"containerPort": 3000, "protocol": "tcp"}],
+      "healthCheck": {
+        "command": ["CMD", "/usr/local/bin/gratilo-grafana-ready"],
+        "interval": 30,
+        "timeout": 45,
+        "retries": 3,
+        "startPeriod": 120
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/gratilo-prd-grafana",
+          "awslogs-region": "eu-central-1",
+          "awslogs-stream-prefix": "grafana",
+          "mode": "non-blocking",
+          "max-buffer-size": "4m"
+        }
+      },
+      "environment": [
+        {"name": "GF_SERVER_ROOT_URL", "value": "<GRAFANA_ROOT_URL>"},
+        {"name": "GF_DATABASE_TYPE", "value": "postgres"},
+        {"name": "GF_DATABASE_HOST", "value": "<GRAFANA_RDS_HOST>:5432"},
+        {"name": "GF_DATABASE_NAME", "value": "grafana"},
+        {"name": "GF_DATABASE_USER", "value": "gratilo_grafana_state"},
+        {"name": "GF_DATABASE_SSL_MODE", "value": "verify-full"},
+        {"name": "GF_DATABASE_CA_CERT_PATH", "value": "/etc/grafana/rds-ca.pem"},
+        {"name": "GF_SECURITY_ADMIN_USER", "value": "admin"},
+        {"name": "GF_SECURITY_COOKIE_SECURE", "value": "true"},
+        {"name": "GF_SECURITY_COOKIE_SAMESITE", "value": "lax"},
+        {"name": "GF_SECURITY_DISABLE_GRAVATAR", "value": "true"},
+        {"name": "GF_USERS_ALLOW_SIGN_UP", "value": "false"},
+        {"name": "GF_AUTH_ANONYMOUS_ENABLED", "value": "false"},
+        {"name": "GF_AUTH_BASIC_ENABLED", "value": "true"},
+        {"name": "GF_METRICS_ENABLED", "value": "false"},
+        {"name": "GF_PLUGINS_PREINSTALL_DISABLED", "value": "true"},
+        {"name": "GF_PLUGINS_PLUGIN_ADMIN_ENABLED", "value": "false"},
+        {"name": "GF_ANALYTICS_REPORTING_ENABLED", "value": "false"},
+        {"name": "GF_ANALYTICS_CHECK_FOR_UPDATES", "value": "false"},
+        {"name": "GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES", "value": "false"},
+        {"name": "GF_LOG_MODE", "value": "console"},
+        {"name": "OBS_DB_HOST", "value": "<GRAFANA_RDS_HOST>"},
+        {"name": "OBS_DB_NAME", "value": "gratilodb"},
+        {"name": "OBS_PROMETHEUS_URL", "value": "<GRAFANA_PROMETHEUS_URL>"},
+        {"name": "OBS_LOKI_URL", "value": "<GRAFANA_LOKI_URL>"}
+      ],
+      "secrets": [
+        {"name": "GF_SECURITY_ADMIN_PASSWORD", "valueFrom": "<GRAFANA_SECRET_ARN>:admin_password::"},
+        {"name": "GF_SECURITY_SECRET_KEY", "valueFrom": "<GRAFANA_SECRET_ARN>:secret_key::"},
+        {"name": "GF_DATABASE_PASSWORD", "valueFrom": "<GRAFANA_SECRET_ARN>:metadata_password::"},
+        {"name": "OBS_DB_PASSWORD", "valueFrom": "<GRAFANA_SECRET_ARN>:aggregate_password::"}
+      ]
+    }
+  ]
+}

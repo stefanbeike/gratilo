@@ -22,15 +22,15 @@ Der Workflow `release.yml` führt innerhalb desselben Laufs die gesamte Kette au
 2. **CI & Security**: bestehende Backend-/Frontend-Tests, PostgreSQL-
    Registrierungsregression, Actionlint, Deployment-/OIDC-Tests, Source-Security-
    Scan und konfigurierte Sonar-Quality-Gates aus `ci.yml`. Ein Fehler stoppt alles.
-3. **Build & Scan**: alle drei Linux/amd64-Images genau einmal bauen; Trivy
+3. **Build & Scan**: alle vier Linux/amd64-Images genau einmal bauen; Trivy
    HIGH/CRITICAL einschließlich ungefixter Findings blockiert. Gemeinsamer
    Drei-Container-/PostgreSQL-15-Test. Nur diese geprüften Images werden als
    Artefakte übergeben, nicht im Publisher oder Deploy erneut gebaut.
 4. **Publish ECR**: im Environment **release**, OIDC nach erfolgreicher CI.
-   main-Commit, Remote-Tags und ECR-Konflikte erneut prüfen. Alle drei Images
+   main-Commit, Remote-Tags und ECR-Konflikte erneut prüfen. Alle vier Images
    mit derselben SemVer-Version und dem gemeinsamen
    `sha-<commit>-<run>-<attempt>` veröffentlichen, beide Tags je Image auf gleichen
-   Digest prüfen. Erst nach sechs bestätigten ECR-Referenzen einen **annotierten
+   Digest prüfen. Erst nach acht bestätigten ECR-Referenzen einen **annotierten
    Git-Tag** über die GitHub Git-API anlegen und seine Commit-Zuordnung bestätigen.
 5. **Deploy Production**: ausschließlich nach erfolgreichem Publish und Tag.
    Wartet am Environment **production** auf eine manuelle Freigabe; der Starter
@@ -45,6 +45,13 @@ Ein unabhängiger Zweitprüfer ist nicht erforderlich; Selbstfreigabe ist erlaub
 Die Eingabe beim Start ist keine Deployment-Freigabe. In Actions beim wartenden
 Job **Review deployments → production → Approve** verwenden; danach läuft die
 Kette ohne weiteren manuellen Workflow fort.
+
+6. **Grafana deployen:** Nach dem erfolgreichen App-Rollout aktualisiert derselbe
+   freigegebene Job den privaten Grafana-Service und prüft dessen Task,
+   HTTPS-ALB-Zuordnung, Dashboards, Regeln und Datenquellen. Grafana hat einen
+   separaten Rollback und einen Grafana-only-Retry mit Production-Freigabe.
+
+[Grafana-Architektur, Ersteinrichtung und Retry](observability/aws-production-release.md)
 
 **Nur release.yml hat workflow_dispatch.** Kein Tag-Push und kein normaler
 main-Push startet einen Release oder Deploy. Normale main-/PR-Ereignisse behalten
@@ -295,7 +302,7 @@ Deployment/Approval. cancel-in-progress=false; ein laufender Release wird nicht
 abgebrochen. GitHub garantiert keine FIFO-Schlange und kann ältere wartende Runs
 ersetzen. Keine konkurrierenden Releases außerhalb dieses Workflows ausführen.
 
-Vor dem ersten ECR-Push werden Remote-main, Remote-Tags und alle sechs ECR-Tags
+Vor dem ersten ECR-Push werden Remote-main, Remote-Tags und alle acht ECR-Tags
 nochmals geprüft. Existierende ECR-Tags werden nie überschrieben. Remote-main
 oder Versionshistorie geändert: neuer vollständiger Lauf statt Umbenennen schon
 gebauter Artefakte. Externe Rennen werden durch CREATE-only-Git-Refs und ECR-
@@ -313,7 +320,7 @@ Immutability begrenzt. Zwischen AWS und GitHub gibt es keine atomare Transaktion
   keine automatische Tag-Erzeugung für unvollständige Releases. Auch ein Rerun
   des Publish-Jobs überschreibt keine existierenden Tags und bricht bei Konflikten ab.
 - **Tag-Erstellung durch Protection verweigert:** zuerst Repository-Regel für den
-  vorgesehenen Release-Aktor prüfen; sechs ECR-Referenzen können bereits bestehen.
+  vorgesehenen Release-Aktor prüfen; acht ECR-Referenzen können bereits bestehen.
   Kein Deployment, kein automatischer Bypass, gleiche Recovery-Regeln wie oben.
 - **Publish+Tag erfolgreich, Deploy fehlgeschlagen:** bevorzugt **Re-run failed
   jobs** im selben Lauf. Kein erneuter Build/Publish; ursprüngliche geprüfte

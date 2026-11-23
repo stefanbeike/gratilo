@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Sid": "EcrLogin", "Effect": "Allow", "Action": "ecr:GetAuthorizationToken", "Resource": "*"},
+    {
+      "Sid": "PullGrafanaOnly", "Effect": "Allow",
+      "Action": ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"],
+      "Resource": "arn:aws:ecr:eu-central-1:070351676632:repository/gratilo/grafana"
+    },
+    {
+      "Sid": "GrafanaLogStream", "Effect": "Allow",
+      "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:eu-central-1:070351676632:log-group:/ecs/gratilo-prd-grafana:log-stream:grafana/*"
+    },
+    {
+      "Sid": "GrafanaOnlySecret", "Effect": "Allow", "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:eu-central-1:070351676632:secret:gratilo/prd/grafana-??????"
+    }
+  ]
+}
