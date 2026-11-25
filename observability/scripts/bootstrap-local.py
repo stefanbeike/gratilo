@@ -8,16 +8,19 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--container", default="gratilodb")
+parser.add_argument("--stripe-test", action="store_true", help="Use the isolated Stripe sandbox monitoring credentials")
 args = parser.parse_args()
 
 label = subprocess.check_output(
     ["docker", "inspect", "--type", "container", "--format",
      '{{index .Config.Labels "com.docker.compose.project"}} {{index .Config.Labels "com.docker.compose.service"}}',
      args.container], text=True).strip()
-if label not in {"gratilo postgres", "gratilo-stripe-test postgres"}:
-    parser.exit(1, "Use a PostgreSQL container from a local Gratilo Compose project.\n")
+expected_label = "gratilo-stripe-test postgres" if args.stripe_test else "gratilo postgres"
+if label != expected_label:
+    parser.exit(1, f"Expected a PostgreSQL container from the local Compose project {expected_label.split()[0]}.\n")
 
-settings = dict(line.split("=", 1) for line in (root/".env.observability-local").read_text().splitlines()
+kind = "stripe-test" if args.stripe_test else "local"
+settings = dict(line.split("=", 1) for line in (root/f".env.observability-{kind}").read_text().splitlines()
                 if line and not line.startswith("#"))
 sql = ["\\set monitor_environment local"]
 for setting, psql_var in (("OBS_GRAFANA_DB_PASSWORD", "grafana_password"),

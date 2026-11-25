@@ -35,7 +35,35 @@ docker compose --env-file .env.observability-local -f docker-compose/compose.mon
   -f docker-compose/compose.monitoring.local.yml up -d
 ```
 
-Beim Stripe-Test-Stack die bestehende Stripe-Test-Compose-Datei und deren Env nutzen. Den tatsächlichen PostgreSQL-Containernamen mit Compose ermitteln und als `--container` angeben. `OBS_TARGET_NETWORK=gratilo-stripe-test_default` in der Monitoring-Env setzen. Die Overlay-Volumennamen sind für genau einen beobachteten lokalen App-Stack vorgesehen. Die bestehende Anwendung behält die dort konfigurierten Stripe-Einstellungen.
+### Eigene Stripe-Sandbox-Daten
+
+Die App auf Port 3001 verwendet ihre eigene PostgreSQL-Datenbank. Dafür läuft
+Grafana separat auf http://localhost:3004 und Prometheus auf http://localhost:9092.
+Im Grafana-Dashboard **Nutzer, Aktivierung & Wachstum** die Umgebung `local` und
+den Stripe-Modus `test` wählen. **Stripe-Onboarding abgeschlossen** zählt die
+aktuell als `COMPLETE` gespeicherten Konten, unabhängig vom Zeitfenster.
+
+Bei laufendem Stripe-Test-Stack die Monitoring-Env einmal anlegen. Dann die
+Reporting-Funktionen installieren und das App-Overlay aktivieren.
+
+```bash
+python3 observability/scripts/init-env.py --stripe-test
+python3 observability/scripts/bootstrap-local.py --stripe-test --container gratilo-stripe-test-postgres-1
+docker compose --env-file .env.stripe-test --env-file .env.observability-stripe-test \
+  -f docker-compose/compose.stripe-test.yml -f docker-compose/compose.observed-services.yml \
+  up -d --build user-service payment-service frontend
+docker exec gratilo-stripe-test-frontend-1 nginx -s reload
+docker compose -p gratilo-observability-stripe-test --env-file .env.observability-stripe-test \
+  -f docker-compose/compose.monitoring.yml -f docker-compose/compose.monitoring.local.yml up -d
+```
+
+Wenn der Stripe-Test-Stack bereits den Host-Build verwendet, bei der App das
+Overlay `-f docker-compose/compose.stripe-test.host-build.yml` zwischen die beiden
+anderen Compose-Dateien setzen. Mit aktuellen Images genügt `--no-build`.
+Bei späteren App-Starts dieselben Compose-Dateien verwenden, damit Scraping
+und Log-Mounts aktiv bleiben.
+Der Grafana-Benutzer ist `admin`. Das Passwort steht als
+`OBS_GRAFANA_ADMIN_PASSWORD` in `.env.observability-stripe-test`.
 
 ## Tests und Betrieb
 

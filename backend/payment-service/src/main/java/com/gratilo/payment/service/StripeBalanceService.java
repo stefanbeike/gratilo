@@ -22,11 +22,13 @@ public class StripeBalanceService {
     public Optional<Balance> balance(UUID user)throws Exception{
         var account=accounts.findByUserId(user).orElse(null);
         if(account==null||account.getStripeAccountId()==null)return Optional.empty();
-        String id=account.getStripeAccountId();
-        if(secret.isBlank()||!id.matches("acct_[A-Za-z0-9]+")||id.startsWith("acct_demo_"))throw new IllegalStateException("Balance unavailable");
+        return Optional.of(balanceForAccount(account.getStripeAccountId()));
+    }
+    Balance balanceForAccount(String id) throws Exception {
+        if(id==null||secret.isBlank()||!id.matches("acct_[A-Za-z0-9]+")||id.startsWith("acct_demo_"))throw new IllegalStateException("Balance unavailable");
         var data=JsonMapper.createDefault().readValue(get(id),Map.class);
         if(!Boolean.FALSE.equals(data.get("livemode")))throw new IllegalStateException("Sandbox balance required");
-        return Optional.of(new Balance(amount(data.get("available")),amount(data.get("pending")),"EUR",OffsetDateTime.now()));
+        return new Balance(amount(data.get("available")),amount(data.get("pending")),"EUR",OffsetDateTime.now());
     }
     private static long amount(Object value){
         if(!(value instanceof List<?> entries))throw new IllegalStateException("Missing balance section");

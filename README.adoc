@@ -79,6 +79,13 @@ flowchart LR
 Der Stack `docker-compose/compose.stripe-test.yml` verwendet das separate
 Compose-Projekt `gratilo-stripe-test` und eigene Datenbankdaten.
 Pooling ist hier standardmäßig deaktiviert (`FEATURE_TIP_POOLS_ENABLED=false`).
+Für neue Express-Konten setzt der Sandbox-Stack standardmäßig
+`STRIPE_CONNECT_PLATFORM_FEES_ENABLED=true`. Gratilo trägt die Stripe-Gebühren
+und Stripe übernimmt das Verlustrisiko. Wenn Stripe die Kontoerstellung mit
+`account_creation_losses_collector_unavailable` ablehnt, prüfe, ob diese
+Option in `.env.stripe-test` explizit auf `false` gesetzt wurde. Entferne
+in diesem Fall den Eintrag oder setze ihn auf `true` und starte den
+Sandbox-Stack erneut.
 
 [source,bash]
 ----

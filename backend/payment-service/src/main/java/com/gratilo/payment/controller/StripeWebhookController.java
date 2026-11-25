@@ -29,6 +29,8 @@ public class StripeWebhookController {
     com.gratilo.payment.service.StripePayoutService payoutSetup;
     @jakarta.inject.Inject @Nullable
     com.gratilo.payment.service.StripePaymentAuditor paymentAuditor;
+    @jakarta.inject.Inject @Nullable
+    com.gratilo.payment.service.StripePaymentReferences paymentReferences;
     private final TransactionRepository transactions;
     private final String secret;
     private final boolean testOnly;
@@ -60,7 +62,15 @@ public class StripeWebhookController {
                 return HttpResponse.unauthorized();
             }
         } catch (java.io.IOException exception) { return HttpResponse.badRequest(); }
-        try { return processPaymentEvent(body,directEndpoint); }
+        try {
+            if (body.get("type") instanceof String event
+                    && com.gratilo.payment.service.StripePaymentReferences.isChargeEvidence(event)) {
+                // Charge evidence never moves a financial state or replaces the canonical financial pointers.
+                if (paymentReferences != null) paymentReferences.webhook(body, directEndpoint);
+                return HttpResponse.ok();
+            }
+            return processPaymentEvent(body, directEndpoint);
+        }
         finally {
             // Observe signed evidence even when the legacy business handler has nothing to change.
             // Flush/lock ordering in the audit store keeps TX/allocation locks before AUDIT locks.
@@ -79,9 +89,12 @@ public class StripeWebhookController {
             if(body.get("account") instanceof String account&&account.matches("acct_[A-Za-z0-9]+"))payoutSetup.prepareKnownAccount(account);
             return HttpResponse.ok();
         }
-        if (payouts != null && java.util.Set.of("payout.created", "payout.updated", "payout.paid", "payout.failed", "payout.canceled").contains(event == null ? "" : event)) {
+        if (event != null && event.startsWith("payout.")) {
             String account = body.get("account") instanceof String id ? id : null;
-            if (directEndpoint && payouts.webhook(account, object, number(body.get("created")))) return HttpResponse.ok();
+            if (directEndpoint && payouts != null && java.util.Set.of("payout.created", "payout.updated", "payout.paid", "payout.failed", "payout.canceled").contains(event)) {
+                payouts.webhook(account, object, number(body.get("created")));
+            }
+            return HttpResponse.ok();
         }
         var metadata = object.get("metadata") instanceof java.util.Map<?, ?> value ? value : java.util.Map.of();
         Object transactionId = metadata.get("transaction_id");
@@ -113,7 +126,6 @@ public class StripeWebhookController {
                     if (event.startsWith("checkout.session.") && !java.util.Objects.equals(tx.getProviderReference(), object.get("id"))) return HttpResponse.ok();
                     if(feeAudit!=null)feeAudit.recordEvent(tx,body.get("id") instanceof String id?id:null,event,object);
                     boolean tip = tx.getType() == com.gratilo.payment.domain.TransactionType.TIP;
-                    boolean payout = tx.getType() == com.gratilo.payment.domain.TransactionType.PAYOUT;
                     TransactionStatus next = null;
                     String previousIntent = tx.getStripePaymentIntentId(), previousCharge = tx.getStripeChargeId();
                     if (object.get("payment_intent") instanceof String paymentIntentId && paymentIntentId.startsWith("pi_")) tx.setStripePaymentIntentId(paymentIntentId);
@@ -136,14 +148,12 @@ public class StripeWebhookController {
                     }
                     else if (tip && event.equals("charge.dispute.created")) next = TransactionStatus.DISPUTED;
                     else if (tip && event.equals("charge.dispute.closed")) next = "lost".equals(object.get("status")) ? TransactionStatus.CHARGEBACK : "won".equals(object.get("status")) ? TransactionStatus.BOOKED : TransactionStatus.DISPUTED;
-                    else if (payout && event.equals("payout.paid")) next = TransactionStatus.BOOKED;
-                    else if (payout && (event.equals("payout.failed") || event.equals("payout.canceled"))) next = TransactionStatus.FAILED;
                     // Late failures and duplicate successes cannot overwrite a completed or refunded tip.
                     boolean settled = tx.getStatus() == TransactionStatus.BOOKED || tx.getStatus() == TransactionStatus.COMPLETED;
                     boolean riskState=tx.getStatus()==TransactionStatus.DISPUTED||tx.getStatus()==TransactionStatus.CHARGEBACK;
                     if (next != null && (!riskState || event.startsWith("charge.dispute.") || next==TransactionStatus.REFUNDED) && next != tx.getStatus() && tx.getStatus() != TransactionStatus.REFUNDED
                             && (!settled || next == TransactionStatus.REFUNDED || next == TransactionStatus.DISPUTED
-                                || next == TransactionStatus.CHARGEBACK || payout)) {
+                                || next == TransactionStatus.CHARGEBACK)) {
                         tx.setStatus(next);
                         if (next == TransactionStatus.BOOKED) tx.setBookedAt(java.time.OffsetDateTime.now());
                         if (next != TransactionStatus.PENDING) tx.setCompletedAt(java.time.OffsetDateTime.now());

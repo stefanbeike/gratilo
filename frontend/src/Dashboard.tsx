@@ -12,13 +12,23 @@ import { markMemberStripeStatusesUnavailable, mergeMemberStripeStatuses, type Me
 import { PoolDissolveDialog } from './PoolDissolveDialog'
 import { PoolMembersPanel } from './PoolMembersPanel'
 import { PoolDistributionChart } from './PoolDistributionChart'
-import { stripeDashboardStatus } from './StripeStatusCard'
+import { stripeDashboardStatus, type ConnectedAccount } from './StripeStatusCard'
 import { TeamAvatar, TeamImageEditor } from './TeamImageEditor'
 import { PersonalAccountPanel, type StripeBalance } from './PersonalAccountPanel'
 import './dashboard.css'
 
 export interface Profile { personalLinkPaused?: boolean; paymentUrl?: string | null; paymentEnabled?: boolean; stripeOnboardingCompleted?: boolean; profileImage?: string | null; email: string; firstName?: string; lastName?: string; organisation?: string; street?: string; city?: string; phone?: string; country?: string; newsletter?: boolean }
-interface ConnectedAccount { transfersEnabled?: boolean; stripeStatus?: string; statusCheckedAt?: string; stripeAccountId?: string; onboardingStatus: string; chargesEnabled: boolean; payoutsEnabled: boolean; detailsSubmitted: boolean; payoutScheduleInterval: string }
+const notStartedStripeAccount: ConnectedAccount = {
+  onboardingStatus: 'NOT_STARTED',
+  chargesEnabled: false,
+  payoutsEnabled: false,
+  detailsSubmitted: false,
+}
+
+function isMissingStripeAccount(error: unknown): boolean {
+  return error instanceof Error && 'status' in error && error.status === 404
+}
+
 interface PoolMember { deactivationReason?: string | null; id: string; userId: string; email: string; name: string; sharePercent: number; effectiveSharePercent?: number; status: string; active: boolean; invitationExpiresAt?: string | null; invitationToken?: string | null }
 interface Pool { status?: string; id: string; name: string; ownerId: string; members: PoolMember[]; memberCount?: number; activeMemberCount?: number; membersComplete?: boolean; paymentUrl?: string | null; profileImage?: string | null }
 const normalizePool = (value: Pool | null | undefined): Pool | null => value ? { ...value, members: Array.isArray(value.members) ? value.members : [] } : null
@@ -180,7 +190,9 @@ export function Dashboard({ session, profile, onProfile, onLogout }: { session: 
           setConnectedAccount(account)
           if (stripeDashboardStatus(account).title === 'Vollständig aktiv') setOnboardingOpen(false)
         }
-      } catch { if (!cancelled) setConnectedAccount(null) }
+      } catch (cause) {
+        if (!cancelled) setConnectedAccount(isMissingStripeAccount(cause) ? notStartedStripeAccount : null)
+      }
     }
     void refresh()
     const timer = window.setInterval(refresh, onboardingOpen ? 5000 : 30000)
@@ -301,7 +313,12 @@ export function Dashboard({ session, profile, onProfile, onLogout }: { session: 
     const load=()=>{setBalanceLoading(true);api<StripeBalance>('/payment-service/connect-account/balance',undefined,session.accessToken).then(value=>{
       if(value.currency!=='EUR'||!Number.isSafeInteger(value.availableMinor)||!Number.isSafeInteger(value.pendingMinor)||!Number.isFinite(Date.parse(value.checkedAt)))throw Error('Invalid balance')
       if(current){setStripeBalance(value);setBalanceError('')}
-    }).catch(()=>{if(current){setStripeBalance(null);setBalanceError('Dein persönliches Stripe-Guthaben konnte nicht geladen werden.')}}).finally(()=>{if(current)setBalanceLoading(false)})}
+    }).catch(cause => {
+      if (current) {
+        setStripeBalance(null)
+        setBalanceError(isMissingStripeAccount(cause) ? '' : 'Dein persönliches Stripe-Guthaben konnte nicht geladen werden.')
+      }
+    }).finally(()=>{if(current)setBalanceLoading(false)})}
     load();window.addEventListener('focus',load)
     return()=>{current=false;window.removeEventListener('focus',load)}
   },[session.accessToken,testAccessReady])
@@ -410,7 +427,27 @@ export function Dashboard({ session, profile, onProfile, onLogout }: { session: 
   function poolDissolved(deleted: string) {setPoolMemberships(items=>items.filter(item=>item.id!==deleted));if(currentPoolId.current===deleted){setPoolState(null);setSelectedTeamId('all');}setPoolLoaded(true);setDissolvingPool(null);setNotice('Pool wurde aufgelöst. Die Mitglieder werden per E-Mail informiert.')}
   function markPoolClosing(id: string) {setPoolMemberships(items=>items.map(item=>item.id===id?{...item,status:'CLOSING'}:item));setPoolState(item=>item?.id===id?{...item,status:'CLOSING'}:item)}
 
-  async function syncOnboarding() { try { const account = await api<ConnectedAccount>('/payment-service/connect-account/sync', {}, session.accessToken); setConnectedAccount(account); const complete = stripeDashboardStatus(account).title === 'Vollständig aktiv'; await persistOnboardingStatus(complete); if (complete) { setOnboardingOpen(false); setNotice('Stripe Connect ist vollständig eingerichtet. Trinkgelder sind aktiv.') } else setNotice('Der Stripe-Status wurde aktualisiert. Prüfe die einzelnen Freigaben in der Statuskarte.') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Stripe-Status konnte nicht geprüft werden.') } }
+  async function syncOnboarding() {
+    setError('')
+    try {
+      const account = await api<ConnectedAccount>('/payment-service/connect-account/sync', {}, session.accessToken)
+      setConnectedAccount(account)
+      const complete = stripeDashboardStatus(account).title === 'Vollständig aktiv'
+      await persistOnboardingStatus(complete)
+      if (complete) {
+        setOnboardingOpen(false)
+        setNotice('Stripe Connect ist vollständig eingerichtet. Trinkgelder sind aktiv.')
+      } else {
+        setNotice('Der Stripe-Status wurde aktualisiert. Prüfe die einzelnen Freigaben in der Statuskarte.')
+      }
+    } catch (cause) {
+      if (isMissingStripeAccount(cause)) {
+        setConnectedAccount(notStartedStripeAccount)
+        return
+      }
+      setError(cause instanceof Error ? cause.message : 'Stripe-Status konnte nicht geprüft werden.')
+    }
+  }
   const paymentLink = profile.paymentUrl || `${location.origin}/pay/${encodeURIComponent(session.userId)}`
   const nowForFilter = new Date()
   const periodStart = new Date(nowForFilter)

@@ -59,7 +59,7 @@ public class StripePayoutService {
         }
         String id=prepared.account(),bankId=prepared.bank();
         String schedule=prepared.result().schedule();
-        var balance=balances.balance(user).orElseThrow(()->new IllegalStateException("Stripe-Guthaben nicht verfügbar."));
+        var balance=balances.balanceForAccount(id);
         long simAvailable=Math.max(0,Math.subtractExact(balance.availableMinor(),store.reserved(user)));
         long spendable=simulation?simAvailable:balance.availableMinor();
         boolean eligible=spendable>=100;
@@ -82,10 +82,10 @@ public class StripePayoutService {
         var tx=prepared.transaction();if(!prepared.created())return tx;
         // A crash or timeout after this committed intent is reconciled by GET only, never a new POST.
         try {
-            var fresh=balances.balance(user).orElseThrow();
+            var fresh=balances.balanceForAccount(c.account());
             validateAmount(-tx.getAmountMinor(),fresh.availableMinor());
         }catch(Exception invalid){return store.failed(user,tx.getId(),false);}
-        if(simulation)return store.result(user,tx.getId(),c.account(),simulated(tx,"pending"),Instant.now().getEpochSecond());
+        if(simulation)return store.result(user,tx.getId(),c.account(),simulated(tx,"pending"));
         String form="amount="+(-tx.getAmountMinor())+"&currency=eur&method=standard&destination="+enc(c.bank())+"&metadata[transaction_id]="+tx.getId()+"&metadata[request_id]="+request;
         Map<?,?> result;
         try { result=request("/v1/payouts",form,c.account(),"gratilo-payout-"+tx.getId()); }
@@ -93,7 +93,7 @@ public class StripePayoutService {
         catch(Exception uncertain){return store.failed(user,tx.getId(),true);}
         try {
             if(!validResponse(tx,c.account(),result))return store.failed(user,tx.getId(),true);
-            return store.result(user,tx.getId(),c.account(),result,Instant.now().getEpochSecond());
+            return store.result(user,tx.getId(),c.account(),result);
         }catch(Exception persistenceFailure){throw new IllegalStateException("Auszahlung wird abgeglichen. Bitte keine neue Auszahlung anfordern.");}
     }
     public List<TransactionEntity> history(UUID user){return store.history(user);}
@@ -103,21 +103,28 @@ public class StripePayoutService {
         if(Boolean.TRUE.equals(meta.get("simulation"))){
             String previous=Objects.toString(meta.get("payoutStatus"),"");
             if(!PayoutState.active(tx))return tx;
-            return store.result(user,id,account,simulated(tx,"in_transit".equals(previous)?"paid":"in_transit"),Instant.now().getEpochSecond());
+            return store.result(user,id,account,simulated(tx,"in_transit".equals(previous)?"paid":"in_transit"));
         }
-        if(tx.getProviderReference()!=null)return store.result(user,id,account,get("/v1/payouts/"+tx.getProviderReference(),account),Instant.now().getEpochSecond());
+        if(tx.getProviderReference()!=null){
+            var snapshot=get("/v1/payouts/"+tx.getProviderReference(),account);
+            if(!tx.getProviderReference().equals(snapshot.get("id"))||!validResponse(tx,account,snapshot))
+                throw new IllegalStateException("Stripe payout evidence mismatch");
+            return store.result(user,id,account,snapshot);
+        }
         // Full pagination is deliberately bounded. If no result is established, keep UNKNOWN and block new requests.
         String after="";
         for(int page=0;page<10;page++){
             var response=get("/v1/payouts?limit=100"+after,account);var data=response.get("data") instanceof List<?> list?list:List.of();
-            for(Object item:data){var payout=map(item);if(tx.getId().toString().equals(map(payout.get("metadata")).get("transaction_id")))return store.result(user,id,account,payout,Instant.now().getEpochSecond());}
+            for(Object item:data){var payout=map(item);if(tx.getId().toString().equals(map(payout.get("metadata")).get("transaction_id"))&&validResponse(tx,account,payout))return store.result(user,id,account,payout);}
             if(!Boolean.TRUE.equals(response.get("has_more"))||data.isEmpty())break;
             String last=Objects.toString(map(data.getLast()).get("id"),"");if(!last.matches("po_[A-Za-z0-9]+"))break;after="&starting_after="+last;
         }
         return store.failed(user,id,true);
     }
-    static Map<String,Object> simulated(TransactionEntity tx,String status){return new LinkedHashMap<>(Map.of("id","po_sim"+tx.getId().toString().replace("-",""),"amount",-tx.getAmountMinor(),"currency","eur","method","standard","type","bank_account","status",status,"livemode",false,"arrival_date",Instant.now().plus(Duration.ofDays(2)).getEpochSecond()));}
-    static boolean validResponse(TransactionEntity tx,String account,Map<?,?> data){var copy=new TransactionEntity();copy.setType(tx.getType());copy.setAmountMinor(tx.getAmountMinor());copy.setMetadata(tx.getMetadata());return PayoutState.apply(copy,account,data,0);}
+    static Map<String,Object> simulated(TransactionEntity tx,String status){
+        return new LinkedHashMap<>(Map.of("id","po_sim"+tx.getId().toString().replace("-",""),"amount",-tx.getAmountMinor(),"currency","eur","method","standard","type","bank_account","status",status,"livemode",false,"arrival_date",Instant.now().plus(Duration.ofDays(2)).getEpochSecond()));
+    }
+    static boolean validResponse(TransactionEntity tx,String account,Map<?,?> data){var copy=new TransactionEntity();copy.setId(tx.getId());copy.setProvider(tx.getProvider());copy.setType(tx.getType());copy.setAmountMinor(tx.getAmountMinor());copy.setMetadata(tx.getMetadata());return PayoutState.applySnapshot(copy,account,data);}
     static void sameRequest(TransactionEntity tx,Long requested){var meta=PayoutState.metadata(tx);boolean all=Boolean.TRUE.equals(meta.get("requestedAll"));if(!PayoutState.managed(tx)||(requested==null)!=all||requested!=null&&requested!=-tx.getAmountMinor())throw new IllegalArgumentException("Die Auszahlungs-ID wurde bereits für einen anderen Betrag verwendet.");}
     static void validateAmount(long amount,long available){if(amount<100||amount>available)throw new IllegalArgumentException("Der Auszahlungsbetrag muss mindestens 1,00 € betragen und darf das verfügbare EUR-Guthaben nicht überschreiten.");}
     static Map<?,?> map(Object value){return value instanceof Map<?,?> m?m:Map.of();}

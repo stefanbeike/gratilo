@@ -22,6 +22,8 @@ public class StripeCheckoutService {
     @jakarta.inject.Inject ObservationEvents observationEvents;
     @Inject @io.micronaut.core.annotation.Nullable TipNotificationOutbox tipNotifications;
     @Inject PoolPaymentLimits poolLimits = new PoolPaymentLimits(200,50000);
+    @jakarta.inject.Inject @io.micronaut.core.annotation.Nullable
+    StripePaymentReferences paymentReferences;
     private final RecipientAvailability recipients; private final TransactionRepository transactions; private final ConnectedAccountRepository accounts; private final StripeConnectService connect; private final String secret, successUrl, cancelUrl; private final BigDecimal feePercent; private final long fixedFeeMinor;
     private final StripeFeeAuditService feeAudit;
     private final BigDecimal platformPercent;
@@ -95,15 +97,15 @@ public class StripeCheckoutService {
 
     @Transactional
     public CheckoutStatus checkoutStatus(String sessionId) throws Exception {
-        if (secret.isBlank() || sessionId == null || !sessionId.matches("cs_test_[A-Za-z0-9_]+"))
+        if (secret.isBlank() || sessionId == null || !sessionId.matches("cs_test_[A-Za-z0-9_]{1,247}"))
             return new CheckoutStatus("PENDING", false, null, 0, 0, null, null);
         var tx = transactions.findByProviderReference(sessionId).orElse(null);
-        if(tx==null||!"STRIPE".equals(tx.getProvider()))return new CheckoutStatus("PENDING",false,null,0,0,null,null);
-        var session = json(stripeRequest("/v1/checkout/sessions/" + enc(sessionId), null, null,StripePaymentContext.account(tx)));
-        if (!Boolean.FALSE.equals(session.get("livemode"))) return new CheckoutStatus("PENDING", false, null, 0, 0, null, null);
+        if(!StripePaymentReferences.isTip(tx))return new CheckoutStatus("PENDING",false,null,0,0,null,null);
+        var session = json(stripeRequest("/v1/checkout/sessions/" + enc(sessionId) + "?expand%5B%5D=payment_intent.latest_charge", null, null,StripePaymentContext.account(tx)));
+        if (!Boolean.FALSE.equals(session.get("livemode")) || !sessionId.equals(session.get("id"))) return new CheckoutStatus("PENDING", false, null, 0, 0, null, null);
         var metadata = session.get("metadata") instanceof Map<?, ?> map ? map : Map.of();
-        if (!(metadata.get("transaction_id") instanceof String txId)) return new CheckoutStatus("PENDING", false, null, 0, 0, null, null);
-        if (!tx.getId().toString().equals(txId) || !"STRIPE".equals(tx.getProvider()) || !sessionId.equals(tx.getProviderReference()))
+        Object txId = metadata.containsKey("transaction_id") ? metadata.get("transaction_id") : metadata.get("transactionId");
+        if (!tx.getId().toString().equals(txId))
             return new CheckoutStatus("PENDING", false, null, 0, 0, null, null);
         boolean paid = "paid".equals(session.get("payment_status"));
         boolean expired = "expired".equals(session.get("status"));
@@ -117,14 +119,35 @@ public class StripeCheckoutService {
             tx.setStatus(TransactionStatus.FAILED);
             transactions.update(tx);
         }
+        var expandedIntent = StripeChargeReferences.map(session.get("payment_intent"));
+        Object intentStatus = expandedIntent.get("status");
+        boolean awaitingFunds = "processing".equals(intentStatus) || "requires_capture".equals(intentStatus);
         boolean definitiveFailure = tx.getStatus() != TransactionStatus.REFUNDED &&
-                (expired || ("complete".equals(session.get("status")) && tx.getStatus() == TransactionStatus.FAILED));
-        String status = tx.getStatus() == TransactionStatus.BOOKED ? "PAID" : definitiveFailure ? "FAILED" : "PENDING";
-        long amountPaid = session.get("amount_total") instanceof Number amount ? amount.longValue() : tx.getAmountMinor();
+                (expired || ("complete".equals(session.get("status")) && tx.getStatus() == TransactionStatus.FAILED && !awaitingFunds));
+        boolean confirmed = paid && (tx.getStatus() == TransactionStatus.BOOKED || tx.getStatus() == TransactionStatus.COMPLETED);
+        String status = confirmed ? "PAID" : definitiveFailure ? "FAILED" : "PENDING";
+        var presentment = StripeChargeReferences.map(session.get("presentment_details"));
+        String presentmentCurrency = presentment.get("presentment_amount") instanceof Number
+                ? StripeChargeReferences.match(presentment.get("presentment_currency"), "[a-z]{3}") : null;
+        Object total = presentmentCurrency == null ? session.get("amount_total") : presentment.get("presentment_amount");
+        long amountPaid = confirmed && total instanceof Number amount ? amount.longValue() : 0;
         String checkoutUrl = "PENDING".equals(status) && "open".equals(session.get("status")) && session.get("url") instanceof String url ? url : null;
-        return new CheckoutStatus(status, "PAID".equals(status), tx.getId().toString(), tx.getAmountMinor(), amountPaid,
-                tx.getAccountUserId().toString(), checkoutUrl, TipPricingSnapshot.from(tx).recipientMinor(),TipPricingSnapshot.from(tx).recipientEstimated(),
-                Objects.toString(json(tx.getMetadata()).get("poolId"),null),Objects.toString(json(tx.getMetadata()).get("poolName"),null));
+        String intent = StripeChargeReferences.id(expandedIntent.isEmpty() ? session.get("payment_intent") : expandedIntent.get("id"), "pi");
+        if (confirmed && paymentReferences != null)
+            paymentReferences.ingestCheckoutCharge(tx, intent, StripeChargeReferences.map(expandedIntent.get("latest_charge")));
+        var attempt = confirmed && paymentReferences != null ? paymentReferences.paidAttempt(tx, false, intent) : null;
+        String currency = presentmentCurrency == null ? StripeChargeReferences.match(session.get("currency"), "[a-z]{3}") : presentmentCurrency;
+        var context = json(tx.getMetadata());
+        var pricing = TipPricingSnapshot.from(tx);
+        return new CheckoutStatus(status, confirmed, null, tx.getAmountMinor(), amountPaid,
+                tx.getAccountUserId().toString(), checkoutUrl, pricing.recipientMinor(), pricing.recipientEstimated(),
+                Objects.toString(context.get("poolId"), null), Objects.toString(context.get("poolName"), null),
+                paymentReferences == null ? null : paymentReferences.publicReference(tx.getId()),
+                currency == null ? tx.getCurrency() : currency.toUpperCase(java.util.Locale.ROOT), tx.getCurrency(),
+                confirmed ? (attempt != null && attempt.paidAt() != null ? attempt.paidAt()
+                        : tx.getBookedAt() == null ? null : tx.getBookedAt().toInstant().toString()) : null,
+                attempt == null ? null : attempt.method(), attempt == null ? null : attempt.wallet(),
+                attempt == null ? null : attempt.receiptUrl());
     }
     @com.gratilo.observability.ObservedOperation("checkout_single")
     public Optional<CheckoutResponse> create(UUID recipient, TipPaymentRequest request) throws Exception {
@@ -200,7 +223,7 @@ public class StripeCheckoutService {
         String id = (String) session.get("id"), url = (String) session.get("url");
         if (!Boolean.FALSE.equals(session.get("livemode")) || id == null || !id.startsWith("cs_test_") || url == null)
             throw new IllegalStateException("Invalid Stripe test Checkout response");
-        tx.setProviderReference(id); tx.setPaymentMethod("card"); transactions.update(tx);
+        tx.setProviderReference(id); transactions.update(tx);
         ObservationEvents.record(observationEvents, ObservationEvents.Event.STRIPE_SESSION_CREATED);
         if(paymentAuditor!=null)paymentAuditor.sessionCreated(tx.getId(),id);
         return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false, quote));
@@ -310,7 +333,7 @@ public class StripeCheckoutService {
         String id = (String) session.get("id"), url = (String) session.get("url");
         if (!Boolean.FALSE.equals(session.get("livemode")) || id == null || !id.startsWith("cs_test_") || url == null)
             throw new IllegalStateException("Invalid Stripe test Checkout response");
-        tx.setProviderReference(id); tx.setPaymentMethod("card"); transactions.update(tx);
+        tx.setProviderReference(id); transactions.update(tx);
         ObservationEvents.record(observationEvents, ObservationEvents.Event.STRIPE_SESSION_CREATED);
         if(paymentAuditor!=null)paymentAuditor.sessionCreated(tx.getId(),id);
         return Optional.of(new CheckoutResponse(url, tx.getId().toString(), false, quote));

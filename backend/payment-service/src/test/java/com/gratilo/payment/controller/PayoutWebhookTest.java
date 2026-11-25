@@ -22,14 +22,23 @@ class PayoutWebhookTest {
         String payload=payload(tx,"acct_own","payout.paid","paid",200,false);
         assertEquals(401,direct.receive(payload,null).code());assertEquals(0,calls[0]);
         assertEquals(401,direct.receive(payload,sign(payload,"whsec_platform")).code());assertEquals(0,calls[0]);
+        String platform=payload(tx,null,"payout.paid","paid",200,false);
+        assertEquals(200,processor.receive(platform,sign(platform,"whsec_platform")).code());
+        assertEquals(0,calls[0]);
         String foreign=payload(tx,"acct_other","payout.paid","paid",200,false);
         assertEquals(200,direct.receive(foreign,sign(foreign,"whsec_direct")).code());assertEquals(TransactionStatus.PENDING,tx.getStatus());
         String live=payload(tx,"acct_own","payout.paid","paid",200,true);
         assertEquals(401,direct.receive(live,sign(live,"whsec_direct")).code());
         for(int n=0;n<2;n++)assertEquals(200,direct.receive(payload,sign(payload,"whsec_direct")).code());
         assertEquals(TransactionStatus.BOOKED,tx.getStatus());
+        var firstCompletion=tx.getCompletedAt();
+        direct.receive(payload,sign(payload,"whsec_direct"));
+        assertEquals(firstCompletion,tx.getCompletedAt());
         String old=payload(tx,"acct_own","payout.updated","pending",100,false);
         direct.receive(old,sign(old,"whsec_direct"));assertEquals(TransactionStatus.BOOKED,tx.getStatus());assertEquals("po_fixture",tx.getProviderReference());
+        String failure=payload(tx,"acct_own","payout.failed","failed",200,false);
+        assertEquals(200,direct.receive(failure,sign(failure,"whsec_direct")).code());
+        assertEquals(TransactionStatus.FAILED,tx.getStatus());
     }
     @Test void settingsEventsPrepareOnlyAfterTheConnectedEndpointSignatureWasVerified()throws Exception {
         var processor=new StripeWebhookController(null,"whsec_platform",true,JsonMapper.createDefault());int[] calls={0};
@@ -44,7 +53,9 @@ class PayoutWebhookTest {
         assertEquals(2,calls[0]); // Preparation itself re-reads Stripe, so duplicate events do not rewrite manual schedules.
     }
     private static String payload(TransactionEntity tx,String account,String event,String state,long created,boolean live)throws Exception {
-        return JsonMapper.createDefault().writeValueAsString(Map.of("type",event,"account",account,"created",created,"livemode",live,"data",Map.of("object",Map.of("id","po_fixture","amount",1250,"currency","eur","method","standard","type","bank_account","status",state,"livemode",live,"metadata",Map.of("transaction_id",tx.getId().toString())))));
+        var body = new LinkedHashMap<String,Object>(Map.of("type",event,"created",created,"livemode",live,"data",Map.of("object",Map.of("id","po_fixture","amount",1250,"currency","eur","method","standard","type","bank_account","status",state,"livemode",live,"metadata",Map.of("transaction_id",tx.getId().toString())))));
+        if (account != null) body.put("account",account);
+        return JsonMapper.createDefault().writeValueAsString(body);
     }
     private static String sign(String payload,String key)throws Exception {
         String timestamp=String.valueOf(System.currentTimeMillis()/1000);var mac=Mac.getInstance("HmacSHA256");mac.init(new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8),"HmacSHA256"));

@@ -42,3 +42,25 @@ it('does not announce activation or close onboarding while transfer permission i
   expect(screen.getByText('Der Stripe-Status wurde aktualisiert. Prüfe die einzelnen Freigaben in der Statuskarte.')).toBeInTheDocument()
   expect(screen.getByText('Auszahlungen einrichten')).toBeInTheDocument();expect(screen.queryByText(/Trinkgelder sind aktiv/)).not.toBeInTheDocument();expect(screen.getByRole('button',{name:'Zahlungslink kopieren'})).toBeDisabled();window.history.replaceState({},'','/account')
 })
+
+it('offers first-time onboarding when an enrolled user has no Stripe account yet', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url === '/payment-service/connect-account' || url === '/payment-service/connect-account/balance' || url.endsWith('/connect-account/sync')) {
+      return new Response(null, { status: 404 })
+    }
+    return new Response(JSON.stringify(url.endsWith('/test-access') ? { restricted: true, enabled: true } : []))
+  }))
+
+  await act(async () => {
+    render(<Dashboard session={{ accessToken: 'test-token', userId: 'new-user', email: 'new@example.invalid' }}
+      profile={{ email: 'new@example.invalid' }} onProfile={vi.fn()} onLogout={vi.fn()} />)
+  })
+  expect(screen.getByRole('button', { name: 'Jetzt einrichten' })).toBeEnabled()
+  expect(screen.queryByText('Dein persönliches Stripe-Guthaben konnte nicht geladen werden.')).not.toBeInTheDocument()
+
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Status aktualisieren' })) })
+  expect(screen.queryByText(/Der Link könnte ungültig/)).not.toBeInTheDocument()
+
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Jetzt einrichten' })) })
+  expect(screen.getByRole('heading', { name: 'Auszahlungen einrichten' })).toBeInTheDocument()
+})

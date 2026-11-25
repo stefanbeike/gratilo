@@ -1,3 +1,4 @@
+import { AdminPaymentReferences } from './AdminPaymentReferences'
 import { useTipPoolsEnabled } from './features'
 import { LandingPage } from './LandingPage'
 import { useEffect, useState, type FormEvent } from 'react'
@@ -76,6 +77,7 @@ export function App() {
   if (location.pathname.startsWith('/pool/invitations/') && !tipPoolsEnabled) return <main className="shell"><section className="account-card"><h1>Diese Funktion ist derzeit nicht verfügbar.</h1><a href="/account">Zum Konto</a></section></main>
   if (location.pathname.startsWith('/pool/invitations/') && !session) return <PoolInvitationLogin onLogin={() => { sessionStorage.setItem('gratilo.invitationPath', location.pathname); window.location.assign('/login') }} onRegister={() => { sessionStorage.setItem('gratilo.invitationPath', location.pathname); window.location.assign('/register') }} />
   if (location.pathname.startsWith('/pool/invitations/') && session) return <PoolInvitation session={session} onSwitchUser={() => { setSession(null); setProfile(null); setSessionExpired(false) }} />
+  if (location.pathname === '/admin/payment-references' && session) return <AdminPaymentReferences session={session} />
   if (session && profile) return <Dashboard session={session} profile={profile} onProfile={setProfile} onLogout={(expired = false) => { setSession(null); setProfile(null); setSessionExpired(expired === true); navigate('/login') }} />
   if (sessionExpired) return <><main className="shell" /><div className="session-dialog-backdrop"><section className="session-dialog" role="dialog" aria-modal="true" aria-labelledby="session-expired-title"><span className="session-dialog-icon">◷</span><h2 id="session-expired-title">Deine Sitzung ist abgelaufen</h2><p>Aus Sicherheitsgründen wurdest du automatisch abgemeldet. Melde dich erneut an, um weiterzumachen.</p><button className="primary" onClick={() => setSessionExpired(false)}>Anmelden <span aria-hidden="true">→</span></button></section></div></>
   return <main className="shell auth-shell">

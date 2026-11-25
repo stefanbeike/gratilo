@@ -16,6 +16,7 @@ import org.reactivestreams.Publisher;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Filter("/**")
@@ -25,12 +26,24 @@ final class HttpMetrics implements HttpServerFilter {
     private final AtomicInteger active;
     private final ObservationEvents events;
 
-    HttpMetrics(MeterRegistry registry, ObservationEvents events, @Value("${observability.build}") String version) {
+    HttpMetrics(MeterRegistry registry, ObservationEvents events, @Value("${observability.build}") String version,
+                @Value("${micronaut.application.name}") String service) {
         this.registry = registry;
         this.events = events;
         active = registry.gauge("gratilo.http.server.active", new AtomicInteger());
-        registry.gauge("gratilo.build.info", java.util.List.of(io.micrometer.core.instrument.Tag.of("version",
+        registry.gauge("gratilo.build.info", List.of(io.micrometer.core.instrument.Tag.of("version",
                 version.matches("[A-Za-z0-9._-]{1,80}") ? version : "unknown")), this, ignored -> 1);
+
+        // Dashboard routes need a zero sample before the first request for Prometheus increase().
+        switch (service) {
+            case "user-service" -> {
+                initializeRoute("/user-service/auth/login", "POST");
+                initializeRoute("/user-service/users/register", "POST");
+                initializeRoute("/user-service/auth/verify", "GET");
+            }
+            case "payment-service" -> initializeRoute("/payment-service/connect-account/onboarding/start", "POST");
+            default -> { }
+        }
     }
 
     @Override
@@ -68,11 +81,21 @@ final class HttpMetrics implements HttpServerFilter {
             registry.counter("gratilo.http.security.responses", "category", category).increment();
             events.security(category);
         }
-        sample.stop(Timer.builder("gratilo.http.server.requests")
-                .tags("endpoint_template", route, "method", method, "status_class", (code / 100) + "xx")
+        sample.stop(timer(route, method, (code / 100) + "xx"));
+    }
+
+    private void initializeRoute(String route, String method) {
+        for (String statusClass : List.of("2xx", "3xx", "4xx", "5xx")) {
+            timer(route, method, statusClass);
+        }
+    }
+
+    private Timer timer(String route, String method, String statusClass) {
+        return Timer.builder("gratilo.http.server.requests")
+                .tags("endpoint_template", route, "method", method, "status_class", statusClass)
                 .serviceLevelObjectives(Duration.ofMillis(5), Duration.ofMillis(25), Duration.ofMillis(100),
                         Duration.ofMillis(250), Duration.ofMillis(500), Duration.ofSeconds(1),
                         Duration.ofSeconds(2), Duration.ofSeconds(5), Duration.ofSeconds(15), Duration.ofSeconds(60))
-                .register(registry));
+                .register(registry);
     }
 }

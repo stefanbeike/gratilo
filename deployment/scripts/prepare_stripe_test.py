@@ -23,7 +23,7 @@ WEBHOOK = "https://gratilo.eu/payment-service/webhooks/stripe"
 EVENTS = ["checkout.session.completed", "checkout.session.expired",
           "checkout.session.async_payment_succeeded", "checkout.session.async_payment_failed",
           "payment_intent.succeeded", "payment_intent.payment_failed",
-          "payment_intent.canceled", "charge.refunded", "charge.dispute.created",
+          "payment_intent.canceled", "charge.succeeded", "charge.updated", "charge.failed", "charge.refunded", "charge.dispute.created",
           "charge.dispute.closed"]
 SAFE_ENV = {"PAYMENTS_ENABLED", "STRIPE_TEST_ONLY", "STRIPE_DEMO_ENABLED", "STRIPE_SANDBOX_PAYOUTS",
             "FEATURE_TIP_POOLS_ENABLED", "PAYMENTS_TEST_USER_IDS", "FRONTEND_BASE_URL",

@@ -179,3 +179,24 @@ it('routes a mapped personal link to the team and restores only that team draft'
   fireEvent.click(pay())
   await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url===`/payment-service/tips/pools/${poolId}/checkout`)).toBe(true))
 })
+
+for (const pool of [false, true]) it(`shows a copyable public reference and receipt for a confirmed ${pool ? 'pool' : 'direct'} payment`, async () => {
+  const publicReference = 'GT-729d3ea9-64a3-4e91-a812-8c7580597601'
+  const receiptUrl = 'https://pay.stripe.com/receipts/payment/CAcaFixture'
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+  history.replaceState({}, '', '/pay/success?session_id=cs_test_fixture')
+  mount({pool, result: {
+    status: 'PAID', confirmed: true, publicReference, tipAmountMinor: 500, amountPaidMinor: 570,
+    currency: 'EUR', tipCurrency: 'EUR', paidAt: '2026-11-25T11:00:00Z', recipientUserId: user,
+    paymentMethod: pool ? 'paypal' : 'card', wallet: pool ? undefined : 'apple_pay',
+    poolId: pool ? poolId : undefined, poolName: pool ? 'Team Sonnenseite' : undefined, receiptUrl,
+  }})
+  expect(await screen.findByText(publicReference)).toBeInTheDocument()
+  expect(screen.getByText('Trinkgeldbetrag')).toBeInTheDocument()
+  expect(screen.getByText('Zahlungsdatum')).toBeInTheDocument()
+  expect(screen.getByText(pool ? 'PayPal' : 'Apple Pay')).toBeInTheDocument()
+  expect(screen.getByRole('link', {name: 'Zahlungsbeleg öffnen'})).toHaveAttribute('href', receiptUrl)
+  fireEvent.click(screen.getByRole('button', {name: 'Referenz kopieren'}))
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(publicReference))
+})

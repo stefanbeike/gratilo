@@ -20,7 +20,7 @@ class ManualPayoutTest {
         var account=new ConnectedAccountEntity();account.setStripeAccountId("acct_fixture");account.setUserId(user);
         var accounts=StripeFeeAuditTest.proxy(ConnectedAccountRepository.class,(p,m,args)->user.equals(args[0])?Optional.of(account):Optional.empty());
         var balance=new StripeBalanceService(accounts,"sk_test_fixture"){
-            @Override public Optional<StripeBalanceService.Balance> balance(UUID own){assertEquals(user,own);return Optional.of(new StripeBalanceService.Balance(available,50000,"EUR",java.time.OffsetDateTime.now()));}
+            @Override StripeBalanceService.Balance balanceForAccount(String accountId){assertEquals("acct_fixture",accountId);return new StripeBalanceService.Balance(available,50000,"EUR",java.time.OffsetDateTime.now());}
         };
         var connect=new StripeConnectService("sk_test_fixture","http://localhost"){
             @Override public String retrieveAccount(String id){assertEquals("acct_fixture",id);return payouts?StripeAccountFixtures.readyJson():StripeAccountFixtures.readyJson().replace("\"payouts\":{\"status\":\"active\"}","\"payouts\":{\"status\":\"pending\"}");}
@@ -30,16 +30,22 @@ class ManualPayoutTest {
                 assertEquals("acct_fixture",account);
                 if(path.equals("/v1/balance_settings"))return Map.of("payments",Map.of("payouts",Map.of("status","enabled","schedule",Map.of("interval",schedule))));
                 if(path.contains("external_accounts"))return Map.of("data",bank?List.of(Map.of("id","ba_fixture","object","bank_account","currency","eur","default_for_currency",true,"status","verified","last4","6789","bank_name","Testbank")):List.of());
-                var tx=store.values.values().iterator().next();var paid=simulated(tx,"paid");paid.put("metadata",Map.of("transaction_id",tx.getId().toString()));return Map.of("data",List.of(paid),"has_more",false);
+                var tx=store.values.values().iterator().next();var paid=stripeResult(tx,"paid");return path.contains("?")?Map.of("data",List.of(paid),"has_more",false):paid;
             }
             @Override protected Map<?,?> request(String path,String form,String account,String key)throws Exception {
                 assertFalse(simulation,"No POST even for a test key in simulation");assertTrue(approved);assertEquals("acct_fixture",account);
                 if(path.equals("/v1/balance_settings")){assertTrue(auto);settingsWrites++;if(denySetup)throw new StripeRejected(403,"permission_denied","req_fixture","Your platform cannot manage payout schedules.");assertEquals("payments[payouts][schedule][interval]=manual",form);schedule="manual";return Map.of();}
                 assertEquals("/v1/payouts",path);assertTrue(form.contains("method=standard"));assertTrue(form.contains("destination=ba_fixture"));assertFalse(form.contains("application_fee"));assertEquals("gratilo-payout-"+store.values.values().iterator().next().getId(),key);
                 posts.add(form);if(timeout)throw new java.net.http.HttpTimeoutException("private-provider-info");if(reject)throw new StripeRejected();
-                return simulated(store.values.values().iterator().next(),"pending");
+                return stripeResult(store.values.values().iterator().next(),"pending");
             }
         };
+    }
+    private static Map<String,Object> stripeResult(TransactionEntity tx, String status) {
+        var payout=StripePayoutService.simulated(tx,status);
+        payout.put("destination","ba_fixture");
+        payout.put("metadata",Map.of("transaction_id",tx.getId().toString(),"request_id",PayoutState.metadata(tx).get("requestId")));
+        return payout;
     }
     static class Store extends PayoutStore {
         final Map<UUID,TransactionEntity> values=new LinkedHashMap<>();
@@ -52,11 +58,11 @@ class ManualPayoutTest {
             if(history(user).stream().anyMatch(PayoutState::active))throw new IllegalStateException("active payout");
             long available=balance-(simulation?reserved(user):0),amount=requested==null?available:requested;StripePayoutService.validateAmount(amount,available);
             var tx=new TransactionEntity();tx.setId(UUID.randomUUID());tx.setAccountUserId(user);tx.setType(TransactionType.PAYOUT);tx.setStatus(TransactionStatus.PENDING);tx.setAmountMinor(-amount);tx.setProvider(simulation?"STRIPE_SANDBOX":"STRIPE");tx.setIdempotencyKey("manual-payout-"+request);
-            PayoutState.metadata(tx,new LinkedHashMap<>(Map.of("payoutVersion",1,"stripeAccountId",account,"destination",bank,"simulation",simulation,"requestedAll",requested==null,"payoutStatus","submitting","gratiloPayoutFeeMinor",0)));
+            PayoutState.metadata(tx,new LinkedHashMap<>(Map.of("payoutVersion",1,"requestId",request.toString(),"stripeAccountId",account,"destination",bank,"simulation",simulation,"requestedAll",requested==null,"payoutStatus","submitting","gratiloPayoutFeeMinor",0)));
             values.put(tx.getId(),tx);return new Prepared(tx,true);
         }
         @Override public synchronized TransactionEntity own(UUID user,UUID id){var tx=values.get(id);if(tx==null||!tx.getAccountUserId().equals(user))throw new IllegalArgumentException("not found");return tx;}
-        @Override public synchronized TransactionEntity result(UUID user,UUID id,String account,Map<?,?> data,long time){var tx=own(user,id);PayoutState.apply(tx,account,data,time);return tx;}
+        @Override public synchronized TransactionEntity result(UUID user,UUID id,String account,Map<?,?> data){var tx=own(user,id);PayoutState.applySnapshot(tx,account,data);return tx;}
         @Override public synchronized TransactionEntity failed(UUID user,UUID id,boolean uncertain){var tx=own(user,id);tx.setStatus(uncertain?TransactionStatus.AUTHORIZED:TransactionStatus.FAILED);tx.setFailureCode(uncertain?"PAYOUT_OUTCOME_UNKNOWN":"PAYOUT_REJECTED");var m=PayoutState.metadata(tx);m.put("payoutStatus",uncertain?"unknown":"failed");PayoutState.metadata(tx,m);return tx;}
     }
     @Test void simulationUsesOnlyAvailableStripeBalanceAndNeverTheTipLedger()throws Exception {
@@ -90,6 +96,30 @@ class ManualPayoutTest {
         var tx=service(true,false).create(user,1000L,UUID.randomUUID());var original=PayoutState.metadata(tx);original.remove("lastPayoutEventAt");PayoutState.metadata(tx,original);var pending=StripePayoutService.simulated(tx,"pending");var paid=StripePayoutService.simulated(tx,"paid");assertFalse(PayoutState.apply(tx,"acct_other",paid,10));assertEquals(TransactionStatus.PENDING,tx.getStatus());assertTrue(PayoutState.apply(tx,"acct_fixture",paid,20));assertFalse(PayoutState.apply(tx,"acct_fixture",pending,10));assertFalse(PayoutState.apply(tx,"acct_fixture",pending,30));assertTrue(PayoutState.apply(tx,"acct_fixture",paid,20));assertEquals(TransactionStatus.BOOKED,tx.getStatus());
         var bad=new LinkedHashMap<>(paid);bad.put("amount",999);assertFalse(PayoutState.apply(tx,"acct_fixture",bad,30));bad.put("amount",1000);bad.put("currency","usd");assertFalse(PayoutState.apply(tx,"acct_fixture",bad,30));bad.put("currency","eur");bad.put("id","po_other");assertFalse(PayoutState.apply(tx,"acct_fixture",bad,30));
         assertFalse(PayoutState.apply(tx,"acct_fixture",StripePayoutService.simulated(tx,"failed"),19));assertTrue(PayoutState.apply(tx,"acct_fixture",StripePayoutService.simulated(tx,"failed"),31));assertEquals(TransactionStatus.FAILED,tx.getStatus());assertFalse(PayoutState.apply(tx,"acct_fixture",paid,40));
+    }
+    @Test void providerTimestampsAndFrozenDestinationProtectStatusAfterAnApiRead() throws Exception {
+        var tx = service(false, true).create(user, 1000L, UUID.randomUUID());
+        var existing = PayoutState.metadata(tx);
+        existing.put("lastPayoutEventAt", 500L); // Written by the old code using the API receipt time.
+        PayoutState.metadata(tx, existing);
+        assertTrue(PayoutState.applySnapshot(tx, "acct_fixture", stripeResult(tx, "paid")));
+
+        var failure = stripeResult(tx, "failed");
+        failure.put("failure_code", "account_closed");
+        failure.put("destination", "ba_other");
+        assertFalse(PayoutState.apply(tx, "acct_fixture", failure, 400));
+        failure.put("destination", "ba_fixture");
+        failure.put("automatic", true);
+        assertFalse(PayoutState.apply(tx, "acct_fixture", failure, 400));
+        failure.put("automatic", false);
+        failure.put("metadata", Map.of("transaction_id", tx.getId().toString(), "request_id", "unrelated"));
+        assertFalse(PayoutState.apply(tx, "acct_fixture", failure, 400));
+
+        failure.put("metadata", stripeResult(tx, "failed").get("metadata"));
+        assertTrue(PayoutState.apply(tx, "acct_fixture", failure, 400));
+        assertEquals(TransactionStatus.FAILED, tx.getStatus());
+        assertEquals("account_closed", tx.getFailureCode());
+        assertFalse(PayoutState.apply(tx, "acct_fixture", stripeResult(tx, "paid"), 399));
     }
     @Test void anotherEmployeeCannotSeeOrReconcileAnOwnPayout()throws Exception {var s=service(true,false);var tx=s.create(user,1000L,UUID.randomUUID());assertTrue(s.history(UUID.randomUUID()).isEmpty());assertThrows(IllegalArgumentException.class,()->s.reconcile(UUID.randomUUID(),tx.getId()));}
     @Test void requestDtoRejectsFractionalAndOverflowingMinorUnits()throws Exception {

@@ -2,7 +2,8 @@
 
 | Symptom | Prüfung |
 | --- | --- |
-| Grafana nicht erreichbar | Ports 3002 für Demo und 3003 für den lokalen Overlay-Stack sowie Grafana-Logs prüfen. |
+| Grafana nicht erreichbar | Ports 3002 für Demo, 3003 für den Standard-Stack und 3004 für die Stripe-Sandbox sowie Grafana-Logs prüfen. |
+| Abgeschlossenes Sandbox-Onboarding fehlt | Grafana auf Port 3004 öffnen. Umgebung `local` und Stripe-Modus `test` prüfen. Bei unverändertem Kontostatus im Gratilo-Konto auf Port 3001 den Stripe-Status aktualisieren. |
 | Login fehlgeschlagen | Die Env-Datei des gewählten Stacks prüfen. Bei persistentem Grafana-Volume gilt das gespeicherte Passwort. |
 | SQL-Panels leer | Exitcode des Demo-Seed-Jobs beziehungsweise lokalen Bootstrap prüfen. PostgreSQL-Datasource-Health, Umgebung, Zeitraum und Modus abgleichen. |
 | Betrag oder Gebühr unbekannt | Audit-Datenlücken und Abdeckungspanels gemeinsam prüfen. Bei Direct Charges kann der externe Istkostennachweis fehlen. |

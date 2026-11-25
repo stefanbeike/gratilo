@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
+import { CopyableReference } from './PaymentReference'
 
 type Eligibility = { simulation: boolean; eligible: boolean; availableMinor: number; pendingMinor: number; simulationAvailableMinor: number; currency: string; bankLast4: string; bankName: string; schedule: string; message: string }
-type Payout = { id: string; amountMinor: number; status: string; provider: string; createdAt?: string; failureMessage?: string; metadata?: string }
+type Payout = { id: string; amountMinor: number; status: string; provider: string; providerReference?: string | null; createdAt?: string; failureMessage?: string; metadata?: string }
 const money = (minor: number) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(minor / 100)
 export function payoutAmount(value: string): number | null {
   const match = /^(\d{1,12})(?:[,.](\d{1,2}))?$/.exec(value.trim())
@@ -126,7 +127,8 @@ export function PayoutManager({ accessToken, userId, onChanged }: { accessToken:
     <h4>Auszahlungshistorie</h4>
     {historyError ? <p role="alert">{historyError}</p> : !loading && !payouts.length ? <p>Noch keine Auszahlungen vorhanden.</p> : <ul className="manual-payout-history">{payouts.map(p => {
       const info = details(p); const arrival = typeof info.arrivalDate === 'number' ? new Date(info.arrivalDate * 1000).toLocaleDateString('de-DE') : null
-      return <li key={p.id}><strong>{money(Math.abs(p.amountMinor))}</strong><span>{p.createdAt ? new Date(p.createdAt).toLocaleString('de-DE') : 'Anforderungsdatum unbekannt'}</span><span>{label(p)}</span>{p.provider === 'STRIPE_SANDBOX' && <small>Simulation</small>}{arrival && <small>Voraussichtliche Ankunft: {arrival}</small>}{p.failureMessage && <p>{p.failureMessage}</p>}{['PENDING', 'AUTHORIZED', 'BOOKED'].includes(p.status) && <button className="text-button" disabled={busy} onClick={() => void reconcile(p)}>Status abgleichen</button>}</li>
+      const stripeReference = p.provider === 'STRIPE' && p.providerReference && /^po_[A-Za-z0-9]+$/.test(p.providerReference) ? p.providerReference : null
+      return <li key={p.id}><strong>{money(Math.abs(p.amountMinor))}</strong><span>{p.createdAt ? new Date(p.createdAt).toLocaleString('de-DE') : 'Anforderungsdatum unbekannt'}</span><span>{label(p)}</span>{p.provider === 'STRIPE_SANDBOX' && <small>Lokale Simulation ohne Stripe-Payout</small>}{stripeReference && <CopyableReference value={stripeReference} label="Stripe-Payout-ID kopieren" />}{arrival && <small>Voraussichtliche Ankunft: {arrival}</small>}{p.failureMessage && <p>{p.failureMessage}</p>}{['PENDING', 'AUTHORIZED', 'BOOKED'].includes(p.status) && <button className="text-button" disabled={busy} onClick={() => void reconcile(p)}>Status abgleichen</button>}</li>
     })}</ul>}
     {confirm && <div className="account-dialog-backdrop"><section role="dialog" aria-modal="true" aria-labelledby="payout-confirm-title" className="account-dialog"><h3 id="payout-confirm-title">{eligibility?.simulation ? 'Simulierte Auszahlung bestätigen' : 'Standardauszahlung bestätigen'}</h3><p>{money(minor || 0)} auf deine bei Stripe hinterlegte EUR-Bankverbindung •••• {eligibility?.bankLast4}.</p><p>{eligibility?.simulation ? 'Es wird kein externer Stripe-Payout erstellt.' : 'Keine Sofortauszahlung. Die Bestätigung bedeutet noch keinen Geldeingang auf deinem Bankkonto.'}</p><div className="profile-actions"><button className="outline-button" disabled={busy} onClick={() => setConfirm(false)}>Abbrechen</button><button className="solid-button" disabled={busy || !valid} onClick={() => void submit()}>{busy ? 'Wird verarbeitet …' : 'Auszahlung bestätigen'}</button></div></section></div>}
   </div>

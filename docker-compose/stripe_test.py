@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = ROOT / ".env.stripe-test"
 COMPOSE_FILE = ROOT / "docker-compose/compose.stripe-test.yml"
 PROJECT = "gratilo-stripe-test"
-EVENTS = "checkout.session.completed,checkout.session.expired,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,charge.refunded,charge.dispute.created,charge.dispute.closed,payout.paid,payout.failed,payout.canceled,account.updated"
+EVENTS = "checkout.session.completed,checkout.session.expired,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,charge.succeeded,charge.updated,charge.failed,charge.refunded,charge.dispute.created,charge.dispute.closed,payout.created,payout.updated,payout.paid,payout.failed,payout.canceled,balance_settings.updated,account.external_account.created,account.external_account.updated,account.external_account.deleted,account.updated"
 RANDOM_FIELDS = ("LOCAL_POSTGRES_PASSWORD", "JWT_SECRET", "INTERNAL_API_KEY", "PAYMENTS_TEST_ACTIVATION_CODE")
 
 

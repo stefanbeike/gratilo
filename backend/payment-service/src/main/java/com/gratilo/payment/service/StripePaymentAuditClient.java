@@ -22,7 +22,18 @@ public class StripePaymentAuditClient {
         var request=HttpRequest.newBuilder(URI.create("https://api.stripe.com"+path)).timeout(Duration.ofSeconds(20)).header("Authorization","Bearer "+secret).header("Stripe-Version","2026-09-30.endive");
         if(account!=null)request.header("Stripe-Account",account);
         var response=ObservationEvents.send(observationEvents, "stripe", request.GET().build());
-        if(response.statusCode()!=200)throw new IllegalStateException("AUDIT_STRIPE_READ_FAILED");
+        if (response.statusCode() != 200) throw new ReadFailure(response.statusCode(),
+                response.headers().firstValue("Retry-After").orElse(""));
         return StripePaymentAuditJson.map(response.body());
+    }
+    static final class ReadFailure extends IllegalStateException {
+        final int status;
+        final long retryAfterSeconds;
+
+        ReadFailure(int status, String retryAfter) {
+            super("AUDIT_STRIPE_READ_FAILED");
+            this.status = status;
+            this.retryAfterSeconds = retryAfter.matches("[0-9]{1,4}") ? Long.parseLong(retryAfter) : 0;
+        }
     }
 }

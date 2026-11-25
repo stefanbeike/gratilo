@@ -17,6 +17,6 @@ services:
       - payment-events:/var/log/gratilo
 volumes:
   user-events:
-    name: gratilo-observability-local-user-events
+    name: ${OBS_EVENT_VOLUME_PREFIX:-gratilo-observability-local}-user-events
   payment-events:
-    name: gratilo-observability-local-payment-events
+    name: ${OBS_EVENT_VOLUME_PREFIX:-gratilo-observability-local}-payment-events

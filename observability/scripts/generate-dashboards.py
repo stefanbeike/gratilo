@@ -150,7 +150,7 @@ def fraction(numerator, denominator):
 
 
 def ratio_for(b, route):
-    route = f'endpoint_template="{route}"'
+    route = f'endpoint_template="{route}",method="POST"'
     return fraction(count(b.series(HTTP+"_count", route+',status_class="2xx"')), count(b.series(HTTP+"_count", route)))
 
 
@@ -308,12 +308,13 @@ audit_status|Pool-Reconciliation-Status|Aktuelle Audit-Statusverteilung für Poo
     b.batch("verified_users|E-Mail-verifizierte Konten|Aktueller Bestand bestätigter und nicht gelöschter Nutzer.", source="users")
     for route, title in [("/user-service/users/register", "Registrierungs-Erfolgsquote"), ("/user-service/auth/login", "Login-Erfolgsquote")]:
         b.prom(title, "HTTP 2xx geteilt durch alle beobachteten Aufrufe der Route.", ratio_for(b, route), RATIO, "stat")
-    for pattern, status, title in [
-        ("/user-service/users/register", "4xx|5xx", "Registrierungsfehler"), ("/user-service/auth/login", "4xx", "Login-Authentifizierungsfehler"),
-        (".*/onboarding/start", "2xx", "Erfolgreiche Onboarding-Startantworten"),
-        ("/user-service/auth/verify", "2xx", "Erfolgreiche E-Mail-Verifikationsantworten")]:
+    for pattern, method, status, title in [
+        ("/user-service/users/register", "POST", "4xx|5xx", "Registrierungsfehler"),
+        ("/user-service/auth/login", "POST", "4xx", "Login-Authentifizierungsfehler"),
+        (".*/onboarding/start", "POST", "2xx", "Erfolgreiche Onboarding-Startantworten"),
+        ("/user-service/auth/verify", "GET", "2xx", "Erfolgreiche E-Mail-Verifikationsantworten")]:
         b.prom(title, "HTTP-Antworten der angegebenen Route und Statusklasse im Zeitraum. Wiederholte Aufrufe können enthalten sein.",
-               count(b.series(HTTP+"_count", f'endpoint_template=~"{pattern}",status_class=~"{status}"')), kind="stat")
+               count(b.series(HTTP+"_count", f'endpoint_template=~"{pattern}",method="{method}",status_class=~"{status}"')), kind="stat")
     b.row("Account-Readiness und Zahlungseingänge")
     b.batch("""
 onboarded|Stripe-Onboarding abgeschlossen|Aktueller Onboarding-Status COMPLETE.

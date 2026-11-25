@@ -58,3 +58,39 @@ for (const width of [320, 375, 768, 1440, 1920]) {
     await page.screenshot({ path: `test-results/pools-${width}.png`, fullPage: true })
   })
 }
+
+test('payment references and receipt fit on a small phone', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 820 })
+  await backend(page)
+  const publicReference = 'GT-729d3ea9-64a3-4e91-a812-8c7580597601'
+  await page.route('**/payment-service/tips/checkout/confirm?**', route => route.fulfill({ json: {
+    status: 'PAID', confirmed: true, publicReference, tipAmountMinor: 500, amountPaidMinor: 570,
+    currency: 'EUR', paidAt: '2026-11-25T11:00:00Z', paymentMethod: 'paypal',
+    poolId: 'pool', poolName: 'Team mit einem sehr langen Namen für die mobile Darstellung',
+    receiptUrl: 'https://pay.stripe.com/receipts/payment/CAcaFixture',
+  } }))
+  await page.goto('/pay/success?session_id=cs_test_fixture')
+  await expect(page.getByText(publicReference, { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Zahlungsbeleg öffnen' })).toBeVisible()
+  await fitsViewport(page)
+
+  await page.addInitScript(() => {
+    const token = `header.${btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, roles: ['ROLE_ADMIN'] }))}.signature`
+    localStorage.setItem('gratilo.session', JSON.stringify({ userId: 'admin', email: 'admin@example.test', accessToken: token }))
+  })
+  await page.route('**/payment-service/admin/stripe-payment-audits/references/search', route => route.fulfill({ json: [{
+    transactionId: '30aa7460-c72e-453c-9762-915e93f034ab', publicReference,
+    paymentType: 'POOL', status: 'BOOKED', tipAmountMinor: 500, currency: 'EUR',
+    attempts: [{
+      chargeId: 'ch_StripeFixture', paymentIntentId: 'pi_StripeFixture', chargeCreatedAt: '2026-11-25T11:00:00Z',
+      currency: 'EUR', method: 'paypal',
+      references: [{ source: 'Stripe Charge.payment_method_details.paypal.transaction_id', value: 'A'.repeat(128) }],
+    }],
+  }] }))
+  await page.goto('/admin/payment-references')
+  await page.getByLabel('Gratilo-, Stripe- oder Zahlungsanbieter-Referenz').fill(publicReference)
+  await page.getByRole('button', { name: 'Suchen' }).click()
+  await page.getByRole('button', { name: new RegExp(publicReference) }).click()
+  await expect(page.getByText('A'.repeat(128), { exact: true })).toBeVisible()
+  await fitsViewport(page)
+})

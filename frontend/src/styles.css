@@ -54,3 +54,31 @@ input:not([type=checkbox]){border-color:#c9d8d1;color:#123f46;background:#fff}
 .profile-image-preview{background:#e8f3ff;color:#6a93b7;border:1px solid #d5e5f2}
 .profile-image-picker input[type=file]{color:#233b53}
 .profile-image-picker input::file-selector-button{background:#fff;border:1px solid #cfdfef;color:#326f9f}
+
+.copyable-reference {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: .25rem .75rem;
+  min-width: 0;
+  margin-block: .25rem;
+}
+.copyable-reference code, .payment-reference-admin dt {
+  overflow-wrap: anywhere;
+}
+.payment-reference-admin {
+  max-width: 58rem;
+  margin-inline: auto;
+}
+.payment-reference-admin form {
+  display: grid;
+  gap: .5rem;
+  max-width: 32rem;
+}
+.payment-reference-admin dd {
+  margin: 0 0 .75rem;
+}
+.payment-reference-admin li button {
+  text-align: start;
+  overflow-wrap: anywhere;
+}

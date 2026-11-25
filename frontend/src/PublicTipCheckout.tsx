@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState, useRef } from 'react'
 import type { Session } from './api'
 import { paymentsEnabled } from './stripe'
 import { TeamAvatar } from './TeamImageEditor'
+import { CopyableReference, formatPaymentAmount, formatPaymentDate, paymentMethodName } from './PaymentReference'
 
 type Quote = { tipAmountMinor: number; serviceFeeMinor: number; totalAmountMinor: number; currency: string; serviceFeePercent: number; fixedFeeMinor: number; recipientAmountMinor: number; feeEstimated?: boolean; estimatedStripeFeeMinor?: number; feeEstimateBasis?: string; pricingVersion?: number; platformFeeMinor?: number; platformFeeNetMinor?: number; platformFeeTaxMinor?: number; platformFeeVatPercent?: number; platformFeePercent?: number; feesCollector?: string; recipientAmountEstimated?: boolean }
 type Recipient = { userId: string; firstName?: string; lastName?: string; organisation?: string; profileImage?: string | null; paymentEnabled?: boolean; personalLinkPaused?: boolean; poolId?: string; poolName?: string | null; memberNames?: string[] }
 type SavedFlow = { amount: number; message: string; feeCovered: boolean; step: 1 | 2; attemptKey?: string; pendingSessionId?: string }
-type CheckoutStatus = { status: 'PAID' | 'PENDING' | 'FAILED'; confirmed: boolean; transactionId?: string; tipAmountMinor?: number; amountPaidMinor?: number; recipientUserId?: string; recipientAmountMinor?: number; recipientAmountEstimated?: boolean; checkoutUrl?: string; poolId?: string | null; poolName?: string | null }
+type CheckoutStatus = { status: 'PAID' | 'PENDING' | 'FAILED'; confirmed: boolean; publicReference?: string; currency?: string; tipCurrency?: string; paidAt?: string; paymentMethod?: string; wallet?: string; receiptUrl?: string; tipAmountMinor?: number; amountPaidMinor?: number; recipientUserId?: string; recipientAmountMinor?: number; recipientAmountEstimated?: boolean; checkoutUrl?: string; poolId?: string | null; poolName?: string | null }
 const MIN_TIP = 200
 const MAX_TIP = 1_000_000
 const money = (minor: number) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(minor / 100)
@@ -139,19 +140,26 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
   useEffect(() => {
     if (!isResult || !sessionId) return
     let current = true
-    const refresh = async () => {
-      setStatusBusy(true)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let pollsRemaining = 12
+    const refresh = async (manual: boolean) => {
+      if (manual) setStatusBusy(true)
       try {
         const response = await fetch(`/payment-service/tips/checkout/confirm?sessionId=${encodeURIComponent(sessionId)}`, { headers, cache: 'no-store' })
         if (!response.ok) throw new Error('Status momentan nicht verfügbar')
         const result = await response.json() as CheckoutStatus
-        if (current) setCheckoutStatus(result)
+        if (current) {
+          setCheckoutStatus(result)
+          if (result.status === 'PENDING' && result.publicReference && !result.checkoutUrl && pollsRemaining-- > 0) {
+            timer = setTimeout(() => { void refresh(false) }, 5000)
+          }
+        }
       } catch {
-        if (current) setCheckoutStatus({ status: 'PENDING', confirmed: false })
-      } finally { if (current) setStatusBusy(false) }
+        if (current && manual) setCheckoutStatus({ status: 'PENDING', confirmed: false })
+      } finally { if (current && manual) setStatusBusy(false) }
     }
-    void refresh()
-    return () => { current = false }
+    void refresh(true)
+    return () => { current = false; clearTimeout(timer) }
   }, [isResult, sessionId, headers, loadRevision])
 
   function update(patch: Partial<SavedFlow>) { setFlow(previous => ({ ...previous, ...patch })) }
@@ -174,7 +182,6 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
         }
         if(result.code==='QUOTE_CHANGED'){setLoadRevision(value=>value+1);update({step:2,attemptKey:undefined})} throw new Error(result.code === 'QUOTE_CHANGED' ? 'Die Beträge haben sich geändert. Bitte prüfe die aktualisierte Übersicht.' : 'Die Zahlung konnte nicht abgeschlossen werden. Bitte versuche es erneut oder wähle eine andere Zahlungsart.') }
       if (!result.checkoutUrl) throw new Error('Die sichere Stripe-Zahlungsseite wurde nicht zurückgegeben. Der Versuch bleibt für eine sichere Wiederholung gespeichert.')
-      if (result.transactionId) sessionStorage.setItem('gratilo:last-transaction', result.transactionId)
       location.assign(result.checkoutUrl)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Zahlung konnte nicht gestartet werden.') }
     finally { checkoutInFlight.current = false; setBusy(false) }
@@ -214,11 +221,31 @@ export function PublicTipCheckout({ session }: { session?: Session | null }) {
     const status = checkoutStatus?.status || 'PENDING'
     const paid = status === 'PAID' && checkoutStatus?.confirmed === true
     const failed = status === 'FAILED'
+    const method = paymentMethodName(checkoutStatus?.paymentMethod, checkoutStatus?.wallet)
+    const tipCurrency = checkoutStatus?.tipCurrency || 'EUR'
     return <main className="tip-page checkout-page"><CheckoutBrand /><section className="tip-card checkout-result" aria-live="polite">
       {recipient?.profileImage && recipient.userId === checkoutStatus?.recipientUserId && !resultIsPool && <img className="tip-profile-image" src={recipient.profileImage} alt={`Profilbild von ${resultName}`} />}
-      {paid ? <><span className="step-label">ZAHLUNG BESTÄTIGT</span><h1>Danke für dein Trinkgeld!</h1><p>Deine Zahlung war erfolgreich.</p><p>{resultName}</p><div className="tip-breakdown"><SummaryLine label="Du hast bezahlt" value={money(checkoutStatus.amountPaidMinor ?? 0)} />{checkoutStatus.recipientAmountMinor != null && <SummaryLine label={checkoutStatus.recipientAmountEstimated ? `${resultName} erhält voraussichtlich` : `${resultName} erhält`} value={money(checkoutStatus.recipientAmountMinor)} />}<SummaryLine label="Referenz" value={checkoutStatus.transactionId || sessionStorage.getItem('gratilo:last-transaction') || '—'} /></div><p className="tip-note">{resultIsPool ? 'Die Auszahlung auf die Bankkonten der Teammitglieder erfolgt später.' : `Die Auszahlung auf das Bankkonto von ${resultName} erfolgt später.`}</p></>
+      {paid ? <>
+        <span className="step-label">ZAHLUNG BESTÄTIGT</span>
+        <h1>Danke für dein Trinkgeld!</h1>
+        <p>Deine Zahlung war erfolgreich.</p>
+        <p>{resultName}</p>
+        <div className="tip-breakdown">
+          {checkoutStatus.tipAmountMinor != null && <SummaryLine label="Trinkgeldbetrag" value={formatPaymentAmount(checkoutStatus.tipAmountMinor, tipCurrency)} />}
+          {checkoutStatus.amountPaidMinor != null && <SummaryLine label="Du hast bezahlt" value={formatPaymentAmount(checkoutStatus.amountPaidMinor, checkoutStatus.currency || tipCurrency)} />}
+          {checkoutStatus.recipientAmountMinor != null && <SummaryLine label={checkoutStatus.recipientAmountEstimated ? `${resultName} erhält voraussichtlich` : `${resultName} erhält`} value={formatPaymentAmount(checkoutStatus.recipientAmountMinor, tipCurrency)} />}
+          {checkoutStatus.paidAt && <SummaryLine label="Zahlungsdatum" value={formatPaymentDate(checkoutStatus.paidAt)} />}
+          {method && <SummaryLine label="Zahlungsmethode" value={method} />}
+        </div>
+        {checkoutStatus.receiptUrl && <a className="outline-button result-action" href={checkoutStatus.receiptUrl} target="_blank" rel="noreferrer">Zahlungsbeleg öffnen</a>}
+        <p className="tip-note">{resultIsPool ? 'Die Auszahlung auf die Bankkonten der Teammitglieder erfolgt später.' : `Die Auszahlung auf das Bankkonto von ${resultName} erfolgt später.`}</p>
+      </>
         : failed ? <><span className="step-label">ZAHLUNG FEHLGESCHLAGEN</span><h1>Das hat leider nicht geklappt.</h1><p>Die Zahlung wurde nicht abgeschlossen. Du kannst es erneut versuchen. Deine Betragsauswahl und Nachricht bleiben erhalten.</p><div className="tip-breakdown"><SummaryLine label="Dein Betrag" value={money(flow.amount)} /><SummaryLine label="Gebührenübernahme" value={flow.feeCovered ? 'Ausgewählt' : 'Nicht ausgewählt'} /></div><button className="tip-pay" onClick={retryAfterConfirmedFailure}>Erneut versuchen</button></>
         : <><span className="step-label">ZAHLUNG WIRD GEPRÜFT</span><h1>Bitte noch nicht erneut bezahlen.</h1><p>Der Status bei Stripe ist noch offen oder konnte gerade nicht bestätigt werden. Es wird keine neue Zahlung angelegt.</p>{checkoutStatus?.checkoutUrl && <a className="tip-pay checkout-hosted-link" href={checkoutStatus.checkoutUrl}>Bestehenden Stripe-Checkout fortsetzen</a>}<button className="outline-button result-action" disabled={statusBusy} onClick={refreshStatus}>{statusBusy ? 'Wird geprüft …' : 'Zahlungsstatus aktualisieren'}</button></>}
+      {checkoutStatus?.publicReference && <div className="tip-breakdown">
+        <span>Gratilo-Zahlungsreferenz</span>
+        <CopyableReference key={checkoutStatus.publicReference} value={checkoutStatus.publicReference} />
+      </div>}
       <button className="text-button result-action" disabled={!checkoutStatus || (!paid && !failed)} onClick={returnToPayment}>Zurück zu {resultName}</button>
     <CheckoutLinks /></section></main>
   }

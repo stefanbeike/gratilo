@@ -24,6 +24,17 @@ it('shows own available and masked bank and confirms one standard payout',async(
 it('uses simulation spendable amount rather than inventing a second Stripe balance',async()=>{
  eligibility={...base,simulationAvailableMinor:1200};mount();await screen.findByText('12,00 €');fireEvent.click(screen.getByLabelText('Gesamtes verfügbares Guthaben'));fireEvent.click(screen.getByRole('button',{name:'Auszahlen'}));expect(screen.getByRole('dialog')).toHaveTextContent('12,00');fireEvent.click(screen.getByRole('button',{name:'Auszahlung bestätigen'}));await waitFor(()=>expect(vi.mocked(api).mock.calls.some(([,body])=>body&&'amountMinor' in (body as object)&&(body as {amountMinor:unknown}).amountMinor===null)).toBe(true))
 })
+it('shows the Stripe payout ID on an external payout and labels a local simulation separately', async () => {
+ history = [
+  {...result, id:'external', provider:'STRIPE', providerReference:'po_StripeTest123'},
+  {...result, id:'local', provider:'STRIPE_SANDBOX', providerReference:'po_simulation123'},
+ ]
+ mount()
+ expect(await screen.findByText('po_StripeTest123')).toBeInTheDocument()
+ expect(screen.getByRole('button',{name:'Stripe-Payout-ID kopieren'})).toBeInTheDocument()
+ expect(screen.getByText('Lokale Simulation ohne Stripe-Payout')).toBeInTheDocument()
+ expect(screen.queryByText('po_simulation123')).not.toBeInTheDocument()
+})
 it.each([0,99])('cannot pay pending-only or too-small balance (%s)',async available=>{
  eligibility={...base,eligible:false,availableMinor:available,simulationAvailableMinor:available,message:'Ausstehende Beträge können noch nicht ausgezahlt werden.'};mount();await screen.findByText(eligibility.message);fireEvent.change(screen.getByLabelText('Auszahlungsbetrag in EUR'),{target:{value:'100'}});expect(screen.getByRole('button',{name:'Auszahlen'})).toBeDisabled();expect(screen.getByRole('alert')).toBeInTheDocument()
 })

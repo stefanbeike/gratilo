@@ -50,10 +50,10 @@ public class PayoutStore {
         var tx=entities.find(TransactionEntity.class,id);
         if(tx==null||!user.equals(tx.getAccountUserId())||!PayoutState.managed(tx))throw new IllegalArgumentException("Auszahlung nicht gefunden.");return tx;
     }
-    @Transactional public TransactionEntity result(UUID user,UUID id,String account,Map<?,?> payout,long time) {
+    @Transactional public TransactionEntity result(UUID user,UUID id,String account,Map<?,?> payout) {
         var tx=entities.find(TransactionEntity.class,id,LockModeType.PESSIMISTIC_WRITE);
         if(tx==null||!user.equals(tx.getAccountUserId()))throw new IllegalArgumentException("Auszahlung nicht gefunden.");
-        PayoutState.apply(tx,account,payout,time);return tx;
+        PayoutState.applySnapshot(tx,account,payout);return tx;
     }
     @Transactional public TransactionEntity failed(UUID user,UUID id,boolean uncertain) {
         var tx=entities.find(TransactionEntity.class,id,LockModeType.PESSIMISTIC_WRITE);
@@ -72,9 +72,7 @@ public class PayoutStore {
         if(metadata.get("transaction_id") instanceof String raw)try{tx=entities.find(TransactionEntity.class,UUID.fromString(raw),LockModeType.PESSIMISTIC_WRITE);}catch(IllegalArgumentException ignored){}
         if(tx==null)tx=entities.createQuery("from TransactionEntity where providerReference=:id and type=:type",TransactionEntity.class)
                 .setParameter("id",id).setParameter("type",TransactionType.PAYOUT).setLockMode(LockModeType.PESSIMISTIC_WRITE).getResultStream().findFirst().orElse(null);
-        if(tx==null||!PayoutState.managed(tx))return false;
-        if("STRIPE".equals(tx.getProvider()))PayoutState.apply(tx,account,payout,time);
-        return true;
+        return tx!=null && "STRIPE".equals(tx.getProvider()) && PayoutState.apply(tx,account,payout,time);
     }
     @Transactional public TransactionEntity rejected(UUID user,UUID id,String code,String requestId,String message) {
         var tx=failed(user,id,false);

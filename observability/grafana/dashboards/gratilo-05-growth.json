@@ -342,7 +342,7 @@
             "type": "prometheus",
             "uid": "gratilo-prometheus"
           },
-          "expr": "((sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/users/register\",status_class=\"2xx\"}[$__range]))) or 0 * (sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/users/register\"}[$__range])))) / (sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/users/register\"}[$__range])))",
+          "expr": "((sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/users/register\",method=\"POST\",status_class=\"2xx\"}[$__range]))) or 0 * (sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/users/register\",method=\"POST\"}[$__range])))) / (sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/users/register\",method=\"POST\"}[$__range])))",
           "editorMode": "code",
           "legendFormat": "",
           "instant": true,
@@ -402,7 +402,7 @@
             "type": "prometheus",
             "uid": "gratilo-prometheus"
           },
-          "expr": "((sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/auth/login\",status_class=\"2xx\"}[$__range]))) or 0 * (sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/auth/login\"}[$__range])))) / (sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/auth/login\"}[$__range])))",
+          "expr": "((sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/auth/login\",method=\"POST\",status_class=\"2xx\"}[$__range]))) or 0 * (sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/auth/login\",method=\"POST\"}[$__range])))) / (sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=\"/user-service/auth/login\",method=\"POST\"}[$__range])))",
           "editorMode": "code",
           "legendFormat": "",
           "instant": true,
@@ -462,7 +462,7 @@
             "type": "prometheus",
             "uid": "gratilo-prometheus"
           },
-          "expr": "sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=~\"/user-service/users/register\",status_class=~\"4xx|5xx\"}[$__range]))",
+          "expr": "sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=~\"/user-service/users/register\",method=\"POST\",status_class=~\"4xx|5xx\"}[$__range]))",
           "editorMode": "code",
           "legendFormat": "",
           "instant": true,
@@ -522,7 +522,7 @@
             "type": "prometheus",
             "uid": "gratilo-prometheus"
           },
-          "expr": "sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=~\"/user-service/auth/login\",status_class=~\"4xx\"}[$__range]))",
+          "expr": "sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=~\"/user-service/auth/login\",method=\"POST\",status_class=~\"4xx\"}[$__range]))",
           "editorMode": "code",
           "legendFormat": "",
           "instant": true,
@@ -582,7 +582,7 @@
             "type": "prometheus",
             "uid": "gratilo-prometheus"
           },
-          "expr": "sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=~\".*/onboarding/start\",status_class=~\"2xx\"}[$__range]))",
+          "expr": "sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=~\".*/onboarding/start\",method=\"POST\",status_class=~\"2xx\"}[$__range]))",
           "editorMode": "code",
           "legendFormat": "",
           "instant": true,
@@ -642,7 +642,7 @@
             "type": "prometheus",
             "uid": "gratilo-prometheus"
           },
-          "expr": "sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=~\"/user-service/auth/verify\",status_class=~\"2xx\"}[$__range]))",
+          "expr": "sum(increase(gratilo_http_server_requests_seconds_count{environment=~\"${environment:regex}\",endpoint_template=~\"/user-service/auth/verify\",method=\"GET\",status_class=~\"2xx\"}[$__range]))",
           "editorMode": "code",
           "legendFormat": "",
           "instant": true,

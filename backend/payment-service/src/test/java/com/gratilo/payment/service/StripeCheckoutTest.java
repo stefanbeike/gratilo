@@ -9,6 +9,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.when;
 
 class StripeCheckoutTest {
     @Test void enrollmentOccursOnlyForANewCheckoutAndNeverWhenResumingHistoricalTransactions() throws Exception {
@@ -93,6 +94,8 @@ class StripeCheckoutTest {
     private String accountId = "acct_fixture";
     private String stripeResponse;
     private String stripeSessionStatus = "complete", stripePaymentStatus = "paid";
+    private String confirmationSessionId;
+    private String confirmationDetails = "";
     private int reads;
     private final String session = "cs_test_fixture";
 
@@ -226,7 +229,7 @@ class StripeCheckoutTest {
                     creates++; form = URLDecoder.decode(body, StandardCharsets.UTF_8); stripeKey = key;
                     if (failOnce) { failOnce = false; throw new IllegalStateException("transport failed"); }
                 }
-                return "{\"id\":\"" + session + "\",\"url\":\"https://checkout.stripe.com/test\",\"livemode\":false,\"status\":\"" + stripeSessionStatus + "\",\"payment_status\":\"" + stripePaymentStatus + "\",\"amount_total\":533,\"metadata\":{\"transaction_id\":\"" + stored.getId() + "\"}}";
+                return "{\"id\":\"" + (body == null && confirmationSessionId != null ? confirmationSessionId : session) + "\",\"url\":\"https://checkout.stripe.com/test\",\"livemode\":false,\"status\":\"" + stripeSessionStatus + "\",\"payment_status\":\"" + stripePaymentStatus + "\",\"amount_total\":533" + (body == null ? confirmationDetails : "") + ",\"metadata\":{\"transaction_id\":\"" + stored.getId() + "\"}}";
             }
         };
     }
@@ -358,6 +361,46 @@ class StripeCheckoutTest {
         assertFalse(service.confirmSession(session));
         assertEquals(TransactionStatus.REFUNDED, stored.getStatus());
         assertFalse(service.confirmSession("cs_live_rejected"));
+    }
+
+    @Test void asyncCheckoutShowsPaymentDetailsOnlyWhenStripeConfirmsTheBoundSession() throws Exception {
+        var service = service();
+        service.create(recipient, new TipPaymentRequest(500L, null, "async"));
+        String publicRef = "GT-729d3ea9-64a3-4e91-a812-8c7580597601";
+        var references = org.mockito.Mockito.mock(StripePaymentReferences.class);
+        when(references.publicReference(stored.getId())).thenReturn(publicRef);
+        service.paymentReferences = references;
+        stripePaymentStatus = "unpaid";
+        var pending = service.checkoutStatus(session);
+        assertFalse(pending.confirmed());
+        assertEquals(0, pending.amountPaidMinor());
+        assertEquals(publicRef, pending.publicReference());
+
+        stored.setStatus(TransactionStatus.FAILED); // An earlier attempt under this Checkout session failed.
+        confirmationDetails = ",\"payment_intent\":{\"id\":\"pi_Async123\",\"status\":\"processing\"}";
+        assertEquals("PENDING", service.checkoutStatus(session).status());
+        stored.setStatus(TransactionStatus.PENDING);
+
+        stripePaymentStatus = "paid";
+        confirmationSessionId = "cs_test_another";
+        var unrelated = service.checkoutStatus(session);
+        assertFalse(unrelated.confirmed());
+        assertNull(unrelated.publicReference());
+        assertEquals(TransactionStatus.PENDING, stored.getStatus());
+
+        confirmationSessionId = null;
+        confirmationDetails = """
+                ,"currency":"eur","presentment_details":{"presentment_currency":"gbp","presentment_amount":449}
+                """.strip();
+        var paid = service.checkoutStatus(session);
+        assertTrue(paid.confirmed());
+        assertEquals(500, paid.tipAmountMinor());
+        assertEquals(449, paid.amountPaidMinor());
+        assertEquals("GBP", paid.currency());
+        assertEquals("EUR", paid.tipCurrency());
+        assertEquals(publicRef, paid.publicReference());
+        assertNull(paid.transactionId());
+        assertNotNull(paid.paidAt());
     }
 
     @Test void openOrUnclearCheckoutCannotBeRetriedUntilStripeConfirmsItExpired() throws Exception {
